@@ -1,0 +1,48 @@
+services:
+  # 1. The Database Container
+  postgres_db:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: notsosecretpass
+      POSTGRES_DB: air_quality
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # 2. The MQTT Broker Container
+  mqtt_broker:
+    image: eclipse-mosquitto:latest
+    container_name: mqtt_broker
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+  # 3. The Data Ingestion Container (Builds from your folder)
+  ingestion:
+    build: ./ingestion
+    container_name: data_ingestion
+    depends_on:
+      - postgres_db
+      - mqtt_broker
+
+  # 4. The AI Model Container (Builds from your folder)
+  # ai_engine:
+  #   build: ./ai_model
+  #   container_name: ai_engine
+  #   depends_on:
+  #     - postgres_db
+
+  # 5. The Analytics Dashboard (Builds from your folder)
+  web_dashboard:
+    build: ./web_app
+    container_name: web_dashboard
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres_db
