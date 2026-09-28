@@ -4,8 +4,6 @@
     const menuButton = document.querySelector("#menu-button");
     const drawerClose = document.querySelector("#drawer-close");
     const backdrop = document.querySelector("#drawer-backdrop");
-    const profileButton = document.querySelector("#profile-button");
-    const profilePopover = document.querySelector("#profile-popover");
     const desktopQuery = window.matchMedia("(min-width: 901px)");
     let returnFocus = null;
 
@@ -15,10 +13,6 @@
         sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
         sidebarToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Minimize sidebar");
         sidebarToggle.dataset.tooltip = collapsed ? "Expand navigation" : "Collapse navigation";
-        if (!collapsed) {
-            profilePopover.hidden = true;
-            profileButton.setAttribute("aria-expanded", "false");
-        }
     };
 
     const closeDrawer = () => {
@@ -54,27 +48,9 @@
         if (!desktopQuery.matches) closeDrawer();
     }));
 
-    profileButton.addEventListener("click", () => {
-        if (!desktopQuery.matches || !sidebar.classList.contains("is-collapsed")) return;
-        profilePopover.hidden = !profilePopover.hidden;
-        profileButton.setAttribute("aria-expanded", String(!profilePopover.hidden));
-    });
-
-    document.addEventListener("click", (event) => {
-        if (!profilePopover.hidden && !profileButton.contains(event.target) && !profilePopover.contains(event.target)) {
-            profilePopover.hidden = true;
-            profileButton.setAttribute("aria-expanded", "false");
-        }
-    });
-
     document.addEventListener("keydown", (event) => {
         if (event.key === "Escape") {
             if (sidebar.classList.contains("drawer-open")) closeDrawer();
-            if (!profilePopover.hidden) {
-                profilePopover.hidden = true;
-                profileButton.setAttribute("aria-expanded", "false");
-                profileButton.focus();
-            }
         }
         if (event.key === "Tab" && sidebar.classList.contains("drawer-open")) {
             const focusable = [...sidebar.querySelectorAll("button, a[href]")].filter((element) => !element.hidden);

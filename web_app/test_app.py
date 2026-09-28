@@ -49,6 +49,9 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b">Clear<", page.data)
             self.assertIn(b'aria-label="Log out"', page.data)
             self.assertNotIn(b">Logout<", page.data)
+            self.assertIn(b"profile-identity", page.data)
+            self.assertNotIn(b"profile-button", page.data)
+            self.assertNotIn(b"profile-popover", page.data)
 
             export = self.client.get("/data/export.csv?date_range=all")
             self.assertEqual(export.status_code, 200)

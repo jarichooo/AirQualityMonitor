@@ -36,18 +36,11 @@
 
         <div class="sidebar-footer">
             <div class="account-row">
-                <button class="profile-button" id="profile-button" type="button" aria-haspopup="true" aria-expanded="false" data-tooltip="Account">
+                <div class="profile-identity">
                     <span class="profile-avatar" aria-hidden="true">{{ username[0]|upper }}</span>
                     <span class="profile-copy"><strong>{{ username }}</strong><small>{{ role|capitalize }}</small></span>
-                </button>
+                </div>
                 <a class="icon-button account-logout" href="{{ url_for('logout') }}" aria-label="Log out" data-tooltip="Log out">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h5M14 8l4 4-4 4M8 12h10"/></svg>
-                </a>
-            </div>
-            <div class="profile-popover" id="profile-popover" hidden>
-                <span class="profile-avatar" aria-hidden="true">{{ username[0]|upper }}</span>
-                <span class="profile-copy"><strong>{{ username }}</strong><small>{{ role|capitalize }}</small></span>
-                <a class="icon-button popover-logout" href="{{ url_for('logout') }}" aria-label="Log out" data-tooltip="Log out">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h5M14 8l4 4-4 4M8 12h10"/></svg>
                 </a>
             </div>
