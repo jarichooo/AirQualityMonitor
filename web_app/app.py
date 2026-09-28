@@ -55,25 +55,33 @@ def login():
             if 'conn' in locals(): conn.close()
 
     return render_template('login.html', error=error)
+
 @app.route('/')
 def dashboard():
     # route Protection: Kick unauthenticated users back to login
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     
-    # fetch the latest 20 rows of data
     conn = get_db_connection()
     cursor = conn.cursor()
+    
+    # 1. Fetch total record count
+    cursor.execute("SELECT COUNT(*) FROM air_quality_logs;")
+    total_rows = cursor.fetchone()[0]
+    
+    # 2. Fetch the latest 20 rows of data for the table
     cursor.execute("""
         SELECT recorded_at, temperature_c, humidity_perc, nh3_ppm, pm25_ugm3, mq135_ppm, mq137_ppm 
         FROM air_quality_logs 
         ORDER BY recorded_at DESC LIMIT 20;
     """)
     readings = cursor.fetchall()
+    
     cursor.close()
     conn.close()
     
-    return render_template('dashboard.html', readings=readings, username=session['username'])
+    # Pass both readings and total_rows to the template
+    return render_template('dashboard.html', readings=readings, total_rows=total_rows, username=session['username'])
 
 @app.route('/logout')
 def logout():
