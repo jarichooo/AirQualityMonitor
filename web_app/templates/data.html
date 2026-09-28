@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block content %}
+<form class="data-page-form" id="data-filters" method="get">
+    <div class="page-heading">
+        <div class="page-heading-copy">
+            <h1>Data</h1>
+            <p>Review, filter, and export environmental sensor readings.</p>
+        </div>
+    </div>
+
+    <section class="data-panel" aria-labelledby="sensor-readings-title">
+        <div class="data-panel-heading">
+            <div class="panel-heading-summary">
+                <div class="panel-heading-copy">
+                    <div class="panel-heading-title"><h2 id="sensor-readings-title">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
+                    <p>Latest measurements from the connected monitoring device.</p>
+                </div>
+            </div>
+            <div class="panel-heading-tools">
+                <div class="date-filter">
+                    <span class="sr-only" id="date-range-label">Date range</span>
+                    <div class="custom-select" data-custom-select>
+                        <button class="custom-select-trigger" id="date-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="date-range-label date-range-value">
+                            <span id="date-range-value">
+                                {% if filters.date_range == 'today' %}Today
+                                {% elif filters.date_range == '7d' %}Last 7 days
+                                {% elif filters.date_range == '30d' %}Last 30 days
+                                {% elif filters.date_range == 'custom' %}Custom
+                                {% else %}All records{% endif %}
+                            </span>
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
+                        </button>
+                        <div class="custom-select-menu" id="date-range-menu" role="listbox" aria-labelledby="date-range-label">
+                            {% for value, label in (('all', 'All records'), ('today', 'Today'), ('7d', 'Last 7 days'), ('30d', 'Last 30 days'), ('custom', 'Custom')) %}
+                            <button class="custom-select-option{% if filters.date_range == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if filters.date_range == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
+                            {% endfor %}
+                        </div>
+                        <input id="date-range" type="hidden" name="date_range" value="{{ filters.date_range }}">
+                    </div>
+                </div>
+                <div class="custom-dates" id="custom-dates"{% if filters.date_range != 'custom' %} hidden{% endif %}>
+                    <label class="field"><span>Start date</span><input type="date" name="start_date" value="{{ filters.start_date }}"></label>
+                    <label class="field"><span>End date</span><input type="date" name="end_date" value="{{ filters.end_date }}"></label>
+                </div>
+                <a class="button button-primary export-button" id="export-button" href="{{ export_url }}" data-default-label="Export CSV">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span>Export CSV</span>
+                </a>
+                <label class="field search-field">
+                    <span class="sr-only">Search readings</span>
+                    <span class="search-control">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+                        <input type="search" name="q" value="{{ filters.q }}" placeholder="Search readings" autocomplete="off">
+                    </span>
+                </label>
+            </div>
+        </div>
+
+        {% if filter_error %}
+        <div class="feedback-state feedback-error" role="alert">
+            <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16.5h.01"/></svg></span>
+            <div><h3>Check the selected dates</h3><p>{{ filter_error }}</p></div>
+            <a class="button button-secondary" href="{{ url_for('data_page') }}">Reset date range</a>
+        </div>
+        {% elif database_error %}
+        <div class="feedback-state feedback-error" role="alert">
+            <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7c0 1.7 3.6 3 8 3s8-1.3 8-3-3.6-3-8-3-8 1.3-8 3Z"/><path d="M4 7v5c0 1.7 3.6 3 8 3M20 7v4M4 12v5c0 1.7 3.6 3 8 3 1.1 0 2.1-.1 3-.3M18 15v5M18 23v.01"/></svg></span>
+            <div><h3>Sensor data is unavailable</h3><p>We could not reach the database. Your filters are still saved.</p></div>
+            <a class="button button-secondary" href="{{ request.url }}">Try again</a>
+        </div>
+        {% else %}
+        <div class="table-stage" id="table-stage">
+            <div class="table-header-scroll" id="table-header-scroll" aria-hidden="true">
+                <table class="data-table">
+                    <colgroup><col class="timestamp-column"><col span="6" class="sensor-column"></colgroup>
+                    <thead><tr>
+                        <th>Timestamp (UTC)</th><th class="numeric">Temp (°C)</th><th class="numeric">Humidity (%)</th><th class="numeric">NH3 (ppm)</th>
+                        <th class="numeric">PM 2.5</th><th class="numeric">MQ135 (ppm)</th><th class="numeric">MQ137 (ppm)</th>
+                    </tr></thead>
+                </table>
+            </div>
+            <div class="table-body-scroll" id="table-body-scroll" tabindex="0" role="region" aria-label="Sensor readings table. Scroll horizontally to view all columns.">
+                <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
+                    <span class="sr-only">Loading sensor data</span>
+                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range(7) %}<span></span>{% endfor %}</div>{% endfor %}
+                </div>
+                <table class="data-table">
+                    <colgroup><col class="timestamp-column"><col span="6" class="sensor-column"></colgroup>
+                    <thead class="table-a11y-head"><tr>
+                        <th>Timestamp (UTC)</th><th>Temp (°C)</th><th>Humidity (%)</th><th>NH3 (ppm)</th>
+                        <th>PM 2.5</th><th>MQ135 (ppm)</th><th>MQ137 (ppm)</th>
+                    </tr></thead>
+                    <tbody>
+                        {% for row in readings %}
+                        <tr>
+                            <td>{{ row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '—' }}</td>
+                            {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
+                        </tr>
+                        {% else %}
+                        <tr><td class="empty-state" colspan="7">
+                            <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
+                            {% if filters.date_range != 'all' or filters.q %}
+                            <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>
+                            {% else %}
+                            <strong>No readings yet</strong><span>Sensor measurements will appear here after collection begins.</span>
+                            {% endif %}
+                        </td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <nav class="pagination" aria-label="Data pagination">
+            <p>Showing <strong>{{ first_record }}–{{ last_record }}</strong> of <strong>{{ total }}</strong></p>
+            <div class="pagination-actions">
+                {% if previous_url %}<a class="pagination-control pagination-link pagination-word" href="{{ previous_url }}">Previous</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Previous</span>{% endif %}
+                {% for item in pagination_items %}
+                    {% if item.page is none %}<span class="pagination-ellipsis" aria-hidden="true">…</span>
+                    {% elif item.current %}<span class="pagination-control is-current" aria-current="page">{{ item.page }}</span>
+                    {% else %}<a class="pagination-control pagination-link" href="{{ item.url }}" aria-label="Page {{ item.page }}">{{ item.page }}</a>{% endif %}
+                {% endfor %}
+                {% if next_url %}<a class="pagination-control pagination-link pagination-word" href="{{ next_url }}">Next</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Next</span>{% endif %}
+            </div>
+        </nav>
+        {% endif %}
+    </section>
+</form>
+{% endblock %}
