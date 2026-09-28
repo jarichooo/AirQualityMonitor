@@ -30,6 +30,7 @@ services:
     depends_on:
       - postgres_db
       - mqtt_broker
+    restart: unless-stopped
 
   # 4. The AI Model Container (Builds from your folder)
   # ai_engine:
@@ -46,3 +47,4 @@ services:
       - "5000:5000"
     depends_on:
       - postgres_db
+    restart: unless-stopped
