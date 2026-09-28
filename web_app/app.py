@@ -1,5 +1,7 @@
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session
+from werkzeug.security import check_password_hash
 import psycopg2
+import psycopg2.extras
 import os
 
 app = Flask(__name__)
@@ -10,37 +12,56 @@ DB_NAME = "air_quality"
 DB_USER = "admin"
 DB_PASS = "notsosecretpass" 
 
-# authentication 
-USERS = {
-    "admin1": "notsosecretpass1",
-    "admin2": "notsosecretpass2"
-}
 
 def get_db_connection():
     return psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    error = None
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
-        
-        if username in USERS and USERS[username] == password:
-            session['logged_in'] = True
-            session['username'] = username
-            return redirect(url_for('dashboard'))
-        else:
-            flash("Invalid credentials. Please try again.", "danger")
-            
-    return render_template('login.html')
 
+        try:
+            # connect to postgres database container
+            conn = psycopg2.connect(
+                host="postgres_db", 
+                database="air_quality", 
+                user="admin", 
+                password="notsosecretpass"
+            )
+            # use DictCursor to reference columns by name easily
+            cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            
+            # look up the user by username
+            cursor.execute("SELECT password_hash, role FROM dashboard_users WHERE username = %s", (username,))
+            user = cursor.fetchone()
+
+            # verify the hash matches the entered password
+            if user and check_password_hash(user['password_hash'], password):
+                session['logged_in'] = True
+                session['username'] = username
+                session['role'] = user['role']
+                return redirect(url_for('dashboard'))
+            else:
+                error = "Invalid username or password."
+
+        except Exception as e:
+            error = f"Database error: {e}"
+        finally:
+            # clean up the database connection
+            if 'cursor' in locals(): cursor.close()
+            if 'conn' in locals(): conn.close()
+
+    return render_template('login.html', error=error)
 @app.route('/')
 def dashboard():
-    # Route Protection: Kick unauthenticated users back to login
+    # route Protection: Kick unauthenticated users back to login
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     
-    # Fetch the latest 20 rows of data
+    # fetch the latest 20 rows of data
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
