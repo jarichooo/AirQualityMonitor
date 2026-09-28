@@ -11,7 +11,7 @@ conn = psycopg2.connect(
 cursor = conn.cursor()
 
 # Hash the passwords securely
-admin_hash = generate_password_hash("notsocretpass")
+admin_hash = generate_password_hash("notsosecretpass")
 viewer_hash = generate_password_hash("pod2026defended")
 
 # Insert the records
