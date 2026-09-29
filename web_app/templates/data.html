@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<form class="data-page-form" id="data-filters" method="get">
+<form class="data-page-form" id="data-filters" method="get" data-live-url="{{ url_for('live_data') }}">
     <div class="page-heading">
         <div class="page-heading-copy">
             <h1>Data</h1>
@@ -91,38 +91,13 @@
                         <th>PM 2.5</th><th>MQ135 (ppm)</th><th>MQ137 (ppm)</th>
                     </tr></thead>
                     <tbody>
-                        {% for row in readings %}
-                        <tr>
-                            <td>{{ row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '—' }}</td>
-                            {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
-                        </tr>
-                        {% else %}
-                        <tr><td class="empty-state" colspan="7">
-                            <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
-                            {% if filters.date_range != 'all' or filters.q %}
-                            <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>
-                            {% else %}
-                            <strong>No readings yet</strong><span>Sensor measurements will appear here after collection begins.</span>
-                            {% endif %}
-                        </td></tr>
-                        {% endfor %}
+                        {% include "_data_rows.html" %}
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <nav class="pagination" aria-label="Data pagination">
-            <p>Showing <strong>{{ first_record }}–{{ last_record }}</strong> of <strong>{{ total }}</strong></p>
-            <div class="pagination-actions">
-                {% if previous_url %}<a class="pagination-control pagination-link pagination-word" href="{{ previous_url }}">Previous</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Previous</span>{% endif %}
-                {% for item in pagination_items %}
-                    {% if item.page is none %}<span class="pagination-ellipsis" aria-hidden="true">…</span>
-                    {% elif item.current %}<span class="pagination-control is-current" aria-current="page">{{ item.page }}</span>
-                    {% else %}<a class="pagination-control pagination-link" href="{{ item.url }}" aria-label="Page {{ item.page }}">{{ item.page }}</a>{% endif %}
-                {% endfor %}
-                {% if next_url %}<a class="pagination-control pagination-link pagination-word" href="{{ next_url }}">Next</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Next</span>{% endif %}
-            </div>
-        </nav>
+        {% include "_data_pagination.html" %}
         {% endif %}
     </section>
 </form>

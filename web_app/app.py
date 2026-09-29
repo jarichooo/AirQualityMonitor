@@ -7,7 +7,7 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
 
@@ -159,6 +159,55 @@ def shell_context(page_name):
     }
 
 
+def build_data_context(filters):
+    readings = []
+    total = 0
+    filter_error = None
+    database_error = False
+
+    try:
+        readings, total, filter_error = fetch_readings(filters)
+    except psycopg2.Error:
+        app.logger.exception("Unable to load sensor data")
+        database_error = True
+
+    total_pages = max(1, math.ceil(total / filters["per_page"]))
+    query_args = {
+        "date_range": filters["date_range"],
+        "start_date": filters["start_date"],
+        "end_date": filters["end_date"],
+        "q": filters["q"],
+        "per_page": filters["per_page"],
+    }
+    previous_url = url_for("data_page", page=filters["page"] - 1, **query_args) if filters["page"] > 1 else None
+    next_url = url_for("data_page", page=filters["page"] + 1, **query_args) if filters["page"] < total_pages else None
+    pagination_items = [
+        {
+            "page": page,
+            "url": url_for("data_page", page=page, **query_args),
+            "current": page == filters["page"],
+        }
+        for page in build_pagination_items(filters["page"], total_pages)
+    ]
+    first_record = (filters["page"] - 1) * filters["per_page"] + 1 if total else 0
+    last_record = min(filters["page"] * filters["per_page"], total)
+
+    return {
+        "readings": readings,
+        "filters": filters,
+        "total": total,
+        "total_pages": total_pages,
+        "previous_url": previous_url,
+        "next_url": next_url,
+        "pagination_items": pagination_items,
+        "first_record": first_record,
+        "last_record": last_record,
+        "export_url": url_for("export_data", **{key: value for key, value in query_args.items() if key != "per_page"}),
+        "filter_error": filter_error,
+        "database_error": database_error,
+    }
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
@@ -195,59 +244,30 @@ def dashboard():
 @login_required
 def data_page():
     filters = parse_filters(request.args)
-    readings = []
-    total = 0
-    filter_error = None
-    database_error = False
-
-    try:
-        readings, total, filter_error = fetch_readings(filters)
-    except psycopg2.Error:
-        app.logger.exception("Unable to load sensor data")
-        database_error = True
-
-    total_pages = max(1, math.ceil(total / filters["per_page"]))
-    if filters["page"] > total_pages and total:
+    context = build_data_context(filters)
+    if filters["page"] > context["total_pages"] and context["total"]:
         query_args = request.args.to_dict()
-        query_args["page"] = total_pages
+        query_args["page"] = context["total_pages"]
         return redirect(url_for("data_page", **query_args))
 
-    query_args = {
-        "date_range": filters["date_range"],
-        "start_date": filters["start_date"],
-        "end_date": filters["end_date"],
-        "q": filters["q"],
-        "per_page": filters["per_page"],
-    }
-    previous_url = url_for("data_page", page=filters["page"] - 1, **query_args) if filters["page"] > 1 else None
-    next_url = url_for("data_page", page=filters["page"] + 1, **query_args) if filters["page"] < total_pages else None
-    pagination_items = [
-        {
-            "page": page,
-            "url": url_for("data_page", page=page, **query_args) if page is not None else None,
-            "current": page == filters["page"],
-        }
-        for page in build_pagination_items(filters["page"], total_pages)
-    ]
-    first_record = (filters["page"] - 1) * filters["per_page"] + 1 if total else 0
-    last_record = min(filters["page"] * filters["per_page"], total)
-    export_args = {key: value for key, value in query_args.items() if key != "per_page"}
+    return render_template("data.html", **shell_context("Data"), **context)
 
-    return render_template(
-        "data.html",
-        **shell_context("Data"),
-        readings=readings,
-        filters=filters,
-        total=total,
-        total_pages=total_pages,
-        previous_url=previous_url,
-        next_url=next_url,
-        pagination_items=pagination_items,
-        first_record=first_record,
-        last_record=last_record,
-        export_url=url_for("export_data", **export_args),
-        filter_error=filter_error,
-        database_error=database_error,
+
+@app.route("/data/live")
+@login_required
+def live_data():
+    filters = parse_filters(request.args)
+    filters.update(page=1, per_page=25)
+    context = build_data_context(filters)
+    if context["database_error"]:
+        return jsonify(error="Sensor data is unavailable."), 503
+    if context["filter_error"]:
+        return jsonify(error=context["filter_error"]), 400
+
+    return jsonify(
+        rows_html=render_template("_data_rows.html", **context),
+        pagination_html=render_template("_data_pagination.html", **context),
+        record_count=f'{context["total"]} matching record{"s" if context["total"] != 1 else ""}',
     )
 
 

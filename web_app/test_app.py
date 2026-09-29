@@ -67,6 +67,24 @@ class AppTestCase(unittest.TestCase):
         _, _, error = application.build_where_clause(filters)
         self.assertIsNotNone(error)
 
+    def test_live_data_is_authenticated_and_forces_first_page(self):
+        self.assertEqual(self.client.get("/data/live").status_code, 302)
+        self.login()
+        row = (datetime(2026, 9, 27, 5, 50, 25, tzinfo=timezone.utc), 31.5, 68, 8.5, 15.2, 12, 32)
+        with patch.object(application, "fetch_readings", return_value=([row], 26, None)) as fetch:
+            response = self.client.get("/data/live?page=7&per_page=100&date_range=7d&q=31.5")
+
+        self.assertEqual(response.status_code, 200)
+        filters = fetch.call_args.args[0]
+        self.assertEqual(filters["page"], 1)
+        self.assertEqual(filters["per_page"], 25)
+        self.assertEqual(filters["date_range"], "7d")
+        self.assertEqual(filters["q"], "31.5")
+        payload = response.get_json()
+        self.assertIn("2026-09-27 05:50:25", payload["rows_html"])
+        self.assertIn('aria-current="page">1</span>', payload["pagination_html"])
+        self.assertEqual(payload["record_count"], "26 matching records")
+
     def test_compact_numbered_pagination(self):
         self.assertEqual(application.build_pagination_items(1, 1), [1])
         self.assertEqual(application.build_pagination_items(1, 6), [1, 2, 3, 4])

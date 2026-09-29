@@ -1,0 +1,11 @@
+<nav class="pagination" aria-label="Data pagination">
+    <p>Showing <strong>{{ first_record }}–{{ last_record }}</strong> of <strong>{{ total }}</strong></p>
+    <div class="pagination-actions">
+        {% if previous_url %}<a class="pagination-control pagination-link pagination-word" href="{{ previous_url }}">Previous</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Previous</span>{% endif %}
+        {% for item in pagination_items %}
+            {% if item.current %}<span class="pagination-control is-current" aria-current="page">{{ item.page }}</span>
+            {% else %}<a class="pagination-control pagination-link" href="{{ item.url }}" aria-label="Page {{ item.page }}">{{ item.page }}</a>{% endif %}
+        {% endfor %}
+        {% if next_url %}<a class="pagination-control pagination-link pagination-word" href="{{ next_url }}">Next</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Next</span>{% endif %}
+    </div>
+</nav>

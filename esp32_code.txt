@@ -14,6 +14,8 @@ const char* mqtt_server = "192.168.X.X";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+const unsigned long publishInterval = 30000;
+unsigned long lastPublish = 0;
 
 void setup_wifi() {
   delay(10);
@@ -54,6 +56,12 @@ void loop() {
   }
   client.loop();
 
+  unsigned long now = millis();
+  if (now - lastPublish < publishInterval) {
+    return;
+  }
+  lastPublish = now;
+
   // 3. Read your actual hardware sensors here (using dummy data for the example)
   float temp = 32.10;
   float hum = 65.50;
@@ -73,7 +81,4 @@ void loop() {
   Serial.print("Publishing message: ");
   Serial.println(payload);
   client.publish("poultry/sensors", payload);
-
-  // Log data every 1 minute (60000 milliseconds)
-  delay(60000); 
 }
