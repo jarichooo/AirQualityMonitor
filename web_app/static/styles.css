@@ -101,6 +101,83 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .page-heading h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.025em; line-height: 36px; }
 .page-heading p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 
+/* Dashboard: restrained monitoring surfaces; panels intentionally have no shadows. */
+.page-dashboard .main-content { min-width: 0; }
+.dashboard-page { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 16px; }
+.dashboard-heading { align-items: center; margin-bottom: 0; }
+.dashboard-heading .page-heading-copy p { max-width: 720px; }
+.dashboard-heading-tools { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 18px; }
+.dashboard-freshness { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.freshness-dot, .assessment-status-dot { display: block; width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #aab3c0; }
+.freshness-dot.is-current, .assessment-status.is-within-range .assessment-status-dot { background: #2b9a67; }
+.freshness-dot.is-delayed, .assessment-status.is-attention .assessment-status-dot { background: #d99b24; }
+.freshness-dot.is-unavailable, .assessment-status.is-unavailable .assessment-status-dot { background: #c13b35; }
+.freshness-copy { display: grid; min-width: 0; line-height: 1.25; }
+.freshness-copy strong { font-size: 12px; font-weight: 600; }
+.freshness-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-range-field { width: 164px; flex: 0 0 164px; }
+.dashboard-metrics { display: grid; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.metric-card { display: grid; min-width: 0; min-height: 92px; align-content: space-between; gap: 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
+.metric-card:hover { border-color: #b8c9d9; background: #fbfdff; }
+.metric-card.is-selected { border-color: var(--primary); background: #f3f9fe; }
+.metric-card-label { color: var(--muted); font-size: 11px; font-weight: 500; }
+.metric-card-value { display: flex; min-width: 0; align-items: baseline; gap: 5px; }
+.metric-card-value strong { overflow: hidden; font-size: 22px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
+.metric-card-value small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.metric-card-status { color: var(--muted); font-size: 10px; line-height: 1.25; }
+.metric-card-status.is-attention { color: #a66f0e; }
+.metric-card-status.is-within-range { color: #287d59; }
+.metric-card-status.is-unavailable { color: var(--danger); }
+.dashboard-layout { display: grid; min-width: 0; min-height: 0; grid-template-columns: minmax(0, 1.55fr) minmax(280px, .8fr); gap: 16px; }
+.dashboard-side-column { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 16px; }
+.dashboard-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); box-shadow: none; }
+.dashboard-panel-heading { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 17px 20px 12px; }
+.dashboard-panel-heading h2 { margin: 0; font-size: 16px; font-weight: 600; line-height: 24px; }
+.dashboard-panel-heading p { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.trend-current { flex: 0 0 auto; color: var(--text); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.trend-chart-wrap { position: relative; min-height: 250px; flex: 1 1 auto; padding: 3px 18px 0 8px; }
+.trend-chart-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
+.chart-fallback { position: absolute; inset: 45% 20px auto; margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
+.chart-empty-state { position: absolute; inset: 18px; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 5px; border: 1px dashed var(--border-strong); border-radius: 10px; color: var(--muted); text-align: center; }
+.chart-empty-state .feedback-icon { width: 36px; height: 36px; margin-bottom: 4px; }
+.chart-empty-state strong { color: var(--text); font-size: 12px; font-weight: 600; }
+.chart-empty-state span:last-child { font-size: 11px; }
+.dashboard-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 12px 20px 17px; }
+.dashboard-stat { min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: 9px; background: #fbfcfe; }
+.dashboard-stat span { display: block; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.dashboard-stat strong { display: block; overflow: hidden; margin-top: 2px; color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.ai-panel { flex: 0 0 auto; }
+.ai-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.ai-body { padding: 15px 18px 17px; }
+.ai-body p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.assessment-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.assessment-panel { min-height: 0; flex: 1 1 auto; }
+.assessment-body { min-height: 0; flex: 1 1 auto; overflow: auto; }
+.assessment-section { padding: 15px 18px; border-bottom: 1px solid var(--border); }
+.assessment-section:last-child { border-bottom: 0; }
+.assessment-section-label { color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.assessment-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.assessment-rule { color: var(--muted); font-size: 10px; }
+.assessment-status { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.assessment-status strong { font-size: 15px; font-weight: 600; }
+.assessment-status.is-attention strong { color: #a66f0e; }
+.assessment-status.is-within-range strong { color: #287d59; }
+.assessment-status.is-unavailable strong { color: var(--danger); }
+.assessment-section p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.assessment-event-list { display: grid; gap: 9px; margin: 11px 0 0; padding: 0; list-style: none; }
+.assessment-event { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid #eef1f5; }
+.assessment-event:last-child { border-bottom: 0; }
+.assessment-event div { display: grid; min-width: 0; gap: 2px; }
+.assessment-event strong { overflow: hidden; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.assessment-event span { color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.assessment-event small { flex: 0 0 auto; color: #a66f0e; font-size: 10px; font-weight: 600; }
+.assessment-empty { display: grid; gap: 3px; margin-top: 11px; }
+.assessment-empty strong { font-size: 11px; font-weight: 600; }
+.assessment-empty span { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.assessment-recommendation { padding-top: 10px; border-top: 1px solid #eef1f5; }
+.ai-unavailable { color: #a66f0e; }
+.dashboard-error-state { min-height: 260px; margin: 0; }
+
 .button { display: inline-flex; min-height: 42px; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; border: 1px solid transparent; border-radius: 10px; cursor: pointer; font-weight: 500; line-height: 20px; text-decoration: none; white-space: nowrap; transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, color 140ms ease, transform 100ms ease; }
 .button svg { width: 18px; height: 18px; }
 .button:hover { transform: translateY(-1px); }
@@ -289,4 +366,48 @@ a.pagination-control:hover { border-color: var(--border); background: #f5f8fb; c
 
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+@media (min-width: 1200px) {
+    .dashboard-layout { grid-template-columns: minmax(0, 2fr) minmax(300px, .85fr); }
+}
+
+@media (min-width: 901px) and (min-height: 650px) {
+    body.page-dashboard { height: 100dvh; overflow: hidden; }
+    body.page-dashboard .main-content { display: flex; height: 100dvh; min-height: 0; flex-direction: column; overflow: hidden; }
+    body.page-dashboard .dashboard-page { height: 100%; min-height: 0; }
+    body.page-dashboard .dashboard-layout { flex: 1 1 auto; }
+    body.page-dashboard .assessment-body { overflow: auto; }
+}
+
+@media (max-width: 900px) {
+    .dashboard-heading { align-items: flex-start; flex-direction: column; gap: 13px; }
+    .dashboard-heading-tools { width: 100%; justify-content: space-between; }
+    .dashboard-layout { grid-template-columns: 1fr; }
+    .trend-panel { min-height: 420px; }
+    .assessment-panel { min-height: 0; }
+}
+
+@media (max-width: 680px) {
+    .dashboard-page { gap: 14px; }
+    .dashboard-heading-tools { align-items: center; flex-direction: row; gap: 10px; }
+    .dashboard-freshness { min-height: 30px; }
+    .dashboard-freshness { min-width: 0; flex: 1 1 auto; }
+    .dashboard-range-field { width: min(164px, 48vw); flex: 0 1 164px; }
+    .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .metric-card { min-height: 88px; padding: 12px 13px; }
+    .metric-card-value strong { font-size: 20px; }
+    .dashboard-panel-heading { padding-inline: 15px; }
+    .trend-panel { min-height: 390px; }
+    .trend-chart-wrap { min-height: 245px; padding-inline: 2px 10px; }
+    .dashboard-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-inline: 15px; }
+    .assessment-section { padding-inline: 15px; }
+}
+
+@media (max-width: 360px) {
+    .dashboard-metrics { grid-template-columns: 1fr; }
+    .metric-card { min-height: 78px; }
+    .trend-panel { min-height: 375px; }
+    .dashboard-stats { gap: 6px; padding-inline: 12px; }
+    .dashboard-stat { padding-inline: 9px; }
 }

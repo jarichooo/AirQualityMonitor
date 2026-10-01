@@ -4,7 +4,7 @@
     const menuButton = document.querySelector("#menu-button");
     const drawerClose = document.querySelector("#drawer-close");
     const backdrop = document.querySelector("#drawer-backdrop");
-    const desktopQuery = window.matchMedia("(min-width: 901px)");
+    const desktopQuery = window.matchMedia("(min-width: 1101px)");
     let returnFocus = null;
 
     const setCollapsed = (collapsed) => {
@@ -32,7 +32,12 @@
         drawerClose.focus();
     };
 
-    setCollapsed(localStorage.getItem("henvironment-sidebar") === "collapsed");
+    const syncSidebarMode = () => {
+        closeDrawer();
+        setCollapsed(desktopQuery.matches && localStorage.getItem("henvironment-sidebar") === "collapsed");
+    };
+
+    syncSidebarMode();
 
     sidebarToggle.addEventListener("click", () => {
         if (!desktopQuery.matches) return;
@@ -66,10 +71,7 @@
         }
     });
 
-    desktopQuery.addEventListener("change", () => {
-        closeDrawer();
-        setCollapsed(localStorage.getItem("henvironment-sidebar") === "collapsed");
-    });
+    desktopQuery.addEventListener("change", syncSidebarMode);
 
     const filterForm = document.querySelector("#data-filters");
     const loadingState = document.querySelector("#loading-state");
