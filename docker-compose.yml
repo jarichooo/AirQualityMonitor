@@ -11,6 +11,12 @@ services:
       - "5432:5432"
     volumes:
       - ./db_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d air_quality"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   # 2. The MQTT Broker Container
@@ -28,16 +34,11 @@ services:
     build: ./ingestion
     container_name: data_ingestion
     depends_on:
-      - postgres_db
-      - mqtt_broker
+      postgres_db:
+        condition: service_healthy
+      mqtt_broker:
+        condition: service_started
     restart: unless-stopped
-
-  # 4. The AI Model Container (Builds from your folder)
-  # ai_engine:
-  #   build: ./ai_model
-  #   container_name: ai_engine
-  #   depends_on:
-  #     - postgres_db
 
   # 5. The Analytics Dashboard (Builds from your folder)
   web_dashboard:
@@ -45,6 +46,11 @@ services:
     container_name: web_dashboard
     ports:
       - "5000:5000"
+    environment:
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+    volumes:
+      - ./add_users.py:/app/add_users.py:ro
     depends_on:
-      - postgres_db
+      postgres_db:
+        condition: service_healthy
     restart: unless-stopped

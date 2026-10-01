@@ -1,141 +1,27 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="dashboard-page" id="dashboard-app" data-live-url="{{ url_for('dashboard_live') }}" data-range="{{ dashboard_range }}">
-    {% if dashboard_error %}
-    <section class="feedback-state feedback-error dashboard-error-state" role="alert" aria-labelledby="dashboard-error-title">
-        <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17h.01"/></svg></span>
+<div class="page-heading">
+    <div class="page-heading-copy"><h1>Dashboard</h1><p>Phase one: environmental data collection.</p></div>
+    <a class="button button-secondary" href="{{ url_for('dashboard') }}">Refresh</a>
+</div>
+<section class="data-panel" aria-labelledby="collection-title">
+    <div class="data-panel-heading">
+        <div class="panel-heading-copy"><h2 id="collection-title">Collection overview</h2></div>
+        <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
+    </div>
+    <div class="feedback-state{% if database_error %} feedback-error{% endif %}"{% if database_error %} role="alert"{% endif %}>
         <div>
-            <h2 id="dashboard-error-title">Dashboard data could not be loaded</h2>
-            <p>We could not reach the sensor database. The rest of the application is still available.</p>
-        </div>
-        <a class="button button-secondary" href="{{ request.url }}">Retry</a>
-    </section>
-    {% else %}
-    <header class="page-heading dashboard-heading">
-        <div class="page-heading-copy">
-            <h1>Dashboard</h1>
-            <p>Monitor poultry-house conditions, trends, risks, and recommended actions.</p>
-        </div>
-        <div class="dashboard-heading-tools">
-            {% set connection_status = dashboard_payload.latest.connection_status %}
-            <div class="dashboard-freshness" aria-live="polite">
-                <span class="freshness-dot{% if connection_status == 'current' %} is-current{% elif connection_status == 'delayed' %} is-delayed{% else %} is-unavailable{% endif %}" id="dashboard-freshness-dot" aria-hidden="true"></span>
-                <span class="freshness-copy"><strong id="dashboard-freshness-label">{% if connection_status == 'current' %}Current{% elif connection_status == 'delayed' %}Delayed{% else %}Unavailable{% endif %}</strong><small id="dashboard-last-reading">{{ dashboard_payload.latest.recorded_at or 'No reading yet' }}</small></span>
-            </div>
-            <div class="dashboard-range-field">
-                <span class="sr-only" id="dashboard-range-label">Dashboard time range</span>
-                <div class="custom-select" id="dashboard-range-select" data-custom-select>
-                    <button class="custom-select-trigger" id="dashboard-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="dashboard-range-label dashboard-range-value">
-                        <span id="dashboard-range-value">{{ dashboard_range_labels[dashboard_range] }}</span>
-                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
-                    </button>
-                    <div class="custom-select-menu" id="dashboard-range-menu" role="listbox" aria-labelledby="dashboard-range-label">
-                        {% for value, label in dashboard_range_labels.items() %}
-                        <button class="custom-select-option{% if dashboard_range == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if dashboard_range == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <section class="dashboard-metrics" aria-label="Current sensor conditions">
-        {% for key in dashboard_metric_keys %}
-        {% set metric = dashboard_metrics[key] %}
-        {% set current = dashboard_payload.latest.metrics[key] %}
-        <button class="metric-card{% if key == 'nh3_ppm' %} is-selected{% endif %}" type="button" data-metric="{{ key }}" aria-pressed="{{ 'true' if key == 'nh3_ppm' else 'false' }}">
-            <span class="metric-card-label">{{ metric.label }}</span>
-            <span class="metric-card-value"><strong data-dashboard-value="{{ key }}">{{ current.value if current.value is not none else '—' }}</strong><small>{{ metric.unit }}</small></span>
-            <span class="metric-card-status" data-dashboard-status="{{ key }}">{% if current.status == 'attention' %}Attention{% elif current.status == 'within_range' %}Within range{% elif current.status == 'unavailable' %}Unavailable{% else %}Monitoring{% endif %}</span>
-        </button>
-        {% endfor %}
-    </section>
-
-    <div class="dashboard-layout" id="dashboard-data" aria-busy="false">
-        <section class="dashboard-panel trend-panel" aria-labelledby="trend-title">
-            {% set initial_current = dashboard_payload.latest.metrics['nh3_ppm'].value %}
-            {% set initial_summary = dashboard_payload.summary['nh3_ppm'] %}
-            <header class="dashboard-panel-heading">
-                <div>
-                    <h2 id="trend-title">Environmental Trend</h2>
-                    <p><span id="trend-metric-label">NH3</span> over <span id="trend-range-label">{{ dashboard_range_labels[dashboard_range] }}</span> · UTC</p>
-                </div>
-                <strong class="trend-current" id="trend-current">{{ initial_current if initial_current is not none else '—' }} ppm</strong>
-            </header>
-            <div class="trend-chart-wrap" id="trend-chart-wrap">
-                <canvas id="dashboard-chart" role="img" aria-label="NH3 readings chart">NH3 readings chart. A visual chart is available when canvas rendering is supported.</canvas>
-                <p class="chart-fallback" id="chart-fallback">Chart data will appear when readings are available.</p>
-                <div class="chart-empty-state" id="chart-empty-state"{% if dashboard_payload.series.timestamps %} hidden{% endif %}>
-                    <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 18.5 9 13l3.5 3.5L16 12l4 4.5"/><path d="M4 5.5h16v13H4z"/></svg></span>
-                    <strong>No readings are available for this period.</strong>
-                    <span>Try a longer time range or wait for the next sensor reading.</span>
-                </div>
-            </div>
-            <div class="dashboard-stats" aria-label="Selected metric statistics">
-                <div class="dashboard-stat"><span>Average</span><strong data-summary-field="average" data-summary-metric="nh3_ppm">{{ initial_summary.average if initial_summary.average is not none else '—' }}</strong></div>
-                <div class="dashboard-stat"><span>Std. deviation</span><strong data-summary-field="stddev" data-summary-metric="nh3_ppm">{{ initial_summary.stddev if initial_summary.stddev is not none else '—' }}</strong></div>
-                <div class="dashboard-stat"><span>Minimum–maximum</span><strong data-summary-field="range" data-summary-metric="nh3_ppm">{% if initial_summary.min is not none and initial_summary.max is not none %}{{ initial_summary.min }}–{{ initial_summary.max }}{% else %}—{% endif %}</strong></div>
-                <div class="dashboard-stat"><span>Threshold exceedances</span><strong data-summary-field="exceedance" data-summary-metric="nh3_ppm">{% if initial_summary.exceedance_count is not none %}{{ initial_summary.exceedance_count }} ({{ initial_summary.exceedance_percent }}%){% else %}—{% endif %}</strong></div>
-            </div>
-        </section>
-
-        <div class="dashboard-side-column">
-            <section class="dashboard-panel ai-panel" aria-labelledby="ai-title">
-                <header class="dashboard-panel-heading">
-                    <div>
-                        <h2 id="ai-title">AI Forecast</h2>
-                        <p>Predictive model status.</p>
-                    </div>
-                    <span class="assessment-rule ai-unavailable">Unavailable</span>
-                </header>
-                <div class="ai-body">
-                    <p>The prediction model is not connected. Current readings and rule-based recommendations remain available.</p>
-                </div>
-            </section>
-
-            <aside class="dashboard-panel assessment-panel" aria-labelledby="assessment-title">
-                <header class="dashboard-panel-heading">
-                    <div>
-                        <h2 id="assessment-title">Environmental Assessment</h2>
-                        <p>Rule-based review of the selected period.</p>
-                    </div>
-                </header>
-                <div class="assessment-body">
-                    <section class="assessment-section current-assessment" aria-labelledby="current-assessment-title">
-                        <span class="assessment-section-label" id="current-assessment-title">Current assessment</span>
-                        {% set overall_status = dashboard_payload.latest.overall_status %}
-                        <div class="assessment-status{% if overall_status == 'attention' %} is-attention{% elif overall_status == 'within_range' %} is-within-range{% elif overall_status == 'unavailable' %} is-unavailable{% else %} is-unclassified{% endif %}" id="overall-assessment" aria-live="polite"><span class="assessment-status-dot" aria-hidden="true"></span><strong>{% if overall_status == 'attention' %}Attention required{% elif overall_status == 'within_range' %}Within configured range{% elif overall_status == 'unclassified' %}Unclassified{% else %}Unavailable{% endif %}</strong></div>
-                        <p id="overall-assessment-copy">{% if overall_status == 'attention' %}The latest NH3 reading is above the configured 25 ppm threshold.{% elif overall_status == 'within_range' %}The latest NH3 reading is within the configured 25 ppm threshold.{% elif overall_status == 'unclassified' %}A configured threshold is not available for the current reading.{% else %}No current reading is available.{% endif %}</p>
-                    </section>
-
-                    <section class="assessment-section" aria-labelledby="exceedance-title">
-                        <div class="assessment-section-heading"><span class="assessment-section-label" id="exceedance-title">Recent exceedances</span><span class="assessment-rule">Rule-based</span></div>
-                        <div id="assessment-events">
-                            {% if dashboard_payload.alerts %}
-                            <ol class="assessment-event-list">
-                                {% for event in dashboard_payload.alerts %}
-                                <li class="assessment-event"><div><strong>{{ event.label }} above {{ event.threshold }} {{ event.unit }}</strong><span>{{ event.value }} {{ event.unit }} · {{ event.recorded_at }}</span></div><small>Attention</small></li>
-                                {% endfor %}
-                            </ol>
-                            {% else %}
-                            <div class="assessment-empty" id="assessment-empty"><strong>No threshold exceedances</strong><span>No NH3 reading exceeded 25 ppm during this period.</span></div>
-                            {% endif %}
-                        </div>
-                        <p class="assessment-recommendation" id="assessment-recommendation">{% if dashboard_payload.alerts %}Recommendation: improve ventilation and inspect or clean accumulated litter or waste.{% else %}No rule-based action is currently required.{% endif %}</p>
-                    </section>
-                </div>
-            </aside>
+            {% if database_error %}
+            <h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p>
+            {% elif total == 0 %}
+            <h3>No readings yet</h3><p>Sensor measurements will appear here after collection begins.</p>
+            <p><strong>0</strong> stored readings</p>
+            {% else %}
+            <h3>{{ total }} stored reading{% if total != 1 %}s{% endif %}</h3>
+            <p>Latest recorded measurement (UTC): {{ latest.strftime('%Y-%m-%d %H:%M:%S') if latest else 'Unavailable' }}</p>
+            {% endif %}
         </div>
     </div>
-    {% endif %}
-</div>
-
-<script type="application/json" id="dashboard-initial-data">{{ dashboard_payload|tojson }}</script>
-<script type="application/json" id="dashboard-metric-config">{{ dashboard_metrics|tojson }}</script>
-{% endblock %}
-
-{% block scripts %}
-<script src="{{ url_for('static', filename='vendor/chart.umd.js') }}"></script>
-<script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</section>
 {% endblock %}
