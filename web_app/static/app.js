@@ -32,7 +32,12 @@
         drawerClose.focus();
     };
 
-    setCollapsed(localStorage.getItem("henvironment-sidebar") === "collapsed");
+    const syncSidebarMode = () => {
+        closeDrawer();
+        setCollapsed(desktopQuery.matches && localStorage.getItem("henvironment-sidebar") === "collapsed");
+    };
+
+    syncSidebarMode();
 
     sidebarToggle.addEventListener("click", () => {
         if (!desktopQuery.matches) return;
@@ -66,10 +71,7 @@
         }
     });
 
-    desktopQuery.addEventListener("change", () => {
-        closeDrawer();
-        setCollapsed(localStorage.getItem("henvironment-sidebar") === "collapsed");
-    });
+    desktopQuery.addEventListener("change", syncSidebarMode);
 
     const filterForm = document.querySelector("#data-filters");
     const loadingState = document.querySelector("#loading-state");
@@ -77,6 +79,8 @@
     const tableHeaderScroll = document.querySelector("#table-header-scroll");
     const tableBodyScroll = document.querySelector("#table-body-scroll");
     let searchTimer;
+    let paginationInFlight = false;
+    let liveController = null;
     const showLoading = () => {
         if (loadingState) loadingState.hidden = false;
         if (tableStage) tableStage.setAttribute("aria-busy", "true");
@@ -91,12 +95,18 @@
     });
 
     const loadPaginationPage = async (url, pushHistory = true) => {
+        liveController?.abort();
+        paginationInFlight = true;
         showLoading();
         try {
             const response = await fetch(url, {
                 credentials: "same-origin",
                 headers: { "X-Requested-With": "XMLHttpRequest" },
             });
+            if (response.redirected && new URL(response.url).pathname === "/login") {
+                window.location.href = response.url;
+                return;
+            }
             if (!response.ok) throw new Error(`Pagination request failed: ${response.status}`);
 
             const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
@@ -115,7 +125,6 @@
             currentBody.scrollTop = 0;
             if (pushHistory) window.history.pushState({}, "", url);
             bindPaginationLinks();
-            hideLoading();
 
             const currentPage = document.querySelector('.pagination [aria-current="page"]');
             if (currentPage) {
@@ -123,8 +132,10 @@
                 currentPage.focus({ preventScroll: true });
             }
         } catch (error) {
-            hideLoading();
             window.location.href = url;
+        } finally {
+            paginationInFlight = false;
+            hideLoading();
         }
     };
     const bindPaginationLinks = () => {
@@ -143,6 +154,67 @@
         tableBodyScroll.addEventListener("scroll", () => {
             tableHeaderScroll.scrollLeft = tableBodyScroll.scrollLeft;
         }, { passive: true });
+    }
+
+    const liveInterval = 10000;
+    let lastLiveRefresh = Date.now();
+    const isFirstPage = () => [null, "", "1"].includes(new URLSearchParams(window.location.search).get("page"));
+    const refreshLiveData = async () => {
+        if (!filterForm || !tableBodyScroll || document.hidden || !isFirstPage() || paginationInFlight || liveController) return;
+
+        const params = new URLSearchParams(window.location.search);
+        params.delete("page");
+        params.delete("per_page");
+        const url = new URL(filterForm.dataset.liveUrl, window.location.origin);
+        url.search = params.toString();
+        liveController = new AbortController();
+
+        try {
+            const response = await fetch(url, {
+                credentials: "same-origin",
+                headers: { "Accept": "application/json" },
+                signal: liveController.signal,
+            });
+            if (response.redirected && new URL(response.url).pathname === "/login") {
+                window.location.href = response.url;
+                return;
+            }
+            if (!response.ok) throw new Error(`Live data request failed: ${response.status}`);
+
+            const data = await response.json();
+            if (!isFirstPage()) return;
+            const tbody = tableBodyScroll.querySelector("tbody");
+            const pagination = document.querySelector(".pagination");
+            const recordCount = document.querySelector(".record-count");
+            if (!tbody || !pagination || !recordCount) return;
+
+            const scrollTop = tableBodyScroll.scrollTop;
+            const scrollLeft = tableBodyScroll.scrollLeft;
+            const rowsHtml = data.rows_html.trim();
+            if (tbody.innerHTML.trim() !== rowsHtml) tbody.innerHTML = rowsHtml;
+
+            const wrapper = document.createElement("div");
+            wrapper.innerHTML = data.pagination_html.trim();
+            const nextPagination = wrapper.firstElementChild;
+            if (nextPagination && pagination.outerHTML !== nextPagination.outerHTML) {
+                pagination.replaceWith(nextPagination);
+                bindPaginationLinks();
+            }
+            recordCount.textContent = data.record_count;
+            tableBodyScroll.scrollTop = scrollTop;
+            tableBodyScroll.scrollLeft = scrollLeft;
+        } catch (error) {
+            if (error.name !== "AbortError") console.debug("Live data refresh skipped", error);
+        } finally {
+            liveController = null;
+            lastLiveRefresh = Date.now();
+        }
+    };
+    if (filterForm && tableBodyScroll) {
+        window.setInterval(refreshLiveData, liveInterval);
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden && Date.now() - lastLiveRefresh >= liveInterval) refreshLiveData();
+        });
     }
 
     const dateRange = document.querySelector("#date-range");

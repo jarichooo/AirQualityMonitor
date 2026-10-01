@@ -1,11 +1,15 @@
 import json
+import logging
+import queue
+import threading
 import time
-import psycopg2
 from datetime import datetime, timezone
+
 import paho.mqtt.client as mqtt
+import psycopg2
 from paho.mqtt.enums import CallbackAPIVersion
 
-# Database & MQTT Configuration (matching your docker-compose setup)
+
 DB_HOST = "postgres_db"
 DB_NAME = "air_quality"
 DB_USER = "admin"
@@ -15,73 +19,109 @@ MQTT_BROKER = "mqtt_broker"
 MQTT_PORT = 1883
 MQTT_TOPIC = "poultry/sensors"
 
+INSERT_READING = """
+    INSERT INTO air_quality_logs
+        (recorded_at, temperature_c, humidity_perc, co2_ppm, nh3_ppm, pm25_ugm3, mq135_ppm, mq137_ppm)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+"""
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger(__name__)
+pending_readings = queue.Queue()
+
+
 def get_db_connection():
+    return psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
+
+
+def parse_reading(raw_payload):
+    payload = json.loads(raw_payload.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("payload must be a JSON object")
+
+    recorded_at = payload.get("ts") or datetime.now(timezone.utc).isoformat()
+    if payload.get("ts"):
+        datetime.fromisoformat(str(recorded_at).replace("Z", "+00:00"))
+
+    values = [payload.get(key) for key in ("t", "h", "co2", "nh3", "pm25", "mq135", "mq137")]
+    if any(value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))) for value in values):
+        raise ValueError("sensor values must be numbers or null")
+
+    return (recorded_at, *values)
+
+
+def database_worker():
+    connection = None
     while True:
-        try:
-            conn = psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER, password=DB_PASS)
-            print("Connected to PostgreSQL successfully!")
-            return conn
-        except Exception as e:
-            print(f"Waiting for database... {e}")
-            time.sleep(5)
+        reading = pending_readings.get()
+        retry_delay = 1
+        while True:
+            try:
+                if connection is None or connection.closed:
+                    connection = get_db_connection()
+                    log.info("Connected to PostgreSQL")
+                with connection.cursor() as cursor:
+                    cursor.execute(INSERT_READING, reading)
+                connection.commit()
+                log.info("Saved sensor reading for %s", reading[0])
+                break
+            except psycopg2.Error as error:
+                log.warning("Database write failed; retrying in %s seconds: %s", retry_delay, error)
+                if connection is not None:
+                    try:
+                        connection.rollback()
+                        connection.close()
+                    except psycopg2.Error:
+                        pass
+                connection = None
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, 30)
+        pending_readings.task_done()
+
 
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
-        print("Connected to MQTT broker successfully!")
+        log.info("Connected to MQTT broker")
         client.subscribe(MQTT_TOPIC)
     else:
-        print(f"Failed to connect, return code {reason_code}")
+        log.warning("MQTT connection failed with code %s", reason_code)
 
-def on_message(client, userdata, msg):
+
+def on_disconnect(client, userdata, disconnect_flags, reason_code, properties):
+    if reason_code != 0:
+        log.warning("MQTT connection lost; reconnecting automatically")
+
+
+def on_message(client, userdata, message):
     try:
-        payload = json.loads(msg.payload.decode("utf-8"))
-        print(f"Received: {payload}")
-        
-        # 1. Prioritize ESP32 RTC timestamp, fallback to system UTC if missing
-        if "ts" in payload:
-            recorded_at = payload["ts"]
-        else:
-            recorded_at = datetime.now(timezone.utc).isoformat()
-            
-        # 2. Extract sensor readings safely (returns None if key is missing)
-        t = payload.get("t")
-        h = payload.get("h")
-        co2 = payload.get("co2")
-        nh3 = payload.get("nh3")
-        pm25 = payload.get("pm25")
-        mq135 = payload.get("mq135")
-        mq137 = payload.get("mq137")
-        
-        # 3. Insert directly into Postgres
-        insert_query = """
-        INSERT INTO air_quality_logs (recorded_at, temperature_c, humidity_perc, co2_ppm, nh3_ppm, pm25_ugm3, mq135_ppm, mq137_ppm)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        cursor = conn.cursor()
-        cursor.execute(insert_query, (recorded_at, t, h, co2, nh3, pm25, mq135, mq137))
-        conn.commit()
-        cursor.close()
-        print(f"-> Successfully saved reading for {recorded_at} to database\n")
-        
-    except Exception as e:
-        print(f"Error processing message: {e}\n")
+        pending_readings.put(parse_reading(message.payload))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+        log.warning("Ignoring malformed sensor payload: %s", error)
 
-# 1. Connect to DB first
-conn = get_db_connection()
 
-# 2. Initialize MQTT Client (Using the new v2 API standard)
-mqttc = mqtt.Client(CallbackAPIVersion.VERSION2, "ingestion_service")
-mqttc.on_connect = on_connect
-mqttc.on_message = on_message
+def connect_mqtt(client):
+    retry_delay = 1
+    while True:
+        try:
+            client.connect(MQTT_BROKER, MQTT_PORT, 60)
+            return
+        except OSError as error:
+            log.warning("MQTT broker unavailable; retrying in %s seconds: %s", retry_delay, error)
+            time.sleep(retry_delay)
+            retry_delay = min(retry_delay * 2, 30)
 
-# 3. Connect to MQTT with retry logic
-while True:
-    try:
-        mqttc.connect(MQTT_BROKER, MQTT_PORT, 60)
-        break
-    except Exception as e:
-        print(f"Waiting for MQTT broker... {e}")
-        time.sleep(5)
 
-# 4. Keep listening forever
-mqttc.loop_forever()
+def main():
+    threading.Thread(target=database_worker, name="database-writer", daemon=True).start()
+
+    client = mqtt.Client(CallbackAPIVersion.VERSION2, "ingestion_service")
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+    client.on_message = on_message
+    client.reconnect_delay_set(min_delay=1, max_delay=30)
+    connect_mqtt(client)
+    client.loop_forever(retry_first_connection=True)
+
+
+if __name__ == "__main__":
+    main()
