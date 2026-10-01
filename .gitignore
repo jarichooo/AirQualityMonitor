@@ -1,1 +1,7 @@
 airqualitymonitor.ino
+db_data/
+__pycache__/
+*.py[cod]
+.env
+.test-deps/
+.codex/
