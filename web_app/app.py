@@ -207,7 +207,7 @@ def data_page():
         database_error = True
 
     total_pages = max(1, math.ceil(total / filters["per_page"]))
-    if filters["page"] > total_pages and total:
+    if filters["page"] > total_pages and not database_error and not filter_error:
         query_args = request.args.to_dict()
         query_args["page"] = total_pages
         return redirect(url_for("data_page", **query_args))
