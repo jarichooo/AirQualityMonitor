@@ -4,7 +4,7 @@
     const menuButton = document.querySelector("#menu-button");
     const drawerClose = document.querySelector("#drawer-close");
     const backdrop = document.querySelector("#drawer-backdrop");
-    const desktopQuery = window.matchMedia("(min-width: 901px)");
+    const desktopQuery = window.matchMedia("(min-width: 1101px)");
     let returnFocus = null;
 
     const setCollapsed = (collapsed) => {
