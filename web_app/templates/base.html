@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0C2F53">
+    <title>{{ page_name }} - Henvironment</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="page-{{ page_name|lower }}">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+
+    <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
+        <div class="sidebar-header">
+            <button class="brand-toggle" id="sidebar-toggle" type="button" aria-label="Minimize sidebar" aria-expanded="true" data-tooltip="Collapse navigation">
+                <span class="brand-mark" aria-hidden="true"></span>
+            </button>
+            <div class="greeting"><span>Good day,</span><strong>{{ username|capitalize }}!</strong></div>
+            <button class="icon-button drawer-close" id="drawer-close" type="button" aria-label="Close menu">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        <nav class="sidebar-nav">
+            <p class="nav-kicker">Workspace</p>
+            <a class="nav-link{% if page_name == 'Dashboard' %} active{% endif %}" href="{{ url_for('dashboard') }}" data-tooltip="Dashboard"{% if page_name == 'Dashboard' %} aria-current="page"{% endif %}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.5"/><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.5"/><rect x="14" y="14" width="6.5" height="6.5" rx="1.5"/></svg>
+                <span class="nav-label">Dashboard</span>
+            </a>
+            <a class="nav-link{% if page_name == 'Data' %} active{% endif %}" href="{{ url_for('data_page') }}" data-tooltip="Data"{% if page_name == 'Data' %} aria-current="page"{% endif %}>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M4 10h16M10 4v16"/></svg>
+                <span class="nav-label">Data</span>
+            </a>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="account-row">
+                <div class="profile-identity">
+                    <span class="profile-avatar" aria-hidden="true">{{ username[0]|upper }}</span>
+                    <span class="profile-copy"><strong>{{ username }}</strong><small>{{ role|capitalize }}</small></span>
+                </div>
+                <a class="icon-button account-logout" href="{{ url_for('logout') }}" aria-label="Log out" data-tooltip="Log out">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h5M14 8l4 4-4 4M8 12h10"/></svg>
+                </a>
+            </div>
+        </div>
+    </aside>
+
+    <header class="mobile-topbar">
+        <button class="icon-button menu-button" id="menu-button" type="button" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
+        <span class="mobile-page-title">{{ page_name }}</span>
+        <span class="mobile-brand" aria-hidden="true">H</span>
+    </header>
+
+    <main class="main-content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
