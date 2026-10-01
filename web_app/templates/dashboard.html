@@ -1,27 +1,63 @@
 {% extends "base.html" %}
-
+{% macro reading(value) %}{{ '%.2f'|format(value) if value is not none else '—' }}{% endmacro %}
 {% block content %}
-<div class="page-heading">
-    <div class="page-heading-copy"><h1>Dashboard</h1><p>Phase one: environmental data collection.</p></div>
-    <a class="button button-secondary" href="{{ url_for('dashboard') }}">Refresh</a>
-</div>
-<section class="data-panel" aria-labelledby="collection-title">
-    <div class="data-panel-heading">
-        <div class="panel-heading-copy"><h2 id="collection-title">Collection overview</h2></div>
-        <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
-    </div>
-    <div class="feedback-state{% if database_error %} feedback-error{% endif %}"{% if database_error %} role="alert"{% endif %}>
-        <div>
-            {% if database_error %}
-            <h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p>
-            {% elif total == 0 %}
-            <h3>No readings yet</h3><p>Sensor measurements will appear here after collection begins.</p>
-            <p><strong>0</strong> stored readings</p>
-            {% else %}
-            <h3>{{ total }} stored reading{% if total != 1 %}s{% endif %}</h3>
-            <p>Latest recorded measurement (UTC): {{ latest.strftime('%Y-%m-%d %H:%M:%S') if latest else 'Unavailable' }}</p>
-            {% endif %}
+<div class="dashboard-page">
+    <div class="page-heading dashboard-heading">
+        <div class="page-heading-copy"><h1>Dashboard</h1><p>Environmental readings and descriptive analytics &middot; Last 24 hours (UTC)</p></div>
+        <div class="dashboard-heading-tools">
+            <a class="button button-secondary" href="{{ url_for('dashboard', sensor=selected.column) }}">Refresh</a>
+            <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
         </div>
     </div>
-</section>
+    {% if database_error %}
+    <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
+    {% else %}
+    <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %} &middot; Latest recorded measurement (UTC): {{ latest.strftime('%Y-%m-%d %H:%M:%S') if latest else 'No readings yet' }}</p>
+    {% endif %}
+    <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
+        {% for metric in metrics %}
+        <a class="metric-card{% if selected.column == metric.column %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor=metric.column) }}"{% if selected.column == metric.column %} aria-current="true"{% endif %}>
+            <span class="metric-card-label">{{ metric.label }}</span>
+            <span class="metric-card-value"><strong>{{ reading(metric.value) }}</strong><small>{{ metric.unit }}</small></span>
+            <span class="metric-card-status">Latest stored reading</span>
+        </a>
+        {% endfor %}
+    </div>
+    <div class="dashboard-layout">
+        <section class="dashboard-panel" aria-labelledby="trend-title">
+            <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; UTC &middot; All reporting devices</p></div></div>
+            <div class="trend-chart-wrap">
+                {% if trend.points %}
+                <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="trend-description">
+                    <title id="trend-description">{{ selected.label }} hourly averages over the last 24 hours. Missing hours are gaps. Values in {{ selected.unit }}.</title>
+                    <path class="trend-axis" d="M60 25V210H760"/>
+                    <text x="52" y="35" text-anchor="end">{{ trend.high }}</text><text x="52" y="210" text-anchor="end">{{ trend.low }}</text>
+                    <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">Now (UTC)</text>
+                    {% for segment in trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
+                    {% for point in trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
+                </svg>
+                <details class="trend-values"><summary>View hourly values</summary><table><thead><tr><th>Hour (UTC)</th><th>Average ({{ selected.unit }})</th></tr></thead><tbody>{% for timestamp, value in series %}<tr><td>{{ timestamp.strftime('%Y-%m-%d %H:00') }}</td><td>{{ reading(value) }}</td></tr>{% endfor %}</tbody></table></details>
+                {% else %}
+                <div class="chart-empty-state"><strong>{{ 'Analytics unavailable' if database_error else 'No readings yet for this period' }}</strong><span>{{ selected.label }} trends will appear when readings are available.</span></div>
+                {% endif %}
+            </div>
+            <div class="dashboard-stats">
+                {% for label, value in (('Minimum', selected.minimum), ('Average', selected.average), ('Maximum', selected.maximum)) %}
+                <div class="dashboard-stat"><span>{{ label }} (24h)</span><strong>{{ reading(value) }} {{ selected.unit }}</strong></div>
+                {% endfor %}
+                <div class="dashboard-stat"><span>Valid readings (24h)</span><strong>{{ '—' if database_error else selected.count }}</strong></div>
+            </div>
+        </section>
+        <div class="dashboard-side-column">
+            <section class="dashboard-panel ai-panel" aria-labelledby="forecast-title">
+                <div class="dashboard-panel-heading"><div><h2 id="forecast-title">2-hour forecast</h2><p>Regression model &middot; Awaiting integration</p></div></div>
+                <div class="ai-body"><p>Predictions are unavailable until the custom trained model is connected. Future readings two hours ahead will be shown separately from measured data.</p></div>
+            </section>
+            <section class="dashboard-panel" aria-labelledby="analytics-notes-title">
+                <div class="dashboard-panel-heading"><h2 id="analytics-notes-title">About these analytics</h2></div>
+                <div class="ai-body"><p>Statistics summarize collected measurements, without AI interpretation. Missing values are excluded from averages. Refresh to load new readings.</p></div>
+            </section>
+        </div>
+    </div>
+</div>
 {% endblock %}

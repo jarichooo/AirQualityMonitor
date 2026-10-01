@@ -64,6 +64,20 @@ Ingestion sets its database session to UTC for future writes.
 The Python simulator uses `poultry/sensors` and UTC timestamps. ESP32 code kept
 outside version control must publish to that same topic and server address.
 
+## Planned predictive AI integration
+
+The custom regression model will be saved as `.h5` in `ai_model/`. Its inference
+script will prepare collected readings as model inputs and retrieve predictions
+for readings **two hours ahead**. Input features, lookback window, preprocessing,
+target sensors, and model runtime must be confirmed from the trained model before
+inference is implemented. Measured data and predictions must remain separate.
+The dashboard already provides descriptive analytics and an unavailable forecast
+panel; it does not generate predictions or substitute simulated values.
+
+The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
+Dashboard, Data, and export require authentication; existing sessions remain valid
+until logout or expiry.
+
 ## Reliability boundaries
 
 Malformed messages are rejected with a log entry. Each database write uses its
@@ -77,7 +91,7 @@ Offline device buffering and retry/deduplication need end-to-end testing before
 unattended collection.
 
 The dashboard summarizes stored rows, not live broker/device connectivity.
-There are no predictions, calibrated sensor drivers, or automatic chart updates.
+There are no predictions or calibrated sensor drivers. Analytics refresh manually.
 The Flask development server is used locally; deployment hardening comes later.
 
 ## Checks

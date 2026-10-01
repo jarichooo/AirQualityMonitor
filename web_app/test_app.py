@@ -1,5 +1,5 @@
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,8 +19,9 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/data").status_code, 302)
         self.login()
         with patch.object(application, "get_db_connection") as connect:
-            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value = (0, None)
-            dashboard = self.client.get("/")
+            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.side_effect = [(0, None), None, (None, None, None, 0) * 7]
+            connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
+            dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Good day", dashboard.data)
 
@@ -64,16 +65,17 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.login()
         for result, expected in (((0, None), b"No readings yet"),
-                                 ((3, datetime(2026, 10, 1, 12)), b"3 stored readings")):
+                                 ((3, datetime(2026, 10, 1, 12)), b"<strong>3</strong> stored readings")):
             with patch.object(application, "get_db_connection") as connect:
                 cursor = connect.return_value.cursor.return_value.__enter__.return_value
-                cursor.fetchone.return_value = result
-                page = self.client.get("/")
+                cursor.fetchone.side_effect = [result, None, (None, None, None, 0) * 7]
+                cursor.fetchall.return_value = []
+                page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
                 self.assertIn(expected, page.data)
                 connect.return_value.close.assert_called_once()
         with patch.object(application, "get_db_connection", side_effect=application.psycopg2.OperationalError):
-            self.assertIn(b"Collection status is unavailable", self.client.get("/").data)
+            self.assertIn(b"Collection status is unavailable", self.client.get("/dashboard").data)
 
     def test_empty_data_and_database_failure(self):
         self.login()
@@ -88,6 +90,44 @@ class AppTestCase(unittest.TestCase):
     def test_missing_login_fields_and_export_authentication(self):
         self.assertEqual(self.client.post("/login", data={}).status_code, 400)
         self.assertEqual(self.client.get("/data/export.csv").status_code, 302)
+
+    def test_root_always_opens_login_and_login_redirects_to_dashboard(self):
+        for authenticated in (False, True):
+            if authenticated:
+                self.login()
+            response = self.client.get("/", follow_redirects=True)
+            self.assertEqual(response.request.path, "/login")
+            self.assertIn(b'name="password"', response.data)
+        with patch.object(application, "get_db_connection") as connect, patch.object(application, "check_password_hash", return_value=True):
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = {"password_hash": "hash", "role": "admin"}
+            response = self.client.post("/login", data={"username": "admin", "password": "password"})
+            self.assertEqual(response.location, "/dashboard")
+        self.client.get("/logout")
+        self.assertEqual(self.client.get("/dashboard").location, "/login")
+
+    def test_analytics_and_missing_hour_gaps(self):
+        self.login()
+        start = datetime.now(timezone.utc) - timedelta(hours=24)
+        series = [(start, 30), (start + timedelta(hours=1), 32), (start + timedelta(hours=3), 31)]
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(3, start), (start, 30, None, None, None, None, None, None),
+                                          (30, 31, 32, 3) + (None, None, None, 0) * 6]
+            cursor.fetchall.return_value = series
+            page = self.client.get("/dashboard?sensor=bad")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"30.00", page.data)
+            self.assertIn(b"31.00", page.data)
+            self.assertIn(b"32.00", page.data)
+            self.assertIn(b"2-hour forecast", page.data)
+            self.assertIn(b"Awaiting integration", page.data)
+            self.assertIn(b"<polyline", page.data)
+            self.assertIn("AVG(temperature_c)", cursor.execute.call_args.args[0])
+        trend = application.build_trend(series, start)
+        self.assertEqual(len(trend["segments"]), 2)
+        self.assertEqual(len(trend["points"]), 3)
+        self.assertFalse(application.build_trend([(start, None)], start)["points"])
 
     def test_compact_numbered_pagination(self):
         self.assertEqual(application.build_pagination_items(1, 1), [1])

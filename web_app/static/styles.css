@@ -103,6 +103,16 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 
 /* Dashboard: restrained monitoring surfaces; panels intentionally have no shadows. */
 .page-dashboard .main-content { min-width: 0; }
+.collection-summary { margin: 0; color: var(--muted); font-size: 12px; }
+.metric-card { text-decoration: none; }
+.sensor-trend { width: 100%; height: auto; min-height: 220px; fill: none; stroke: none; }
+.sensor-trend text { fill: var(--muted); font: 11px system-ui, sans-serif; }
+.trend-axis { stroke: var(--border-strong); }
+.trend-line { fill: none; stroke: var(--primary); stroke-width: 2; }
+.trend-point { fill: var(--primary); stroke: var(--surface); stroke-width: 1; }
+.trend-values { padding: 8px 15px; font-size: 12px; }
+.trend-values table { width: 100%; text-align: left; }
+.page-dashboard .main-content, body.page-dashboard { height: auto; overflow: auto; }
 .dashboard-page { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 16px; }
 .dashboard-heading { align-items: center; margin-bottom: 0; }
 .dashboard-heading .page-heading-copy p { max-width: 720px; }
@@ -411,3 +421,7 @@ a.pagination-control:hover { border-color: var(--border); background: #f5f8fb; c
     .dashboard-stats { gap: 6px; padding-inline: 12px; }
     .dashboard-stat { padding-inline: 9px; }
 }
+
+/* Keep analytics and expanded hourly values reachable on shorter screens. */
+body.page-dashboard, body.page-dashboard .main-content { height: auto; overflow: auto; }
+body.page-dashboard .dashboard-page { height: auto; }

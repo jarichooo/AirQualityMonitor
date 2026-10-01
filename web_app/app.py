@@ -44,6 +44,76 @@ CSV_HEADERS = (
 )
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
+SENSORS = (
+    ("temperature_c", "Temperature", "°C"),
+    ("humidity_perc", "Humidity", "%"),
+    ("co2_ppm", "CO2", "ppm"),
+    ("nh3_ppm", "Ammonia", "ppm"),
+    ("pm25_ugm3", "PM2.5", "µg/m³"),
+    ("mq135_ppm", "MQ135", "ppm"),
+    ("mq137_ppm", "MQ137", "ppm"),
+)
+
+
+def fetch_dashboard_data(sensor):
+    """Descriptive analytics only; forecast inference will be integrated later."""
+    start = datetime.now(timezone.utc) - timedelta(hours=24)
+    with closing(get_db_connection()) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT COUNT(*), MAX(recorded_at) FROM air_quality_logs")
+            total, latest = cursor.fetchone()
+            cursor.execute(f"SELECT {', '.join(READING_COLUMNS)} FROM air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1")
+            latest_row = cursor.fetchone()
+            aggregates = ", ".join(f"MIN({col}), AVG({col}), MAX({col}), COUNT({col})" for col, _, _ in SENSORS)
+            cursor.execute(f"SELECT {aggregates} FROM air_quality_logs WHERE recorded_at >= %s AND recorded_at <= %s",
+                           (start, start + timedelta(hours=24)))
+            summary = cursor.fetchone()
+            metrics = []
+            for index, (column, label, unit) in enumerate(SENSORS):
+                low, average, high, count = summary[index * 4:index * 4 + 4]
+                metrics.append(dict(column=column, label=label, unit=unit,
+                                    value=latest_row[index + 1] if latest_row else None,
+                                    minimum=low, average=average, maximum=high, count=count))
+            # sensor is selected from SENSORS by the route, never interpolated from raw input.
+            cursor.execute(f"SELECT date_trunc('hour', recorded_at), AVG({sensor}) FROM air_quality_logs "
+                           "WHERE recorded_at >= %s AND recorded_at <= %s "
+                           "GROUP BY 1 ORDER BY 1", (start, start + timedelta(hours=24)))
+            series = cursor.fetchall()
+    return dict(total=total, latest=latest, metrics=metrics, series=series, start=start)
+
+
+def build_trend(series, start):
+    """Return SVG coordinates; break the line across missing hourly buckets."""
+    valid = [float(value) for _, value in series if value is not None and math.isfinite(float(value))]
+    if not valid:
+        return dict(segments=[], points=[], low=None, high=None)
+    low, high = min(valid), max(valid)
+    padding = (high - low) * .1 or 1
+    bottom, top = low - padding, high + padding
+    segments, points, segment = [], [], []
+    previous = None
+    for timestamp, value in series:
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if value is None or not math.isfinite(float(value)):
+            if segment:
+                segments.append(" ".join(segment))
+            segment, previous = [], None
+            continue
+        if previous is not None and timestamp - previous > timedelta(hours=1):
+            segments.append(" ".join(segment))
+            segment = []
+        # Put each hourly average at the midpoint of its actual time window.
+        midpoint = max(timestamp, start) + (min(timestamp + timedelta(hours=1), start + timedelta(hours=24)) - max(timestamp, start)) / 2
+        x = 60 + (midpoint - start).total_seconds() / 86400 * 700
+        y = 210 - (float(value) - bottom) / (top - bottom) * 180
+        point = dict(x=round(x, 2), y=round(y, 2), time=timestamp.strftime("%Y-%m-%d %H:%M UTC"), value=round(float(value), 2))
+        points.append(point)
+        segment.append(f"{point['x']},{point['y']}")
+        previous = timestamp
+    if segment:
+        segments.append(" ".join(segment))
+    return dict(segments=segments, points=points, low=round(bottom, 2), high=round(top, 2))
 
 
 def get_db_connection():
@@ -195,21 +265,28 @@ def login():
 
 
 @app.route("/")
+def index():
+    return redirect(url_for("login"))
+
+
+@app.route("/dashboard")
 @login_required
 def dashboard():
-    total = None
-    latest = None
+    sensor = request.args.get("sensor", "temperature_c")
+    if sensor not in {column for column, _, _ in SENSORS}:
+        sensor = "temperature_c"
+    data = dict(total=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
+                minimum=None, average=None, maximum=None, count=0) for c, l, u in SENSORS], series=[],
+                start=datetime.now(timezone.utc) - timedelta(hours=24))
     database_error = False
     try:
-        with closing(get_db_connection()) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("SELECT COUNT(*), MAX(recorded_at) FROM air_quality_logs")
-                total, latest = cursor.fetchone()
+        data = fetch_dashboard_data(sensor)
     except psycopg2.Error:
         app.logger.exception("Unable to load collection summary")
         database_error = True
     return render_template("dashboard.html", **shell_context("Dashboard"),
-                           total=total, latest=latest, database_error=database_error)
+                           **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
+                           trend=build_trend(data["series"], data["start"]), database_error=database_error)
 
 
 @app.route("/data")
