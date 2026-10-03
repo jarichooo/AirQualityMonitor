@@ -13,7 +13,7 @@ already contains the Python packages needed by the web app and ingestion service
 ## Initial setup: choose GitHub or SCP
 
 These steps assume Ubuntu, Docker Engine, the Compose plugin, and SSH are already
-installed. Examples use `airqualitymonitor@192.168.0.110`; change that if the
+installed. Examples use `airqualitymonitor@192.168.xxx.xxx`; change that if the
 server's username or address changes. For a fresh setup, use a destination folder
 that has no existing database. An existing running server should use the update
 instructions below instead.
