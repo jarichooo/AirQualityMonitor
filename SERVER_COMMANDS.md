@@ -10,6 +10,147 @@ cd ~/AirQualityMonitor
 Use `sudo docker` as shown if your account is not in the Docker group. Docker
 already contains the Python packages needed by the web app and ingestion service.
 
+## Initial setup: choose GitHub or SCP
+
+These steps assume Ubuntu, Docker Engine, the Compose plugin, and SSH are already
+installed. Examples use `airqualitymonitor@192.168.0.110`; change that if the
+server's username or address changes. For a fresh setup, use a destination folder
+that has no existing database. An existing running server should use the update
+instructions below instead.
+
+**Do not transfer the laptop's `db_data/`.** PostgreSQL creates a new server-local
+directory and runs `schema.sql` automatically when it starts with an empty data
+directory. A fresh database has no readings and no dashboard accounts. Docker
+builds the application images on Ubuntu; you do not need to copy images, `.git/`,
+`.test-deps/`, or Python virtual environments.
+
+### Option A: clone from GitHub on Ubuntu
+
+Before using GitHub, check the laptop repository:
+
+```powershell
+cd C:\Users\Admin\Documents\AirQualityMonitor
+git ls-files -- db_data .env
+```
+
+There should be no output. At the time these instructions were added, this
+repository still tracked `db_data/`. `.gitignore` does not stop tracking files
+that were already committed. See the [Git ignore documentation](https://git-scm.com/docs/gitignore).
+
+If `db_data/` is tracked, prepare a commit on the **laptop**, review it, then push:
+
+```powershell
+git rm -r --cached -- db_data
+git add .gitignore SERVER_COMMANDS.md
+git diff --cached --stat
+git commit -m "Stop tracking PostgreSQL runtime data and document server setup"
+git push
+```
+
+`--cached` removes files from Git's index while keeping the laptop's data on disk.
+This does not remove them from previous commits. See [Git rm documentation](https://git-scm.com/docs/git-rm).
+If `.env` is listed by the check, stop and remove it from tracking separately
+before deployment. Do not run these cleanup commands in a server's live database
+folder. Pulling a commit that deletes tracked database files can remove those
+files from another checkout.
+
+Once the GitHub branch is prepared, run on **Ubuntu**:
+
+```bash
+cd ~
+git clone https://github.com/jarichooo/AirQualityMonitor.git AirQualityMonitor
+cd ~/AirQualityMonitor
+git ls-files -- db_data .env
+```
+
+Do not start Docker if that last command lists files. Clone into a new directory;
+`git clone` will refuse an existing nonempty destination. For a private repo,
+configure GitHub SSH access or authenticate HTTPS with a token when prompted.
+Do not put a token directly into the repository URL.
+
+### Option B: copy source files with SCP from Windows
+
+Run in **PowerShell on the laptop**:
+
+```powershell
+cd C:\Users\Admin\Documents\AirQualityMonitor
+ssh airqualitymonitor@192.168.0.110 "mkdir -p ~/AirQualityMonitor"
+scp -r .\ingestion .\web_app .\airqualitymonitor .\airqualitymonitor.ino `
+  .\docker-compose.yml .\schema.sql .\mosquitto.conf .\add_users.py `
+  .\simulate_esp32.py .\README.md .\SERVER_COMMANDS.md .\.gitignore `
+  airqualitymonitor@192.168.0.110:~/AirQualityMonitor/
+```
+
+This explicit list excludes `db_data/` and `.env`. SCP does not read `.gitignore`,
+so do not copy the entire laptop folder with `scp -r .`.
+
+Then connect to **Ubuntu**:
+
+```powershell
+ssh airqualitymonitor@192.168.0.110
+```
+
+### Finish either setup method on Ubuntu
+
+Create a private session key on the server if `.env` does not already exist:
+
+```bash
+cd ~/AirQualityMonitor
+if [ ! -e .env ]; then
+  (umask 077; python3 -c "import secrets; print('FLASK_SECRET_KEY=' + secrets.token_hex(32))" > .env)
+fi
+chmod 600 .env
+grep -qE '^FLASK_SECRET_KEY=.+$' .env && echo "Session key configured"
+```
+
+The check displays no secret. If it prints nothing, configure a nonempty
+`FLASK_SECRET_KEY` before startup. Preserve an existing server key during updates.
+
+```bash
+sudo systemctl enable --now docker.service containerd.service
+sudo docker compose config --quiet
+sudo docker compose up -d --build
+sudo docker compose ps
+sudo docker compose exec web_dashboard python add_users.py admin
+```
+
+Enter and confirm the account password. Open `http://192.168.0.110:5000` on the
+laptop and log in. Account creation needs no rebuild. No host virtual environment
+is needed for Docker or account creation; it is only used for the simulator below.
+For the ESP32, configure the server's IP, port `1883`, and topic `poultry/sensors`.
+
+## Updating an existing server
+
+Keep the server's `.env` and `db_data/`. If it was copied by SCP, copy only changed
+source/configuration files, then rebuild. For a Git checkout whose database and
+secrets were never tracked, run:
+
+```bash
+cd ~/AirQualityMonitor
+git status --short
+git ls-files -- db_data .env
+```
+
+Resolve source changes first; the second command must list no files. Only then:
+
+```bash
+git pull --ff-only
+sudo docker compose up -d --build
+sudo docker compose ps
+```
+
+Do not use this pull recipe on a live checkout that tracks `db_data/`; migrating
+that checkout needs a database backup and a plan to preserve the data first.
+For existing databases, initialization scripts do not rerun on rebuild. If the
+supplied repeatable `schema.sql` needs applying, run on Ubuntu:
+
+```bash
+sudo docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality < schema.sql
+```
+
+For moving real data to another server, use a PostgreSQL dump and restore, not a
+copy of a running `db_data/` directory.
+
 ## Containers
 
 ```bash
