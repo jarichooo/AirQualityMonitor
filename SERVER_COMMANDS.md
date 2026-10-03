@@ -74,11 +74,11 @@ Run in **PowerShell on the laptop**:
 
 ```powershell
 cd C:\Users\Admin\Documents\AirQualityMonitor
-ssh airqualitymonitor@192.168.0.110 "mkdir -p ~/AirQualityMonitor"
+ssh airqualitymonitor@192.168.xxx.xxx "mkdir -p ~/AirQualityMonitor"
 scp -r .\ingestion .\web_app .\airqualitymonitor .\airqualitymonitor.ino `
   .\docker-compose.yml .\schema.sql .\mosquitto.conf .\add_users.py `
   .\simulate_esp32.py .\README.md .\SERVER_COMMANDS.md .\.gitignore `
-  airqualitymonitor@192.168.0.110:~/AirQualityMonitor/
+  airqualitymonitor@192.168.xxx.xxx:~/AirQualityMonitor/
 ```
 
 This explicit list excludes `db_data/` and `.env`. SCP does not read `.gitignore`,
@@ -87,7 +87,7 @@ so do not copy the entire laptop folder with `scp -r .`.
 Then connect to **Ubuntu**:
 
 ```powershell
-ssh airqualitymonitor@192.168.0.110
+ssh airqualitymonitor@192.168.xxx.xxx
 ```
 
 ### Finish either setup method on Ubuntu
@@ -114,7 +114,7 @@ sudo docker compose ps
 sudo docker compose exec web_dashboard python add_users.py admin
 ```
 
-Enter and confirm the account password. Open `http://192.168.0.110:5000` on the
+Enter and confirm the account password. Open `http://192.168.xxx.xxx:5000` on the
 laptop and log in. Account creation needs no rebuild. No host virtual environment
 is needed for Docker or account creation; it is only used for the simulator below.
 For the ESP32, configure the server's IP, port `1883`, and topic `poultry/sensors`.
