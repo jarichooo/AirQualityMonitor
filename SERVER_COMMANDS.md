@@ -123,9 +123,14 @@ Stop the Python simulator before collecting actual device readings.
 
 ## Updating an existing server
 
-Keep the server's `.env` and `db_data/`. If it was copied by SCP, copy only changed
-source/configuration files, then rebuild. For a Git checkout whose database and
-secrets were never tracked, run:
+Keep the server's `.env` and `db_data/`. Updating this version does **not** require
+truncating tables, deleting database files, or recreating existing accounts.
+PostgreSQL initialization scripts run only on an empty database directory, so
+rebuilding containers alone does not apply the sensor column changes.
+
+### 1. Pull source changes (skip if already pulled)
+
+For a Git checkout whose database and secrets are not tracked, run:
 
 ```bash
 cd ~/AirQualityMonitor
@@ -137,23 +142,56 @@ Resolve source changes first; the second command must list no files. Only then:
 
 ```bash
 git pull --ff-only
-sudo docker compose stop ingestion web_dashboard
-sudo docker compose up -d --wait postgres_db
 ```
 
-Do not use this pull recipe on a live checkout that tracks `db_data/`; migrating
-that checkout needs a database backup and a plan to preserve the data first.
-Stop the host simulator and pause ESP32 publishers during maintenance. For
-existing databases, initialization scripts do not rerun on rebuild. Back up
-first using the next section, then apply the repeatable schema **before**
-starting the updated ingestion/dashboard containers. Run each step only after
-the previous step succeeds:
+Do not use this pull recipe on a live checkout that tracks `db_data/`. If you
+copied source by SCP instead, copy only changed source/configuration files and
+continue with step 2. Keep database files and `.env` on the server.
+
+### 2. Initialize the pulled changes on Ubuntu
+
+Stop any simulator with Ctrl+C and pause ESP32 publishers. Run this entire block
+in the Ubuntu SSH terminal, even if you already ran `git pull`. It backs up the
+database, applies the repeatable schema, then builds and starts updated services.
+The subshell stops on the first error; do not resume publishers until it succeeds:
 
 ```bash
-sudo docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality < schema.sql
-sudo docker compose up -d --build
+(
+  set -eu
+  cd "$HOME/AirQualityMonitor"
+  sudo docker compose config --quiet
+  sudo docker compose stop ingestion web_dashboard
+  sudo docker compose up -d --wait postgres_db
+
+  mkdir -p "$HOME/airquality-backups"
+  chmod 700 "$HOME/airquality-backups"
+  backup_file="$HOME/airquality-backups/air_quality-$(date +%Y%m%d-%H%M%S).dump"
+  sudo docker exec -i postgres_db pg_dump -U admin -d air_quality -Fc -f /tmp/air_quality-update.dump
+  sudo docker exec -i postgres_db pg_restore --list /tmp/air_quality-update.dump > /dev/null
+  sudo docker cp postgres_db:/tmp/air_quality-update.dump "$backup_file"
+  chmod 600 "$backup_file"
+  echo "Backup saved: $backup_file"
+
+  sudo docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality < schema.sql
+  sudo docker compose up -d --build --wait
+)
+```
+
+If a command fails, fix the reported error before retrying the block. The schema
+is transactional and repeatable; `NOTICE: ... already exists, skipping` is normal.
+Do not delete `db_data/` to resolve an update error. Backup files include account
+password hashes and are private; the server's existing `.env` stays in place.
+
+### 3. Verify and resume collection
+
+After step 2 succeeds:
+
+```bash
+cd ~/AirQualityMonitor
 sudo docker compose ps
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d air_quality_logs"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT COUNT(*) AS readings FROM air_quality_logs;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT username, role FROM dashboard_users ORDER BY username;"
 sudo docker compose logs --tail=50 ingestion web_dashboard
 ```
 
@@ -162,11 +200,28 @@ copy of a running `db_data/` directory.
 
 The sensor migration renames `mq135_ppm`/`mq137_ppm` to `mq135_raw`/`mq137_raw`
 without converting historical values. It keeps `pm25_ugm3` and adds nullable
-`pm1_ugm3` and `pm10_ugm3`. Existing readings and login accounts remain intact;
-older rows have NULL for the new particle sizes. Verify historical MQ readings
-were raw values before training a model with them. Updated publishers should
-send `mq135_raw`, `mq137_raw`, `pm1`, `pm25`, and `pm10`. Older MQTT keys
-`mq135`/`mq137` still work as raw values. Resume publishers after verification.
+`pm1_ugm3` and `pm10_ugm3`. It also drops the retired `nh3_ppm` column and all
+NH3 values stored in it. The initialization block above creates and validates a
+PostgreSQL dump before applying this destructive column change; do not proceed
+if the dump is missing, empty, or `pg_restore --list` failed. Existing other
+readings and login accounts remain intact. Verify historical MQ readings were
+raw values before training a model with them. Updated publishers should send
+`mq135_raw`, `mq137_raw`, `pm1`, `pm25`, and `pm10`. Older MQTT keys
+`mq135`/`mq137` still work as raw values.
+
+Open `http://192.168.0.110:5000` (substitute the current server IP) and log in with
+your existing account. Check dashboard analytics, the Data page, and CSV export.
+If this is a genuinely fresh database with no accounts, create one with:
+
+```bash
+sudo docker compose exec web_dashboard python add_users.py admin
+```
+
+Changes to `airqualitymonitor.ino` must also be compiled and uploaded to the
+ESP32 from Arduino IDE; Git pulls and Docker builds do not flash the device.
+Follow [FIRMWARE.md](FIRMWARE.md), confirm WiFi/server IP settings, then resume
+the ESP32 and verify its rows using the real-device query there. Keep the
+simulator stopped when collecting real sensor data.
 
 ## Back up before maintenance
 
@@ -179,13 +234,15 @@ sudo docker compose stop ingestion web_dashboard
 mkdir -p ~/airquality-backups
 chmod 700 ~/airquality-backups
 backup_file="$HOME/airquality-backups/air_quality-$(date +%Y%m%d-%H%M%S).dump"
-(umask 077; sudo docker compose exec -T postgres_db pg_dump -U admin -d air_quality -Fc > "$backup_file")
+sudo docker exec -i postgres_db pg_dump -U admin -d air_quality -Fc -f /tmp/air_quality-manual.dump
+sudo docker exec -i postgres_db pg_restore --list /tmp/air_quality-manual.dump > /dev/null
+sudo docker cp postgres_db:/tmp/air_quality-manual.dump "$backup_file"
+chmod 600 "$backup_file"
 ```
 
 Continue only if `pg_dump` exits successfully. Validate the dump archive:
 
 ```bash
-sudo docker compose exec -T postgres_db pg_restore --list < "$backup_file" > /dev/null
 ls -lh "$backup_file"
 ```
 
@@ -334,7 +391,7 @@ At the `air_quality=#` prompt, try:
 \d air_quality_logs
 SELECT COUNT(*) FROM air_quality_logs;
 SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-       nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw
+       pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw
 FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;
 SELECT username, role FROM dashboard_users ORDER BY username;
 SELECT COUNT(*) FROM air_quality_logs
@@ -377,7 +434,7 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d dashboard_u
 
 # Count all readings and list the 10 most recent
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT COUNT(*) AS total_readings FROM air_quality_logs;"
-sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
 
 # Recent activity and a 24-hour temperature summary
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT MAX(recorded_at) AS latest_reading FROM air_quality_logs;"

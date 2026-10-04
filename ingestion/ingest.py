@@ -16,7 +16,7 @@ DB_PASS = os.environ.get("DB_PASS", "notsosecretpass")
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "mqtt_broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "poultry/sensors")
-SENSOR_KEYS = ("t", "h", "co2", "nh3", "pm1", "pm25", "pm10", "mq135_raw", "mq137_raw")
+SENSOR_KEYS = ("t", "h", "co2", "pm1", "pm25", "pm10", "mq135_raw", "mq137_raw")
 LEGACY_TIMEZONE = timezone(timedelta(hours=8))
 
 
@@ -63,8 +63,8 @@ def save_reading(reading):
                 cursor.execute("""
                     INSERT INTO air_quality_logs
                     (recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-                     nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, reading)
 
 

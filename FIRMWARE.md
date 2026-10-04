@@ -1,7 +1,8 @@
 # ESP32-S3 sensor firmware
 
-`airqualitymonitor.ino` is the hardware collector. It samples every five seconds
-and publishes JSON to Mosquitto on the Ubuntu server, topic `poultry/sensors`.
+`airqualitymonitor.ino` is the hardware collector. It samples every five seconds,
+publishes JSON to Mosquitto on the Ubuntu server, topic `poultry/sensors`, and
+broadcasts the same live sensor readings on a read-only WebSocket at port 81.
 `simulate_esp32.py` is the separate simulator; stop it before real collection.
 
 ## Wiring and stored fields
@@ -26,7 +27,8 @@ mass concentrations in µg/m³, not particle counts. The firmware continuously
 drains UART frames and omits PM readings if no valid frame arrived within 15 seconds.
 SHT31 uses address 0x44 or 0x45. Failed SHT/CO2 reads are omitted. Missing keys
 become database NULLs; -1, -999, and NaN are never used as error readings.
-`nh3_ppm` remains NULL because MQ137 raw is not calibrated ammonia ppm.
+MQ137 is reported as raw ADC counts; no calibrated ammonia concentration is
+stored.
 
 The MH-Z19E is read with the library's `getCO2(false)` (0x86 request); a
 successful response and positive concentration are required. Automatic baseline
@@ -47,6 +49,7 @@ packages (including dependencies):
 - Adafruit PM25 AQI Sensor
 - RTClib by Adafruit
 - MH-Z19 by Jonathan Dempsey (WifWaf)
+- WebSockets by Markus Sattler (Links2004 / arduinoWebSockets)
 
 Set `ssid`, `password`, and `mqtt_server` at the top of the sketch. The tracked
 sketch defaults to the previously deployed server at `192.168.0.110`; use its
@@ -68,7 +71,14 @@ settings were preserved while its sensor code was updated.
 
 Open Serial Monitor at 115200 baud. A successful connection shows
 `[MQTT] Connected`; each live reading shows `[PUBLISHED]` and its JSON. Missing
-sensors print diagnostics. The device ID comes from the ESP32 MAC address.
+sensors print diagnostics. The device ID comes from the ESP32 MAC address. The
+WebSocket server is read-only at `ws://<ESP32-IP>:81/`; the IP is printed in the
+Serial Monitor after WiFi connects. Log in to the dashboard and use the Live
+ESP32 readings panel. The dashboard and ESP32 must be reachable on the same LAN;
+enter the printed IP as `ws://<ESP32-IP>:81/` if `.local` name resolution is
+unavailable. The dashboard remembers the address. The device socket broadcasts
+readings without authentication, so keep it on a trusted LAN; it accepts no
+control commands.
 
 ## Time and buffering
 

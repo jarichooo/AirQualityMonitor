@@ -4,7 +4,7 @@
     {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
 </tr>
 {% else %}
-<tr><td class="empty-state" colspan="10">
+<tr><td class="empty-state" colspan="9">
     <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
     {% if filters.date_range != 'all' or filters.q %}
     <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>

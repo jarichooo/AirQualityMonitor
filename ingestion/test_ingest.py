@@ -26,9 +26,9 @@ class IngestionTests(unittest.TestCase):
     def test_raw_mq_and_all_particle_sizes(self):
         raw = b'{"pm1":8,"pm25":15,"pm10":22,"mq135_raw":1200,"mq137_raw":1600}'
         row = ingest.parse_reading(raw)
-        self.assertEqual(row[2:], (None, None, None, None, 8, 15, 22, 1200, 1600))
-        self.assertEqual(ingest.parse_reading(b'{"mq135":12,"mq137":32}')[9:], (12, 32))
-        self.assertEqual(ingest.parse_reading(b'{"mq135_raw":0,"mq135":99}')[9], 0)
+        self.assertEqual(row[2:], (None, None, None, 8, 15, 22, 1200, 1600))
+        self.assertEqual(ingest.parse_reading(b'{"mq135":12,"mq137":32}')[8:], (12, 32))
+        self.assertEqual(ingest.parse_reading(b'{"mq135_raw":0,"mq135":99}')[8], 0)
         for invalid in (b'{"pm1":-1}', b'{"pm10":NaN}', b'{"mq135_raw":true}', b'{"mq137_raw":"12"}'):
             with self.subTest(raw=invalid), self.assertRaises(ValueError):
                 ingest.parse_reading(invalid)
@@ -45,11 +45,11 @@ class IngestionTests(unittest.TestCase):
                    "pm10": 22, "mq135_raw": 1200.5, "mq137_raw": 1600.2}
         row = ingest.parse_reading(json.dumps(payload).encode())
         self.assertEqual(row[0], datetime(2026, 10, 4, 6, tzinfo=timezone.utc))
-        self.assertEqual(row[2:], (30.25, 68.5, 420, None, 8, 15, 22, 1200.5, 1600.2))
+        self.assertEqual(row[2:], (30.25, 68.5, 420, 8, 15, 22, 1200.5, 1600.2))
         for key in ("t", "h", "co2", "pm1", "pm25", "pm10"):
             payload.pop(key)
         self.assertEqual(ingest.parse_reading(json.dumps(payload).encode())[2:],
-                         (None, None, None, None, None, None, None, 1200.5, 1600.2))
+                         (None, None, None, None, None, None, 1200.5, 1600.2))
 
     def test_database_failure_does_not_stop_next_reading(self):
         msg = SimpleNamespace(payload=b'{"t":30}')

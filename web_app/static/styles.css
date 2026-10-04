@@ -127,6 +127,14 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .freshness-copy small { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .dashboard-range-field { width: 164px; flex: 0 0 164px; }
 .dashboard-metrics { display: grid; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.device-live-panel { display: grid; gap: 14px; }
+.device-live-heading { padding: 0; }
+.device-live-status { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.device-connect-form { display: flex; align-items: flex-end; gap: 10px; }
+.device-connect-form .field { width: min(100%, 420px); }
+.device-connect-form input { min-height: 40px; }
+.device-live-time { margin: -4px 0 0; color: var(--muted); font-size: 11px; }
+.live-sensor-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .metric-card { display: grid; min-width: 0; min-height: 92px; align-content: space-between; gap: 8px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); cursor: pointer; text-align: left; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; }
 .metric-card:hover { border-color: #b8c9d9; background: #fbfdff; }
 .metric-card.is-selected { border-color: var(--primary); background: #f3f9fe; }
@@ -405,6 +413,7 @@ a.pagination-control:hover { border-color: var(--border); background: #f5f8fb; c
     .dashboard-freshness { min-width: 0; flex: 1 1 auto; }
     .dashboard-range-field { width: min(164px, 48vw); flex: 0 1 164px; }
     .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .live-sensor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .metric-card { min-height: 88px; padding: 12px 13px; }
     .metric-card-value strong { font-size: 20px; }
     .dashboard-panel-heading { padding-inline: 15px; }

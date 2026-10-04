@@ -1,5 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <WebSocketsServer.h>
+#include <ESPmDNS.h>
 #include <Wire.h>
 #include <RTClib.h>
 #include <Adafruit_SHT31.h>
@@ -35,6 +37,7 @@ const size_t MAX_CACHE_SIZE = 120;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
+WebSocketsServer webSocket(81);
 Adafruit_SHT31 sht;
 TwoWire I2C_RTC(1);
 RTC_DS3231 rtc;
@@ -48,6 +51,9 @@ bool shtOnline = false;
 bool rtcOnline = false;
 bool rtcSynced = false;
 bool pmsInitialized = false;
+bool mdnsStarted = false;
+bool mdnsAttempted = false;
+bool webSocketStarted = false;
 bool havePms = false;
 unsigned long lastPmsTime = 0;
 unsigned long lastReadTime = 0;
@@ -173,15 +179,29 @@ void setup() {
 void loop() {
   pollPms();
   unsigned long now = millis();
+  if (webSocketStarted) webSocket.loop();
   if (WiFi.status() != WL_CONNECTED) {
     if (now - lastWifiAttempt >= 10000) {
       lastWifiAttempt = now;
       WiFi.reconnect();
     }
-  } else if (!client.connected() && now - lastMqttAttempt >= 5000) {
-    lastMqttAttempt = now;
-    if (client.connect(deviceId.c_str())) Serial.println("[MQTT] Connected");
-    else Serial.printf("[MQTT] Connect failed (%d)\n", client.state());
+  } else {
+    if (!webSocketStarted) {
+      webSocket.begin();
+      webSocketStarted = true;
+    }
+    if (!mdnsAttempted) {
+      mdnsAttempted = true;
+      mdnsStarted = MDNS.begin("airqualitymonitor");
+      String address = WiFi.localIP().toString();
+      Serial.printf("[DEVICE] IP %s; WebSocket ws://%s:81/\n", address.c_str(),
+                    mdnsStarted ? "airqualitymonitor.local" : address.c_str());
+    }
+    if (!client.connected() && now - lastMqttAttempt >= 5000) {
+      lastMqttAttempt = now;
+      if (client.connect(deviceId.c_str())) Serial.println("[MQTT] Connected");
+      else Serial.printf("[MQTT] Connect failed (%d)\n", client.state());
+    }
   }
   if (client.connected()) {
     client.loop();
@@ -196,6 +216,7 @@ void loop() {
   bool hasTimestamp = readSensors(doc);
   String payload;
   serializeJson(doc, payload);
+  webSocket.broadcastTXT(payload);
   if (client.connected() && offlineCache.empty() && client.publish(MQTT_TOPIC, payload.c_str())) {
     Serial.print("[PUBLISHED] ");
     Serial.println(payload);

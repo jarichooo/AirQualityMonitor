@@ -1,4 +1,4 @@
--- Repeatable setup and migration; existing tables and readings are preserved.
+-- Repeatable setup and migration; existing readings are preserved except retired NH3.
 BEGIN;
 CREATE TABLE IF NOT EXISTS air_quality_logs (
     id BIGSERIAL PRIMARY KEY,
@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS air_quality_logs (
     temperature_c DOUBLE PRECISION,
     humidity_perc DOUBLE PRECISION,
     co2_ppm DOUBLE PRECISION,
-    nh3_ppm DOUBLE PRECISION,
     pm1_ugm3 DOUBLE PRECISION,
     pm25_ugm3 DOUBLE PRECISION,
     pm10_ugm3 DOUBLE PRECISION,
@@ -30,6 +29,8 @@ END;
 $$;
 ALTER TABLE air_quality_logs ADD COLUMN IF NOT EXISTS pm1_ugm3 DOUBLE PRECISION;
 ALTER TABLE air_quality_logs ADD COLUMN IF NOT EXISTS pm10_ugm3 DOUBLE PRECISION;
+-- This also deletes any stored NH3 values. Export/backup them before applying if needed.
+ALTER TABLE air_quality_logs DROP COLUMN IF EXISTS nh3_ppm;
 CREATE INDEX IF NOT EXISTS air_quality_logs_recorded_at_idx ON air_quality_logs (recorded_at DESC);
 
 CREATE TABLE IF NOT EXISTS dashboard_users (

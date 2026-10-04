@@ -21,13 +21,13 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/data").status_code, 302)
         self.login()
         with patch.object(application, "get_db_connection") as connect:
-            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.side_effect = [(0, None), None, (None, None, None, 0) * 9]
+            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.side_effect = [(0, None), None, (None, None, None, 0) * 8]
             connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
             dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Good day", dashboard.data)
 
-        row = (datetime(2026, 9, 27, 5, 50, 25, tzinfo=timezone.utc), 31.5, 68, 420, None, 8.0, 15.2, 22.0, 12, 32)
+        row = (datetime(2026, 9, 27, 5, 50, 25, tzinfo=timezone.utc), 31.5, 68, 420, 8.0, 15.2, 22.0, 12, 32)
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
             page = self.client.get("/data?date_range=all&per_page=25")
             self.assertEqual(page.status_code, 200)
@@ -75,7 +75,7 @@ class AppTestCase(unittest.TestCase):
                                  ((3, datetime(2026, 10, 1, 12)), b"<strong>3</strong> stored readings")):
             with patch.object(application, "get_db_connection") as connect:
                 cursor = connect.return_value.cursor.return_value.__enter__.return_value
-                cursor.fetchone.side_effect = [result, None, (None, None, None, 0) * 9]
+                cursor.fetchone.side_effect = [result, None, (None, None, None, 0) * 8]
                 cursor.fetchall.return_value = []
                 page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
@@ -119,8 +119,8 @@ class AppTestCase(unittest.TestCase):
         series = [(start, 30), (start + timedelta(hours=1), 32), (start + timedelta(hours=3), 31)]
         with patch.object(application, "get_db_connection") as connect:
             cursor = connect.return_value.cursor.return_value.__enter__.return_value
-            cursor.fetchone.side_effect = [(3, start), (start, 30) + (None,) * 8,
-                                          (30, 31, 32, 3) + (None, None, None, 0) * 8]
+            cursor.fetchone.side_effect = [(3, start), (start, 30) + (None,) * 7,
+                                          (30, 31, 32, 3) + (None, None, None, 0) * 7]
             cursor.fetchall.return_value = series
             page = self.client.get("/dashboard?sensor=bad")
             self.assertEqual(page.status_code, 200)

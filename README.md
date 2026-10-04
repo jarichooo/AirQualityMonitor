@@ -9,7 +9,9 @@ started; there is no predictive AI.
 ESP32 or an optional Python simulator publishes JSON to `poultry/sensors`.
 Mosquitto receives it; Python ingestion validates and stores readings in
 PostgreSQL. The authenticated Flask website shows a collection summary and
-a searchable, paginated Data page with date filters and CSV export.
+a searchable, paginated Data page with date filters and CSV export. The logged-in
+dashboard can also connect directly to the ESP32's read-only WebSocket for live
+sensor values; MQTT remains the path used to store readings in PostgreSQL.
 
 Sensors: SHT31 temperature/humidity, MH-Z19E CO2, MQ135/MQ137 raw signals,
 and PM1.0, PM2.5, PM10 mass concentrations in µg/m³.
@@ -61,8 +63,6 @@ Use one JSON object per MQTT message:
   [Winsen lists MQ135 as an air-quality sensor](https://www.winsen-sensor.com/sensors/voc-sensor/mq135.html)
   for ammonia, sulfide, and benzene vapors; do not label its raw signal as a
   methane concentration.
-- `nh3` / `nh3_ppm` remains optional for independently calibrated ammonia ppm;
-  it is not calculated from MQ137 raw. Simulators leave this value missing.
 - Values must be finite numbers. Humidity is 0–100; gas and particulate
   readings cannot be negative. Booleans and numeric strings are rejected.
 - `device_id` is optional and at most 100 characters.
@@ -97,6 +97,11 @@ target sensors, and model runtime must be confirmed from the trained model befor
 inference is implemented. Measured data and predictions must remain separate.
 The dashboard already provides descriptive analytics and an unavailable forecast
 panel; it does not generate predictions or substitute simulated values.
+
+Applying `schema.sql` removes the obsolete `nh3_ppm` column and its historical
+values. Back up the database before the migration if those values might be
+needed. MQ137 continues to be stored as raw ADC counts; no ammonia concentration
+is inferred from that sensor.
 
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
 Dashboard, Data, and export require authentication; existing sessions remain valid

@@ -27,7 +27,6 @@ READING_COLUMNS = (
     "temperature_c",
     "humidity_perc",
     "co2_ppm",
-    "nh3_ppm",
     "pm1_ugm3",
     "pm25_ugm3",
     "pm10_ugm3",
@@ -39,7 +38,6 @@ CSV_HEADERS = (
     "Temp (°C)",
     "Humidity (%)",
     "CO2 (ppm)",
-    "NH3 (ppm)",
     "PM1.0 (µg/m³)",
     "PM2.5 (µg/m³)",
     "PM10 (µg/m³)",
@@ -52,10 +50,19 @@ SENSORS = (
     ("temperature_c", "Temperature", "°C"),
     ("humidity_perc", "Humidity", "%"),
     ("co2_ppm", "CO2", "ppm"),
-    ("nh3_ppm", "Ammonia", "ppm"),
     ("pm1_ugm3", "PM1.0", "µg/m³"),
     ("pm25_ugm3", "PM2.5", "µg/m³"),
     ("pm10_ugm3", "PM10", "µg/m³"),
+    ("mq135_raw", "MQ135", "raw"),
+    ("mq137_raw", "MQ137", "raw"),
+)
+LIVE_SENSORS = (
+    ("t", "Temperature", "°C"),
+    ("h", "Humidity", "%"),
+    ("co2", "CO₂", "ppm"),
+    ("pm1", "PM1.0", "µg/m³"),
+    ("pm25", "PM2.5", "µg/m³"),
+    ("pm10", "PM10", "µg/m³"),
     ("mq135_raw", "MQ135", "raw"),
     ("mq137_raw", "MQ137", "raw"),
 )
@@ -292,7 +299,8 @@ def dashboard():
         database_error = True
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
-                           trend=build_trend(data["series"], data["start"]), database_error=database_error)
+                           trend=build_trend(data["series"], data["start"]), database_error=database_error,
+                           live_sensors=LIVE_SENSORS)
 
 
 @app.route("/data")

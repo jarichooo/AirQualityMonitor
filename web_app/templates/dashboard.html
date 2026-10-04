@@ -14,6 +14,28 @@
     {% else %}
     <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %} &middot; Latest recorded measurement (UTC): {{ latest.strftime('%Y-%m-%d %H:%M:%S') if latest else 'No readings yet' }}</p>
     {% endif %}
+    <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
+        <div class="dashboard-panel-heading device-live-heading">
+            <div><h2 id="device-live-title">Live ESP32 readings</h2><p>Direct from the sensor device &middot; refreshes as readings arrive</p></div>
+            <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status">Not connected</span></div>
+        </div>
+        <form class="device-connect-form" id="device-connect-form">
+            <label class="field" for="device-websocket-url"><span>ESP32 WebSocket address</span>
+                <input id="device-websocket-url" name="device-websocket-url" type="url" value="ws://airqualitymonitor.local:81/" required autocomplete="url" spellcheck="false">
+            </label>
+            <button class="button button-primary" type="submit">Connect</button>
+        </form>
+        <p class="device-live-time">Latest device message: <time id="device-live-time">Waiting for readings</time></p>
+        <div class="dashboard-metrics live-sensor-grid" aria-label="Live ESP32 sensor readings">
+            {% for key, label, unit in live_sensors %}
+            <div class="metric-card">
+                <span class="metric-card-label">{{ label }}</span>
+                <span class="metric-card-value"><strong data-live-sensor="{{ key }}">—</strong><small>{{ unit }}</small></span>
+                <span class="metric-card-status" data-live-valid="{{ key }}">Waiting for sensor data</span>
+            </div>
+            {% endfor %}
+        </div>
+    </section>
     <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
         {% for metric in metrics %}
         <a class="metric-card{% if selected.column == metric.column %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor=metric.column) }}"{% if selected.column == metric.column %} aria-current="true"{% endif %}>
@@ -61,3 +83,4 @@
     </div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js') }}" defer></script>{% endblock %}

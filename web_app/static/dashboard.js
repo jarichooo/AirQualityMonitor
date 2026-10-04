@@ -8,7 +8,7 @@
     let data = JSON.parse(dataNode.textContent);
     const metricConfig = JSON.parse(configNode.textContent);
     const rangeLabels = { "1h": "Last 1 hour", "6h": "Last 6 hours", "24h": "Last 24 hours", "7d": "Last 7 days" };
-    let selectedMetric = "nh3_ppm";
+    let selectedMetric = Object.keys(metricConfig)[0];
     let chart = null;
     let requestController = null;
     let requestGeneration = 0;
@@ -73,8 +73,8 @@
             }[overall] || "Unavailable");
         }
         setText("#overall-assessment-copy", ({
-            attention: "The latest NH3 reading is above the configured 25 ppm threshold.",
-            within_range: "The latest NH3 reading is within the configured 25 ppm threshold.",
+            attention: "The latest reading is above its configured threshold.",
+            within_range: "The latest reading is within its configured threshold.",
             unclassified: "A configured threshold is not available for the current reading.",
             unavailable: "No current reading is available.",
         }[overall] || "No current reading is available."));
@@ -107,7 +107,7 @@
             const title = document.createElement("strong");
             title.textContent = "No threshold exceedances";
             const copy = document.createElement("span");
-            copy.textContent = "No NH3 reading exceeded 25 ppm during this period.";
+            copy.textContent = "No sensor reading exceeded its configured threshold during this period.";
             empty.append(title, copy);
             container.append(empty);
             setText("#assessment-recommendation", "No rule-based action is currently required.");
