@@ -83,6 +83,13 @@ enter the printed IP as `ws://<ESP32-IP>:81/` if `.local` name resolution is
 unavailable. The dashboard remembers the address. The device socket broadcasts
 readings and accepts pause/resume commands without authentication, so keep it
 on a trusted LAN. Pausing holds queued MQTT readings on the ESP32 until resumed.
+The dashboard shows Pausing/Resuming while waiting, then Running/Paused only
+after the device acknowledges. An eight-second timeout means control was not
+confirmed; reconnect and check that this sketch was uploaded. A container
+rebuild does not update ESP32 firmware. Pause state is saved on the ESP32 and
+restored after a reboot. Serial Monitor logs `[COLLECTION] Paused` or `Running`
+when commands change the state. The button controls this device; other MQTT
+publishers (including `simulate_esp32.py`) must be stopped separately.
 
 ## Time and buffering
 

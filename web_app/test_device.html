@@ -1,0 +1,74 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>ESP32 pause control regression check</title>
+<div data-device-socket>
+  <form id="device-connect-form"><input id="device-websocket-url" value="ws://localhost:81/"></form>
+  <span id="device-live-status"></span><span id="device-live-dot"></span>
+  <time id="device-live-time"></time><span data-live-sensor="t"></span>
+  <button id="device-pause-toggle" disabled>Pause readings</button>
+  <strong id="device-collection-state"></strong><p id="device-collection-help"></p>
+</div>
+<output id="result">Checking…</output>
+<script>
+// Open this file in a browser. No ESP32 or server is needed.
+const sockets = [], timers = new Map();
+let timerId = 0;
+window.setTimeout = (callback, delay) => { timers.set(++timerId, { callback, delay }); return timerId; };
+window.clearTimeout = (id) => timers.delete(id);
+window.WebSocket = class extends EventTarget {
+    static OPEN = 1;
+    constructor() { super(); this.sent = []; this.readyState = 0; sockets.push(this); }
+    send(value) { this.sent.push(value); }
+    open() { this.readyState = 1; this.dispatchEvent(new Event("open")); }
+    message(value) { this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(value) })); }
+    close() { this.readyState = 3; }
+    disconnect() { this.close(); this.dispatchEvent(new Event("close")); }
+};
+</script>
+<script src="static/device.js"></script>
+<script>
+try {
+    const button = document.querySelector("#device-pause-toggle");
+    const state = document.querySelector("#device-collection-state");
+    const help = document.querySelector("#device-collection-help");
+    const check = (condition, message) => { if (!condition) throw new Error(message); };
+    const expire = (delay) => {
+        const entry = [...timers].find(([, timer]) => timer.delay === delay);
+        check(entry, "Expected timer"); timers.delete(entry[0]); entry[1].callback();
+    };
+    const ws = sockets[0];
+    check(button.disabled && state.dataset.state === "unknown", "Cannot control before connection");
+    ws.open();
+    check(ws.sent.at(-1) === "STATUS", "Query the device on connection");
+    ws.message({ type: "control", paused: false });
+    check(!button.disabled && state.dataset.state === "running", "Confirm running");
+    button.click();
+    check(ws.sent.at(-1) === "PAUSE" && button.disabled && button.textContent.includes("Pausing"), "Send pause with progress");
+    check(state.dataset.state === "running", "Do not claim pause before acknowledgement");
+    ws.message({ type: "control", paused: true });
+    check(state.dataset.state === "paused" && button.textContent === "Resume readings", "Confirm pause");
+    ws.message({ t: 30 });
+    check(state.dataset.state === "unknown" && help.textContent.includes("after confirming pause"), "Detect a device still transmitting");
+    ws.message({ type: "control", paused: true });
+    button.click();
+    check(ws.sent.at(-1) === "RESUME" && button.textContent.includes("Resuming"), "Send resume");
+    expire(8000);
+    check(button.disabled && state.dataset.state === "unknown" && help.textContent.includes("did not confirm"), "Timeout must not claim success");
+    ws.message({ type: "control", paused: false });
+    ws.message({ t: 31 });
+    check(state.dataset.state === "running", "Late acknowledgement recovers and telemetry preserves state");
+    ws.message({ type: "control", paused: "false" });
+    check(state.dataset.state === "running", "Reject invalid status");
+    ws.disconnect();
+    check(button.disabled && state.dataset.state === "unknown", "Disconnect clears stale state");
+    expire(1000);
+    ws.message({ type: "control", paused: true });
+    check(state.dataset.state === "unknown", "Ignore old socket events");
+    sockets[1].open();
+    expire(8000);
+    check(help.textContent.includes("updated Arduino sketch"), "Explain missing firmware support");
+    document.querySelector("#result").textContent = "PASS: pause, resume, acknowledgement, timeout, reconnect, and stale-state checks";
+} catch (error) {
+    document.querySelector("#result").textContent = `FAIL: ${error.message}`;
+}
+</script>

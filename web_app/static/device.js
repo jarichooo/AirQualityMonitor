@@ -9,12 +9,41 @@
     const time = document.querySelector("#device-live-time");
     const fields = [...document.querySelectorAll("[data-live-sensor]")];
     const pauseButton = document.querySelector("#device-pause-toggle");
+    const collectionState = document.querySelector("#device-collection-state");
+    const collectionHelp = document.querySelector("#device-collection-help");
     const storageKey = "henvironment-esp32-websocket";
     let socket;
     let reconnectTimer;
     let reconnectDelay = 1000;
     let manuallyClosed = false;
     let readingsPaused = null;
+    let controlTimer;
+
+    const unknownControl = (message) => {
+        clearTimeout(controlTimer);
+        readingsPaused = null;
+        pauseButton.disabled = true;
+        pauseButton.textContent = "Control unavailable";
+        pauseButton.removeAttribute("aria-pressed");
+        collectionState.textContent = "Collection status unknown";
+        collectionState.dataset.state = "unknown";
+        collectionHelp.textContent = message;
+    };
+
+    const sendControl = (command) => {
+        clearTimeout(controlTimer);
+        pauseButton.disabled = true;
+        pauseButton.textContent = command === "PAUSE" ? "Pausing…" : command === "RESUME" ? "Resuming…" : "Checking ESP32…";
+        collectionHelp.textContent = "Waiting for the ESP32 to confirm. Collection has not changed until confirmed.";
+        controlTimer = setTimeout(() => {
+            unknownControl("ESP32 did not confirm the command. Click Connect to retry; upload the updated Arduino sketch if control remains unavailable.");
+        }, 8000);
+        try {
+            socket.send(command);
+        } catch (_) {
+            unknownControl("Could not send the command. Reconnect to the ESP32.");
+        }
+    };
 
     try {
         address.value = localStorage.getItem(storageKey) || address.value;
@@ -33,9 +62,17 @@
     };
 
     const renderControl = (message) => {
-        readingsPaused = message.paused === true;
+        if (typeof message.paused !== "boolean") throw new Error("Invalid collection status");
+        clearTimeout(controlTimer);
+        readingsPaused = message.paused;
         pauseButton.disabled = false;
         pauseButton.textContent = readingsPaused ? "Resume readings" : "Pause readings";
+        pauseButton.setAttribute("aria-pressed", String(readingsPaused));
+        collectionState.textContent = readingsPaused ? "Paused — ESP32 confirmed" : "Running — ESP32 confirmed";
+        collectionState.dataset.state = readingsPaused ? "paused" : "running";
+        collectionHelp.textContent = readingsPaused
+            ? "MQTT uploads and live readings are stopped. Click Resume readings to continue."
+            : "The ESP32 sends a new reading every minute. Pause stops uploads from this device.";
         showStatus(readingsPaused ? "Connected · Readings paused" : "Connected · Sending every minute", "is-current");
     };
 
@@ -52,6 +89,9 @@
         });
         const date = reading.ts ? new Date(reading.ts) : new Date();
         time.textContent = Number.isNaN(date.getTime()) ? "Invalid device timestamp" : date.toLocaleString();
+        if (readingsPaused === true) {
+            unknownControl("The ESP32 sent a reading after confirming pause. Reconnect and check that the updated sketch is flashed on this device.");
+        }
         showStatus(`Connected${reading.device_id ? ` · ${reading.device_id}` : ""}`, "is-current");
     };
 
@@ -73,13 +113,14 @@
             // A failed preference save does not prevent a connection.
         }
         socket?.close();
+        unknownControl("Connecting to the ESP32; waiting for its collection status.");
         showStatus(`Connecting to ${endpoint.host}`, "is-delayed");
         const connection = new WebSocket(endpoint.href);
         socket = connection;
         connection.addEventListener("open", () => {
             if (socket !== connection) return;
             reconnectDelay = 1000;
-            connection.send("STATUS");
+            sendControl("STATUS");
             showStatus("Connected; waiting for a sensor reading", "is-current");
         });
         connection.addEventListener("message", (event) => {
@@ -97,8 +138,7 @@
         });
         connection.addEventListener("close", () => {
             if (socket !== connection || manuallyClosed) return;
-            readingsPaused = null;
-            pauseButton.disabled = true;
+            unknownControl("ESP32 disconnected. Its collection status cannot be confirmed.");
             showStatus("Disconnected; reconnecting", "is-unavailable");
             reconnectTimer = setTimeout(connect, reconnectDelay);
             reconnectDelay = Math.min(reconnectDelay * 2, 15000);
@@ -111,12 +151,12 @@
     });
     pauseButton.addEventListener("click", () => {
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
-        pauseButton.disabled = true;
-        socket.send(readingsPaused ? "RESUME" : "PAUSE");
+        sendControl(readingsPaused ? "RESUME" : "PAUSE");
     });
     window.addEventListener("pagehide", () => {
         manuallyClosed = true;
         clearTimeout(reconnectTimer);
+        clearTimeout(controlTimer);
         socket?.close();
     });
     connect();

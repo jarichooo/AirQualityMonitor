@@ -25,7 +25,11 @@
             </label>
             <button class="button button-primary" type="submit">Connect</button>
         </form>
-        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Pause readings</button>
+        <div class="device-collection-controls">
+            <button class="button button-secondary" id="device-pause-toggle" type="button" aria-describedby="device-collection-help" disabled>Waiting for ESP32</button>
+            <strong id="device-collection-state" class="device-collection-state" data-state="unknown" role="status" aria-live="polite">Collection status unknown</strong>
+        </div>
+        <p id="device-collection-help" class="device-live-time" role="status">Connect to the ESP32 to control collection.</p>
         <p class="device-live-time">Latest device message: <time id="device-live-time">Waiting for readings</time></p>
         <div class="dashboard-metrics live-sensor-grid" aria-label="Live ESP32 sensor readings">
             {% for key, label, unit in live_sensors %}
@@ -84,4 +88,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='pause-feedback-2') }}" defer></script>{% endblock %}

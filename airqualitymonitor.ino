@@ -1,6 +1,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <WebSocketsServer.h>
+#include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Wire.h>
 #include <RTClib.h>
@@ -43,6 +44,8 @@ const size_t MAX_CACHE_SIZE = 120;
 WiFiClient espClient;
 PubSubClient client(espClient);
 WebSocketsServer webSocket(81);
+Preferences collectionSettings;
+bool collectionSettingsReady = false;
 Adafruit_SHT31 sht;
 TwoWire I2C_RTC(1);
 RTC_DS3231 rtc;
@@ -69,15 +72,26 @@ String deviceId;
 // ponytail: RAM-only buffer, lost on reset; use persistent storage for longer outages.
 std::vector<String> offlineCache;
 
-void webSocketEvent(uint8_t, WStype_t type, uint8_t* payload, size_t length) {
-  if (type != WStype_TEXT || length > 16) return;
-  if (length == 5 && memcmp(payload, "PAUSE", 5) == 0) readingsPaused = true;
-  else if (length == 6 && memcmp(payload, "RESUME", 6) == 0) readingsPaused = false;
-  else if (!(length == 6 && memcmp(payload, "STATUS", 6) == 0)) return;
+void webSocketEvent(uint8_t clientNumber, WStype_t type, uint8_t* payload, size_t length) {
+  bool wasPaused = readingsPaused;
+  if (type == WStype_TEXT && length <= 16) {
+    if (length == 5 && memcmp(payload, "PAUSE", 5) == 0) readingsPaused = true;
+    else if (length == 6 && memcmp(payload, "RESUME", 6) == 0) readingsPaused = false;
+    else if (!(length == 6 && memcmp(payload, "STATUS", 6) == 0)) return;
+  } else if (type != WStype_CONNECTED) return;
 
-  webSocket.broadcastTXT(readingsPaused
+  String status = readingsPaused
       ? "{\"type\":\"control\",\"paused\":true}"
-      : "{\"type\":\"control\",\"paused\":false}");
+      : "{\"type\":\"control\",\"paused\":false}";
+  if (wasPaused != readingsPaused) {
+    if (collectionSettingsReady && collectionSettings.putBool("paused", readingsPaused) == 0) {
+      Serial.println("[COLLECTION] Pause state active but could not save it for reboot");
+    }
+    Serial.printf("[COLLECTION] %s\n", readingsPaused ? "Paused" : "Running");
+    webSocket.broadcastTXT(status);
+  } else {
+    webSocket.sendTXT(clientNumber, status);
+  }
 }
 
 void pollPms() {
@@ -165,6 +179,10 @@ bool readSensors(JsonDocument& doc) {
 
 void setup() {
   Serial.begin(115200);
+  collectionSettingsReady = collectionSettings.begin("collection", false);
+  if (collectionSettingsReady) readingsPaused = collectionSettings.getBool("paused", false);
+  else Serial.println("[COLLECTION] Cannot persist pause state");
+  Serial.printf("[COLLECTION] Boot: %s\n", readingsPaused ? "Paused" : "Running");
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
   Wire.begin(SHT_SDA, SHT_SCL);
