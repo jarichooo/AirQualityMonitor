@@ -12,10 +12,14 @@
 #include <time.h>
 #include <vector>
 
-// Set these for the WiFi network and Ubuntu server, not the laptop.
+// Configure these addresses for your router's LAN; reserve local_IP for this ESP32.
 const char* ssid = "Henvironment";
 const char* password = "notsosecretpass";
-const char* mqtt_server = "192.168.0.110";
+const char* mqtt_server = "192.168.11.50";
+IPAddress local_IP(192, 168, 11, 55);
+IPAddress gateway(192, 168, 11, 1);
+IPAddress subnet(255, 255, 255, 0);
+IPAddress primaryDNS(192, 168, 11, 1);
 const int mqtt_port = 1883;
 const char* MQTT_TOPIC = "poultry/sensors";
 
@@ -165,6 +169,9 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
+  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS)) {
+    Serial.println("[WiFi] Static IP configuration failed");
+  }
   WiFi.begin(ssid, password);
   lastWifiAttempt = millis();
   deviceId = "esp32-" + WiFi.macAddress();

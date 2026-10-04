@@ -51,10 +51,13 @@ packages (including dependencies):
 - MH-Z19 by Jonathan Dempsey (WifWaf)
 - WebSockets by Markus Sattler (Links2004 / arduinoWebSockets)
 
-Set `ssid`, `password`, and `mqtt_server` at the top of the sketch. The tracked
-sketch defaults to the previously deployed server at `192.168.0.110`; use its
-current LAN IP. Port is 1883. WiFi station mode connects to your router; this
-collector does not create the test code's access point or device web page.
+Set `ssid`, `password`, `mqtt_server`, and the `local_IP`, `gateway`, `subnet`,
+and `primaryDNS` addresses at the top of the sketch to match your router's LAN.
+The current defaults assume server `192.168.11.50`, ESP32 `192.168.11.51`, and
+router/DNS `192.168.11.1` on a `/24` subnet. Confirm the gateway and subnet in
+your router, and reserve the ESP32 address there (or confirm it is outside the
+DHCP pool) to prevent an address conflict. MQTT uses port 1883. WiFi station
+mode connects to your router; this collector does not create an access point.
 
 Arduino requires a sketch folder matching the `.ino` name. From PowerShell:
 
