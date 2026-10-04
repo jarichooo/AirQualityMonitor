@@ -38,6 +38,19 @@ class IngestionTests(unittest.TestCase):
             self.assertIn("pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw", query)
             self.assertEqual(query.count("%s"), len(values))
 
+    def test_sensor_device_payload_and_failed_sensors(self):
+        # A real device omits failed sensors instead of sending -1/-999 sentinels.
+        payload = {"device_id": "esp32-AABBCCDDEEFF", "ts": "2026-10-04T14:00:00+08:00",
+                   "t": 30.25, "h": 68.5, "co2": 420, "pm1": 8, "pm25": 15,
+                   "pm10": 22, "mq135_raw": 1200.5, "mq137_raw": 1600.2}
+        row = ingest.parse_reading(json.dumps(payload).encode())
+        self.assertEqual(row[0], datetime(2026, 10, 4, 6, tzinfo=timezone.utc))
+        self.assertEqual(row[2:], (30.25, 68.5, 420, None, 8, 15, 22, 1200.5, 1600.2))
+        for key in ("t", "h", "co2", "pm1", "pm25", "pm10"):
+            payload.pop(key)
+        self.assertEqual(ingest.parse_reading(json.dumps(payload).encode())[2:],
+                         (None, None, None, None, None, None, None, 1200.5, 1600.2))
+
     def test_database_failure_does_not_stop_next_reading(self):
         msg = SimpleNamespace(payload=b'{"t":30}')
         with patch.object(ingest, "save_reading", side_effect=[psycopg2.OperationalError("offline"), None]) as save:

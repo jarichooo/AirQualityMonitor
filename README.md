@@ -83,8 +83,10 @@ for training. Existing rows have NULL for the newly added particle sizes.
 See [SERVER_COMMANDS.md](SERVER_COMMANDS.md) for updates, backups, truncation,
 and a separate full database reset procedure.
 
-The Python simulator uses `poultry/sensors` and UTC timestamps. ESP32 code kept
-outside version control must publish to that same topic and server address.
+`airqualitymonitor.ino` reads the connected hardware; it generates no simulated
+values. See [FIRMWARE.md](FIRMWARE.md) for pins, Arduino libraries, flashing, and
+verification on Ubuntu. `simulate_esp32.py` remains the optional test simulator;
+stop it before collecting real readings.
 
 ## Planned predictive AI integration
 
@@ -113,7 +115,7 @@ Offline device buffering and retry/deduplication need end-to-end testing before
 unattended collection.
 
 The dashboard summarizes stored rows, not live broker/device connectivity.
-There are no predictions or calibrated sensor drivers. Analytics refresh manually.
+There are no predictions or calibrated MQ gas conversions. Analytics refresh manually.
 The Flask development server is used locally; deployment hardening comes later.
 
 ## Checks

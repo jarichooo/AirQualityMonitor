@@ -77,7 +77,7 @@ cd C:\Users\Admin\Documents\AirQualityMonitor
 ssh airqualitymonitor@192.168.xxx.xxx "mkdir -p ~/AirQualityMonitor"
 scp -r .\ingestion .\web_app .\airqualitymonitor .\airqualitymonitor.ino `
   .\docker-compose.yml .\schema.sql .\mosquitto.conf .\add_users.py `
-  .\simulate_esp32.py .\README.md .\SERVER_COMMANDS.md .\.gitignore `
+  .\simulate_esp32.py .\README.md .\FIRMWARE.md .\SERVER_COMMANDS.md .\.gitignore `
   airqualitymonitor@192.168.xxx.xxx:~/AirQualityMonitor/
 ```
 
@@ -118,6 +118,8 @@ Enter and confirm the account password. Open `http://192.168.xxx.xxx:5000` on th
 laptop and log in. Account creation needs no rebuild. No host virtual environment
 is needed for Docker or account creation; it is only used for the simulator below.
 For the ESP32, configure the server's IP, port `1883`, and topic `poultry/sensors`.
+Use the hardware sketch and pin/library/verification steps in [FIRMWARE.md](FIRMWARE.md).
+Stop the Python simulator before collecting actual device readings.
 
 ## Updating an existing server
 
