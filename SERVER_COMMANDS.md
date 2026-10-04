@@ -33,8 +33,8 @@ cd C:\Users\Admin\Documents\AirQualityMonitor
 git ls-files -- db_data .env
 ```
 
-There should be no output. At the time these instructions were added, this
-repository still tracked `db_data/`. `.gitignore` does not stop tracking files
+There should be no output. If a checkout still tracks `db_data/`, clean its
+tracking before deployment. `.gitignore` does not stop tracking files
 that were already committed. See the [Git ignore documentation](https://git-scm.com/docs/gitignore).
 
 If `db_data/` is tracked, prepare a commit on the **laptop**, review it, then push:
@@ -135,21 +135,151 @@ Resolve source changes first; the second command must list no files. Only then:
 
 ```bash
 git pull --ff-only
-sudo docker compose up -d --build
-sudo docker compose ps
+sudo docker compose stop ingestion web_dashboard
+sudo docker compose up -d --wait postgres_db
 ```
 
 Do not use this pull recipe on a live checkout that tracks `db_data/`; migrating
 that checkout needs a database backup and a plan to preserve the data first.
-For existing databases, initialization scripts do not rerun on rebuild. If the
-supplied repeatable `schema.sql` needs applying, run on Ubuntu:
+Stop the host simulator and pause ESP32 publishers during maintenance. For
+existing databases, initialization scripts do not rerun on rebuild. Back up
+first using the next section, then apply the repeatable schema **before**
+starting the updated ingestion/dashboard containers. Run each step only after
+the previous step succeeds:
 
 ```bash
 sudo docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality < schema.sql
+sudo docker compose up -d --build
+sudo docker compose ps
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d air_quality_logs"
+sudo docker compose logs --tail=50 ingestion web_dashboard
 ```
 
 For moving real data to another server, use a PostgreSQL dump and restore, not a
 copy of a running `db_data/` directory.
+
+The sensor migration renames `mq135_ppm`/`mq137_ppm` to `mq135_raw`/`mq137_raw`
+without converting historical values. It keeps `pm25_ugm3` and adds nullable
+`pm1_ugm3` and `pm10_ugm3`. Existing readings and login accounts remain intact;
+older rows have NULL for the new particle sizes. Verify historical MQ readings
+were raw values before training a model with them. Updated publishers should
+send `mq135_raw`, `mq137_raw`, `pm1`, `pm25`, and `pm10`. Older MQTT keys
+`mq135`/`mq137` still work as raw values. Resume publishers after verification.
+
+## Back up before maintenance
+
+Stop the simulator (Ctrl+C), pause devices, and stop database writers. Keep
+PostgreSQL running. Store backups outside the repository, with private permissions:
+
+```bash
+cd ~/AirQualityMonitor
+sudo docker compose stop ingestion web_dashboard
+mkdir -p ~/airquality-backups
+chmod 700 ~/airquality-backups
+backup_file="$HOME/airquality-backups/air_quality-$(date +%Y%m%d-%H%M%S).dump"
+(umask 077; sudo docker compose exec -T postgres_db pg_dump -U admin -d air_quality -Fc > "$backup_file")
+```
+
+Continue only if `pg_dump` exits successfully. Validate the dump archive:
+
+```bash
+sudo docker compose exec -T postgres_db pg_restore --list < "$backup_file" > /dev/null
+ls -lh "$backup_file"
+```
+
+The dump includes readings and account password hashes. Keep it private. These
+commands do not back up `.env`; preserve the server's existing `.env` separately.
+
+## Clear readings only (TRUNCATE)
+
+This permanently deletes sensor rows and resets their IDs, while keeping the
+schema and dashboard accounts. Back up first using the preceding section.
+**No container teardown or `db_data/` deletion is needed.** PostgreSQL's
+[TRUNCATE documentation](https://www.postgresql.org/docs/15/sql-truncate.html)
+describes `RESTART IDENTITY` and immediate space reclamation.
+
+```bash
+cd ~/AirQualityMonitor
+sudo docker compose stop ingestion web_dashboard
+sudo docker exec -it postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality -c "TRUNCATE TABLE air_quality_logs RESTART IDENTITY;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT COUNT(*) AS readings FROM air_quality_logs;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT username, role FROM dashboard_users ORDER BY username;"
+sudo docker compose up -d
+```
+
+The count should be zero while publishers are paused. Log in with your existing
+account; the dashboard shows its empty state and CSV export contains headers
+only. Resume devices or the simulator when ready; new readings start at ID 1.
+If you also pulled code changes, apply `schema.sql` and use `up -d --build` as
+described above before resuming publishers.
+
+## Full database reset (delete db_data)
+
+Use this only when you want a completely fresh database. **All readings and
+dashboard accounts will be lost.** Truncating first is redundant. Back up before
+resetting, pause publishers, and finish/review any Git source changes first.
+Ensure `git ls-files -- db_data .env` prints nothing before pulling.
+
+```bash
+cd ~/AirQualityMonitor
+git status --short
+git ls-files -- db_data .env
+git pull --ff-only
+```
+
+After a successful pull and backup, this block stops containers, checks the
+exact database directory, and removes only that directory. `.env` stays in place:
+
+```bash
+(
+  set -eu
+  cd "$HOME/AirQualityMonitor"
+  db_target="$(realpath -- db_data)"
+  expected_target="$(pwd -P)/db_data"
+  [ "$db_target" = "$expected_target" ] || { echo "Unexpected database path; stopping"; exit 1; }
+  [ -d "$db_target" ] || { echo "Database directory missing; stopping"; exit 1; }
+  sudo docker compose down
+  sudo rm -rf --one-file-system -- "$db_target"
+)
+```
+
+Never remove `db_data/` while PostgreSQL is running. Start the database first;
+its initialization runs the current `schema.sql` on the empty directory:
+
+```bash
+sudo docker compose up -d --wait postgres_db
+sudo docker compose logs --tail=50 postgres_db
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\dt"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d air_quality_logs"
+sudo docker compose up -d --build
+sudo docker compose exec web_dashboard python add_users.py admin
+sudo docker compose ps
+sudo docker compose logs --tail=50 ingestion web_dashboard
+```
+
+Both `air_quality_logs` and `dashboard_users` should exist. Recreate any viewer
+accounts too. Log out of old browser sessions and log in with the new account;
+keeping `.env` means existing session cookies can still be valid. Check empty
+analytics/CSV export, then resume publishers and verify new rows with the direct
+queries below. No host venv is needed for account creation.
+
+### Restore a backup if needed
+
+Keep publishers paused and stop ingestion/dashboard. Replace the example dump
+filename with the backup you actually saved. Restoring replaces current tables,
+including accounts; a dump from before this change contains the old column names:
+
+```bash
+cd ~/AirQualityMonitor
+sudo docker compose stop ingestion web_dashboard
+sudo docker compose up -d --wait postgres_db
+sudo docker compose exec -T postgres_db pg_restore -U admin -d air_quality --clean --if-exists --single-transaction < ~/airquality-backups/air_quality-YYYYMMDD-HHMMSS.dump
+sudo docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality < schema.sql
+sudo docker compose up -d --build
+sudo docker compose ps
+```
+
+Continue only on success; inspect columns and logs before resuming publishers.
 
 ## Containers
 
@@ -202,7 +332,7 @@ At the `air_quality=#` prompt, try:
 \d air_quality_logs
 SELECT COUNT(*) FROM air_quality_logs;
 SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-       nh3_ppm, pm25_ugm3
+       nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw
 FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;
 SELECT username, role FROM dashboard_users ORDER BY username;
 SELECT COUNT(*) FROM air_quality_logs
@@ -245,7 +375,7 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d dashboard_u
 
 # Count all readings and list the 10 most recent
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT COUNT(*) AS total_readings FROM air_quality_logs;"
-sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, nh3_ppm, pm25_ugm3 FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
 
 # Recent activity and a 24-hour temperature summary
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT MAX(recorded_at) AS latest_reading FROM air_quality_logs;"

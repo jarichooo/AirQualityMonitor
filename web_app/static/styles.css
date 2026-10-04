@@ -249,9 +249,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .table-header-scroll::-webkit-scrollbar { height: 0; }
 .table-body-scroll { position: relative; width: 100%; min-height: 0; flex: 1 1 auto; max-height: min(62vh, 680px); overflow: auto; outline: none; overscroll-behavior: contain; scrollbar-color: #bdc9d6 transparent; scrollbar-width: thin; }
 .table-body-scroll:focus-visible { box-shadow: inset 0 0 0 3px rgb(11 120 208 / 28%); }
-.data-table { width: 100%; min-width: 960px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
-.timestamp-column { width: 22%; }
-.sensor-column { width: 13%; }
+.data-table { width: 100%; min-width: 1400px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.timestamp-column { width: 19%; }
+.sensor-column { width: 9%; }
 th, td { height: 50px; padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; white-space: nowrap; }
 th:last-child, td:last-child { padding-right: 26px; }
 th { height: 46px; background: var(--sidebar); box-shadow: inset 0 -1px rgb(255 255 255 / 14%); color: #fff; font-size: 11px; font-weight: 600; letter-spacing: .015em; }
@@ -270,7 +270,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .empty-state .button { margin-top: 16px; }
 
 .loading-state { position: absolute; inset: 0; z-index: 5; overflow: hidden; background: rgb(255 255 255 / 96%); }
-.skeleton-row { display: grid; height: 50px; grid-template-columns: 22% repeat(6, 13%); align-items: center; gap: 0; border-bottom: 1px solid var(--border); }
+.skeleton-row { display: grid; height: 50px; grid-template-columns: 19% repeat(9, 9%); align-items: center; gap: 0; border-bottom: 1px solid var(--border); }
 .skeleton-row span { width: calc(100% - 32px); height: 10px; margin-inline: 16px; border-radius: 999px; background: linear-gradient(90deg, #edf1f5 25%, #f7f9fb 50%, #edf1f5 75%); background-size: 200% 100%; animation: shimmer 1.25s infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 

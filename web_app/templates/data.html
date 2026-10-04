@@ -72,23 +72,21 @@
         <div class="table-stage" id="table-stage">
             <div class="table-header-scroll" id="table-header-scroll" aria-hidden="true">
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="7" class="sensor-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"></colgroup>
                     <thead><tr>
-                        <th>Timestamp (UTC)</th><th class="numeric">Temp (°C)</th><th class="numeric">Humidity (%)</th><th class="numeric">CO2 (ppm)</th><th class="numeric">NH3 (ppm)</th>
-                        <th class="numeric">PM 2.5</th><th class="numeric">MQ135 (ppm)</th><th class="numeric">MQ137 (ppm)</th>
+                        {% for header in csv_headers %}<th{% if not loop.first %} class="numeric"{% endif %}>{{ header }}</th>{% endfor %}
                     </tr></thead>
                 </table>
             </div>
             <div class="table-body-scroll" id="table-body-scroll" tabindex="0" role="region" aria-label="Sensor readings table. Scroll horizontally to view all columns.">
                 <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
                     <span class="sr-only">Loading sensor data</span>
-                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range(8) %}<span></span>{% endfor %}</div>{% endfor %}
+                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range(csv_headers|length) %}<span></span>{% endfor %}</div>{% endfor %}
                 </div>
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="7" class="sensor-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"></colgroup>
                     <thead class="table-a11y-head"><tr>
-                        <th>Timestamp (UTC)</th><th>Temp (°C)</th><th>Humidity (%)</th><th>CO2 (ppm)</th><th>NH3 (ppm)</th>
-                        <th>PM 2.5</th><th>MQ135 (ppm)</th><th>MQ137 (ppm)</th>
+                        {% for header in csv_headers %}<th>{{ header }}</th>{% endfor %}
                     </tr></thead>
                     <tbody>
                         {% for row in readings %}
@@ -97,7 +95,7 @@
                             {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
                         </tr>
                         {% else %}
-                        <tr><td class="empty-state" colspan="8">
+                        <tr><td class="empty-state" colspan="{{ csv_headers|length }}">
                             <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
                             {% if filters.date_range != 'all' or filters.q %}
                             <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>

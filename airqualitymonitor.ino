@@ -40,6 +40,7 @@ void setup() {
   Serial.begin(115200);
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
+  client.setBufferSize(512);
 
   Wire.begin(); 
   if (!rtc.begin()) {
@@ -101,28 +102,30 @@ void loop() {
     float temp = random(280, 350) / 10.0;
     float hum = random(600, 850) / 10.0;
     float co2 = random(4000, 6000) / 10.0;
-    float nh3 = random(50, 150) / 10.0;
+    float pm1 = random(50, 100) / 10.0;
+    float pm10 = random(250, 400) / 10.0;
     float pm25 = random(100, 250) / 10.0;
     int mq135 = random(10, 50);
     int mq137 = random(20, 60);
 
     // 3. Build JSON payload
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     doc["ts"] = timestamp;
     doc["t"] = temp;
     doc["h"] = hum;
     doc["co2"] = co2;
-    doc["nh3"] = nh3;
+    doc["pm1"] = pm1;
+    doc["pm10"] = pm10;
     doc["pm25"] = pm25;
-    doc["mq135"] = mq135;
-    doc["mq137"] = mq137;
+    doc["mq135_raw"] = mq135;
+    doc["mq137_raw"] = mq137;
 
     String jsonString;
     serializeJson(doc, jsonString);
 
     // 4. Publish or Cache
     if (client.connected()) {
-      client.publish("farm/sensors", jsonString.c_str());
+      client.publish("poultry/sensors", jsonString.c_str());
       Serial.print("[PUBLISHED] ");
       Serial.println(jsonString);
     } else {

@@ -23,6 +23,21 @@ class IngestionTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 ingest.parse_reading(raw)
 
+    def test_raw_mq_and_all_particle_sizes(self):
+        raw = b'{"pm1":8,"pm25":15,"pm10":22,"mq135_raw":1200,"mq137_raw":1600}'
+        row = ingest.parse_reading(raw)
+        self.assertEqual(row[2:], (None, None, None, None, 8, 15, 22, 1200, 1600))
+        self.assertEqual(ingest.parse_reading(b'{"mq135":12,"mq137":32}')[9:], (12, 32))
+        self.assertEqual(ingest.parse_reading(b'{"mq135_raw":0,"mq135":99}')[9], 0)
+        for invalid in (b'{"pm1":-1}', b'{"pm10":NaN}', b'{"mq135_raw":true}', b'{"mq137_raw":"12"}'):
+            with self.subTest(raw=invalid), self.assertRaises(ValueError):
+                ingest.parse_reading(invalid)
+        with patch.object(ingest.psycopg2, "connect") as connect:
+            ingest.save_reading(row)
+            query, values = connect.return_value.cursor.return_value.__enter__.return_value.execute.call_args.args
+            self.assertIn("pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw", query)
+            self.assertEqual(query.count("%s"), len(values))
+
     def test_database_failure_does_not_stop_next_reading(self):
         msg = SimpleNamespace(payload=b'{"t":30}')
         with patch.object(ingest, "save_reading", side_effect=[psycopg2.OperationalError("offline"), None]) as save:

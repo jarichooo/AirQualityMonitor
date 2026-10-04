@@ -1,5 +1,5 @@
 Insert mockup data into postgres database: 
-'{"t": 31.5, "h": 68.0, "co2": 420.0, "nh3": 8.5, "pm25": 15.2, "mq135": 12, "mq137": 32}' | docker exec -i mqtt_broker mosquitto_pub -t "poultry/sensors" -s
+'{"t": 31.5, "h": 68.0, "co2": 420.0, "pm1": 8.0, "pm25": 15.2, "pm10": 22.0, "mq135_raw": 12, "mq137_raw": 32}' | docker exec -i mqtt_broker mosquitto_pub -t "poultry/sensors" -s
 
 Code for the device (ESP32 S3 supermini)
 #include <WiFi.h>
@@ -48,6 +48,7 @@ void setup() {
   Serial.begin(115200);
   setup_wifi();
   client.setServer(mqtt_server, 1883);
+  client.setBufferSize(512);
 }
 
 void loop() {
@@ -66,16 +67,17 @@ void loop() {
   float temp = 32.10;
   float hum = 65.50;
   float co2 = 415.0;
-  float nh3 = 8.2;
+  float pm1 = 8.0;
+  float pm10 = 22.0;
   float pm25 = 14.8;
   int mq135 = 15;
   int mq137 = 30;
 
   // 4. Format the JSON exactly as your Python ingest.py expects it
-  char payload[200];
+  char payload[300];
   snprintf(payload, sizeof(payload), 
-    "{\"t\": %.2f, \"h\": %.2f, \"co2\": %.2f, \"nh3\": %.2f, \"pm25\": %.2f, \"mq135\": %d, \"mq137\": %d}", 
-    temp, hum, co2, nh3, pm25, mq135, mq137);
+    "{\"t\": %.2f, \"h\": %.2f, \"co2\": %.2f, \"pm1\": %.2f, \"pm25\": %.2f, \"pm10\": %.2f, \"mq135_raw\": %d, \"mq137_raw\": %d}",
+    temp, hum, co2, pm1, pm25, pm10, mq135, mq137);
 
   // 5. Publish to the exact topicMosquitto is listening to
   Serial.print("Publishing message: ");

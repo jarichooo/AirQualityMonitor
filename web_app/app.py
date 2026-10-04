@@ -28,9 +28,11 @@ READING_COLUMNS = (
     "humidity_perc",
     "co2_ppm",
     "nh3_ppm",
+    "pm1_ugm3",
     "pm25_ugm3",
-    "mq135_ppm",
-    "mq137_ppm",
+    "pm10_ugm3",
+    "mq135_raw",
+    "mq137_raw",
 )
 CSV_HEADERS = (
     "Timestamp (UTC)",
@@ -38,9 +40,11 @@ CSV_HEADERS = (
     "Humidity (%)",
     "CO2 (ppm)",
     "NH3 (ppm)",
-    "PM 2.5",
-    "MQ135 (ppm)",
-    "MQ137 (ppm)",
+    "PM1.0 (µg/m³)",
+    "PM2.5 (µg/m³)",
+    "PM10 (µg/m³)",
+    "MQ135 (raw)",
+    "MQ137 (raw)",
 )
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
@@ -49,9 +53,11 @@ SENSORS = (
     ("humidity_perc", "Humidity", "%"),
     ("co2_ppm", "CO2", "ppm"),
     ("nh3_ppm", "Ammonia", "ppm"),
+    ("pm1_ugm3", "PM1.0", "µg/m³"),
     ("pm25_ugm3", "PM2.5", "µg/m³"),
-    ("mq135_ppm", "MQ135", "ppm"),
-    ("mq137_ppm", "MQ137", "ppm"),
+    ("pm10_ugm3", "PM10", "µg/m³"),
+    ("mq135_raw", "MQ135", "raw"),
+    ("mq137_raw", "MQ137", "raw"),
 )
 
 
@@ -335,6 +341,7 @@ def data_page():
         "data.html",
         **shell_context("Data"),
         readings=readings,
+        csv_headers=CSV_HEADERS,
         filters=filters,
         total=total,
         total_pages=total_pages,

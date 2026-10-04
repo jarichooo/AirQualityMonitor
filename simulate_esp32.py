@@ -38,10 +38,11 @@ try:
             "t": round(random.uniform(28.0, 35.0), 1),
             "h": round(random.uniform(60.0, 85.0), 1),
             "co2": round(random.uniform(400.0, 600.0), 1),
-            "nh3": round(random.uniform(5.0, 15.0), 1),
+            "pm1": round(random.uniform(5.0, 10.0), 1),
             "pm25": round(random.uniform(10.0, 25.0), 1),
-            "mq135": random.randint(10, 50),
-            "mq137": random.randint(20, 60)
+            "pm10": round(random.uniform(25.0, 40.0), 1),
+            "mq135_raw": random.randint(10, 50),
+            "mq137_raw": random.randint(20, 60)
         }
 
         # 3. Publish to Mosquitto

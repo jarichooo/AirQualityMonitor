@@ -16,7 +16,7 @@ DB_PASS = os.environ.get("DB_PASS", "notsosecretpass")
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "mqtt_broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "poultry/sensors")
-SENSOR_KEYS = ("t", "h", "co2", "nh3", "pm25", "mq135", "mq137")
+SENSOR_KEYS = ("t", "h", "co2", "nh3", "pm1", "pm25", "pm10", "mq135_raw", "mq137_raw")
 LEGACY_TIMEZONE = timezone(timedelta(hours=8))
 
 
@@ -35,7 +35,8 @@ def parse_reading(raw):
         if recorded_at.tzinfo is None:
             recorded_at = recorded_at.replace(tzinfo=LEGACY_TIMEZONE)
         recorded_at = recorded_at.astimezone(timezone.utc)
-    values = [payload.get(key) for key in SENSOR_KEYS]
+    # Older firmware uses mq135/mq137 for the same raw values.
+    values = [payload.get(key, payload.get(key.removesuffix("_raw"))) for key in SENSOR_KEYS]
     if all(value is None for value in values):
         raise ValueError("At least one sensor reading is required")
     for key, value in zip(SENSOR_KEYS, values):
@@ -62,8 +63,8 @@ def save_reading(reading):
                 cursor.execute("""
                     INSERT INTO air_quality_logs
                     (recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-                     nh3_ppm, pm25_ugm3, mq135_ppm, mq137_ppm)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     nh3_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, reading)
 
 

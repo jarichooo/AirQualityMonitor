@@ -11,7 +11,8 @@ Mosquitto receives it; Python ingestion validates and stores readings in
 PostgreSQL. The authenticated Flask website shows a collection summary and
 a searchable, paginated Data page with date filters and CSV export.
 
-Sensors: temperature, humidity, CO2, ammonia, PM2.5, MQ135 and MQ137.
+Sensors: SHT31 temperature/humidity, MH-Z19E CO2, MQ135/MQ137 raw signals,
+and PM1.0, PM2.5, PM10 mass concentrations in µg/m³.
 The simulator generates test values; they are not real measurements.
 
 ## Local setup
@@ -21,11 +22,14 @@ Docker Desktop must be running.
 1. Copy `.env.example` to `.env`. Generate a session secret with
    `python -c "import secrets; print(secrets.token_hex(32))"` and set
    `FLASK_SECRET_KEY` in `.env`.
-2. Run `docker compose up -d --build`.
-3. For an existing database directory, apply the repeatable schema without
-   deleting any data:
+2. For an existing deployment, stop writers and the dashboard first:
+   `docker compose stop ingestion web_dashboard`. Start just the database with
+   `docker compose up -d --wait postgres_db`.
+3. For an existing database directory, apply the repeatable schema before
+   starting the updated application, without deleting any data:
    `Get-Content schema.sql | docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality`
-4. Create an account with `docker compose exec web_dashboard python add_users.py admin`.
+4. Run `docker compose up -d --build`, then create an account with
+   `docker compose exec web_dashboard python add_users.py admin`.
    The command prompts for a password. Existing accounts are left unchanged.
    Add `--role viewer` for a viewer account; both roles currently have read/export access.
 5. Open http://localhost:5000 and log in.
@@ -44,10 +48,21 @@ This setup is for a trusted local development network.
 Use one JSON object per MQTT message:
 
 ```json
-{"device_id":"esp32-1","ts":"2026-10-01T14:00:00+08:00","t":30.5,"h":68,"co2":420,"nh3":8.5,"pm25":15.2,"mq135":12,"mq137":32}
+{"device_id":"esp32-1","ts":"2026-10-01T14:00:00+08:00","t":30.5,"h":68,"co2":420,"pm1":8.0,"pm25":15.2,"pm10":22.0,"mq135_raw":1200,"mq137_raw":1600}
 ```
 
 - At least one sensor value is required. Missing values remain NULL.
+- `pm1`, `pm25`, `pm10` map to `pm1_ugm3`, `pm25_ugm3`, `pm10_ugm3`.
+  These are mass concentrations, not particle counts.
+- `mq135_raw` and `mq137_raw` are unconverted raw readings, not ppm.
+  Legacy MQTT keys `mq135` and `mq137` are accepted as raw values; explicit raw
+  keys take precedence. MQ137 is the ammonia channel. The intended MQ135 channel
+  must be calibrated for the chosen gas before reporting a gas concentration.
+  [Winsen lists MQ135 as an air-quality sensor](https://www.winsen-sensor.com/sensors/voc-sensor/mq135.html)
+  for ammonia, sulfide, and benzene vapors; do not label its raw signal as a
+  methane concentration.
+- `nh3` / `nh3_ppm` remains optional for independently calibrated ammonia ppm;
+  it is not calculated from MQ137 raw. Simulators leave this value missing.
 - Values must be finite numbers. Humidity is 0–100; gas and particulate
   readings cannot be negative. Booleans and numeric strings are rejected.
 - `device_id` is optional and at most 100 characters.
@@ -60,6 +75,13 @@ Fresh databases use TIMESTAMPTZ. Existing timestamp columns are not automaticall
 converted: inspect the original timestamp convention before migrating historical
 rows, particularly if Philippine local time was previously stored as UTC.
 Ingestion sets its database session to UTC for future writes.
+
+Applying `schema.sql` also renames the old MQ `*_ppm` columns to `*_raw`,
+preserving their numeric values, and adds nullable PM1.0/PM10 columns. Historical
+MQ values are not converted: verify they were raw readings before using them
+for training. Existing rows have NULL for the newly added particle sizes.
+See [SERVER_COMMANDS.md](SERVER_COMMANDS.md) for updates, backups, truncation,
+and a separate full database reset procedure.
 
 The Python simulator uses `poultry/sensors` and UTC timestamps. ESP32 code kept
 outside version control must publish to that same topic and server address.
@@ -111,5 +133,5 @@ CSV export, timestamp handling, malformed readings, and recovery for subsequent
 messages after a database failure. They mock database access; they do not replace
 a live MQTT/PostgreSQL check.
 
-The current repository already tracks database files. Ignore rules prevent new
-ones being added, but previously tracked files need a separate repository cleanup.
+Before deployment, `git ls-files -- db_data .env` must print nothing. Runtime
+database files and secrets belong on each machine, outside Git tracking.
