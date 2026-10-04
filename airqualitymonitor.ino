@@ -1,7 +1,6 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <WebSocketsServer.h>
-#include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Wire.h>
 #include <RTClib.h>
@@ -44,8 +43,6 @@ const size_t MAX_CACHE_SIZE = 120;
 WiFiClient espClient;
 PubSubClient client(espClient);
 WebSocketsServer webSocket(81);
-Preferences collectionSettings;
-bool collectionSettingsReady = false;
 Adafruit_SHT31 sht;
 TwoWire I2C_RTC(1);
 RTC_DS3231 rtc;
@@ -62,7 +59,7 @@ bool pmsInitialized = false;
 bool mdnsStarted = false;
 bool mdnsAttempted = false;
 bool webSocketStarted = false;
-bool readingsPaused = false;
+bool readingsPaused = true;  // Every boot requires Resume from the dashboard.
 bool havePms = false;
 unsigned long lastPmsTime = 0;
 unsigned long lastReadTime = 0;
@@ -84,9 +81,6 @@ void webSocketEvent(uint8_t clientNumber, WStype_t type, uint8_t* payload, size_
       ? "{\"type\":\"control\",\"paused\":true}"
       : "{\"type\":\"control\",\"paused\":false}";
   if (wasPaused != readingsPaused) {
-    if (collectionSettingsReady && collectionSettings.putBool("paused", readingsPaused) == 0) {
-      Serial.println("[COLLECTION] Pause state active but could not save it for reboot");
-    }
     Serial.printf("[COLLECTION] %s\n", readingsPaused ? "Paused" : "Running");
     webSocket.broadcastTXT(status);
   } else {
@@ -179,10 +173,7 @@ bool readSensors(JsonDocument& doc) {
 
 void setup() {
   Serial.begin(115200);
-  collectionSettingsReady = collectionSettings.begin("collection", false);
-  if (collectionSettingsReady) readingsPaused = collectionSettings.getBool("paused", false);
-  else Serial.println("[COLLECTION] Cannot persist pause state");
-  Serial.printf("[COLLECTION] Boot: %s\n", readingsPaused ? "Paused" : "Running");
+  Serial.println("[COLLECTION] Boot: Paused; waiting for dashboard Resume");
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
   Wire.begin(SHT_SDA, SHT_SCL);

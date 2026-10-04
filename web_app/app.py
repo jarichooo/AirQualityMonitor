@@ -92,12 +92,21 @@ def fetch_dashboard_data(sensor):
                            "WHERE recorded_at >= %s AND recorded_at <= %s "
                            "GROUP BY 1 ORDER BY 1", (start, start + timedelta(hours=24)))
             series = cursor.fetchall()
-    return dict(total=total, latest=latest, metrics=metrics, series=series, start=start)
+            recorded_start = start + timedelta(hours=23)
+            cursor.execute(f"SELECT recorded_at, {sensor}, device_id FROM air_quality_logs "
+                           "WHERE recorded_at >= %s AND recorded_at <= %s "
+                           "ORDER BY device_id NULLS FIRST, recorded_at, id",
+                           (recorded_start, start + timedelta(hours=24)))
+            recorded_series = cursor.fetchall()
+    return dict(total=total, latest=latest, metrics=metrics, series=series, start=start,
+                recorded_series=recorded_series, recorded_start=recorded_start)
 
 
-def build_trend(series, start):
-    """Return SVG coordinates; break the line across missing hourly buckets."""
-    valid = [float(value) for _, value in series if value is not None and math.isfinite(float(value))]
+def build_trend(series, start, hourly=True):
+    """Plot hourly averages or individual readings, separating gaps and devices."""
+    duration = timedelta(hours=24 if hourly else 1)
+    max_gap = timedelta(hours=1) if hourly else timedelta(minutes=2)
+    valid = [float(row[1]) for row in series if row[1] is not None and math.isfinite(float(row[1]))]
     if not valid:
         return dict(segments=[], points=[], low=None, high=None)
     low, high = min(valid), max(valid)
@@ -105,7 +114,9 @@ def build_trend(series, start):
     bottom, top = low - padding, high + padding
     segments, points, segment = [], [], []
     previous = None
-    for timestamp, value in series:
+    previous_device = None
+    for timestamp, value, *device in series:
+        device = device[0] if device else None
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=timezone.utc)
         if value is None or not math.isfinite(float(value)):
@@ -113,17 +124,21 @@ def build_trend(series, start):
                 segments.append(" ".join(segment))
             segment, previous = [], None
             continue
-        if previous is not None and timestamp - previous > timedelta(hours=1):
+        if previous is not None and (timestamp - previous > max_gap or device != previous_device):
             segments.append(" ".join(segment))
             segment = []
         # Put each hourly average at the midpoint of its actual time window.
-        midpoint = max(timestamp, start) + (min(timestamp + timedelta(hours=1), start + timedelta(hours=24)) - max(timestamp, start)) / 2
-        x = 60 + (midpoint - start).total_seconds() / 86400 * 700
+        position = timestamp
+        if hourly:
+            position = max(timestamp, start) + (min(timestamp + timedelta(hours=1), start + duration) - max(timestamp, start)) / 2
+        x = 60 + (position - start).total_seconds() / duration.total_seconds() * 700
         y = 210 - (float(value) - bottom) / (top - bottom) * 180
-        point = dict(x=round(x, 2), y=round(y, 2), time=timestamp.strftime("%Y-%m-%d %H:%M UTC"), value=round(float(value), 2))
+        point = dict(x=round(x, 2), y=round(y, 2), time=timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                     value=round(float(value), 2), device=device or "Unspecified device")
         points.append(point)
         segment.append(f"{point['x']},{point['y']}")
         previous = timestamp
+        previous_device = device
     if segment:
         segments.append(" ".join(segment))
     return dict(segments=segments, points=points, low=round(bottom, 2), high=round(top, 2))
@@ -290,7 +305,8 @@ def dashboard():
         sensor = "temperature_c"
     data = dict(total=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
                 minimum=None, average=None, maximum=None, count=0) for c, l, u in SENSORS], series=[],
-                start=datetime.now(timezone.utc) - timedelta(hours=24))
+                start=datetime.now(timezone.utc) - timedelta(hours=24), recorded_series=[],
+                recorded_start=datetime.now(timezone.utc) - timedelta(hours=1))
     database_error = False
     try:
         data = fetch_dashboard_data(sensor)
@@ -300,6 +316,10 @@ def dashboard():
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
                            trend=build_trend(data["series"], data["start"]), database_error=database_error,
+                           recorded_trend=build_trend(data["recorded_series"], data["recorded_start"], hourly=False),
+                           recorded_ticks=[(60 + minute / 60 * 700,
+                                            (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
+                                           for minute in (0, 15, 30, 45, 60)],
                            live_sensors=LIVE_SENSORS)
 
 

@@ -108,6 +108,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .sensor-trend { width: 100%; height: auto; min-height: 220px; fill: none; stroke: none; }
 .sensor-trend text { fill: var(--muted); font: 11px system-ui, sans-serif; }
 .trend-axis { stroke: var(--border-strong); }
+.trend-grid { stroke: var(--border); stroke-width: 1; }
 .trend-line { fill: none; stroke: var(--primary); stroke-width: 2; }
 .trend-point { fill: var(--primary); stroke: var(--surface); stroke-width: 1; }
 .trend-values { padding: 8px 15px; font-size: 12px; }

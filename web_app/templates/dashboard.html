@@ -50,6 +50,26 @@
         </a>
         {% endfor %}
     </div>
+    <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
+        <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Last 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
+        <div class="trend-chart-wrap">
+            {% if recorded_trend.points %}
+            <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="recorded-trend-description">
+                <title id="recorded-trend-description">{{ selected.label }} recorded readings over the last hour in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
+                {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
+                <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
+                {% endfor %}
+                {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
+                <path class="trend-axis" d="M60 25V210H760"/>
+                {% for segment in recorded_trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
+                {% for point in recorded_trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
+            </svg>
+            <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th><th>{{ selected.label }} ({{ selected.unit }})</th></tr></thead><tbody>{% for point in recorded_trend.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td><td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
+            {% else %}
+            <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings in the last hour' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
+            {% endif %}
+        </div>
+    </section>
     <div class="dashboard-layout">
         <section class="dashboard-panel" aria-labelledby="trend-title">
             <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; UTC &middot; All reporting devices</p></div></div>

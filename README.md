@@ -4,6 +4,28 @@ Phase one of a poultry air quality monitoring application: prepare containers,
 sensor data collection, and a usable web interface. Real collection has not
 started; there is no predictive AI.
 
+## Hardware
+
+| Hardware | Specifications / role |
+| --- | --- |
+| Router (1) | Connects the mini server, ESP32, and dashboard devices on the same LAN. |
+| Dell OptiPlex 9020 mini server | 1,120 GB storage, 8 GB RAM, Intel Core i7 (4th generation); Ubuntu and Docker run Mosquitto, ingestion, PostgreSQL, and the web app. |
+| ESP32 | Collects sensor readings and publishes them to the server; hosts the dashboard WebSocket connection. |
+
+The ESP32 has these connected sensors and clock:
+
+| Component | Purpose / stored measurements |
+| --- | --- |
+| MQ137 | Ammonia sensor channel, stored as `mq137_raw` ADC counts. |
+| MQ135 | Gas sensor channel, stored as `mq135_raw` ADC counts. |
+| SHT31 | Temperature and relative humidity. |
+| PM2.5 particulate sensor | PM1.0, PM2.5, and PM10 mass concentrations. |
+| MH-Z19E | CO2 concentration in ppm. |
+| DS3231 | Real-time clock for measurement timestamps. |
+
+MQ raw readings are not calibrated gas concentrations. See [FIRMWARE.md](FIRMWARE.md)
+for GPIO assignments, wiring, and Arduino libraries.
+
 ## Data flow
 
 ESP32 or an optional Python simulator publishes JSON to `poultry/sensors`.
@@ -13,10 +35,41 @@ a searchable, paginated Data page with date filters and CSV export. The logged-i
 dashboard can connect directly to the ESP32 over WebSocket for live sensor
 values and pause/resume collection; MQTT remains the path used to store readings
 in PostgreSQL. The ESP32 samples once per minute.
+The dashboard plots individual stored readings for the selected sensor over
+the last hour, alongside hourly averages for the last 24 hours. Select a sensor
+card to change both graphs and use Refresh to load newly recorded data. Gaps
+longer than two minutes break the individual-reading line; devices have separate
+lines. Point tooltips and the expandable values table show measurement times
+and device IDs.
 
 Sensors: SHT31 temperature/humidity, MH-Z19E CO2, MQ135/MQ137 raw signals,
 and PM1.0, PM2.5, PM10 mass concentrations in µg/m³.
 The simulator generates test values; they are not real measurements.
+
+## ESP32 dashboard controls
+
+The ESP32 **starts paused on every boot**, regardless of its previous state.
+WiFi, MQTT connectivity, and WebSocket controls stay available while paused.
+Click **Resume readings** to begin sampling and sending measurements once per
+minute. **Pause readings** stops new samples, live broadcasts, and MQTT uploads,
+including queued readings; queued readings wait until collection resumes.
+
+1. Configure the sketch's WiFi credentials, server address, static ESP32 IP,
+   gateway, subnet, and DNS for your router. Reserve the ESP32 address to avoid
+   conflicts, then compile and upload the sketch using Arduino IDE.
+2. Open `http://<server-IP>:5000`, log in, and find **Live ESP32 readings**.
+3. Enter `ws://<ESP32-IP>:81/` and click **Connect**. The default
+   `ws://airqualitymonitor.local:81/` also works where mDNS resolves. The ESP32 IP
+   is printed in Serial Monitor; the dashboard remembers the entered address.
+4. Click **Resume readings** or **Pause readings**. The button shows
+   Resuming/Pausing while waiting, then a confirmed **Running/Paused** indicator.
+   An eight-second timeout means the command was not confirmed; reconnect and
+   check that the updated sketch was uploaded.
+
+The WebSocket controls are unauthenticated and intended for a trusted LAN.
+The button controls the connected ESP32; stop other publishers, including the
+simulator, separately. Previously stored readings remain in the database.
+Docker rebuilds update the web app; they do not upload firmware to the ESP32.
 
 ## Local setup
 
@@ -28,8 +81,10 @@ Docker Desktop must be running.
 2. For an existing deployment, stop writers and the dashboard first:
    `docker compose stop ingestion web_dashboard`. Start just the database with
    `docker compose up -d --wait postgres_db`.
-3. For an existing database directory, apply the repeatable schema before
-   starting the updated application, without deleting any data:
+3. For an existing database directory, back up first using
+   [SERVER_COMMANDS.md](SERVER_COMMANDS.md#updating-an-existing-server), then apply
+   the repeatable schema before starting the updated application. This migration
+   drops the retired `nh3_ppm` column and its stored values:
    `Get-Content schema.sql | docker compose exec -T postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality`
 4. Run `docker compose up -d --build`, then create an account with
    `docker compose exec web_dashboard python add_users.py admin`.
@@ -81,6 +136,9 @@ Applying `schema.sql` also renames the old MQ `*_ppm` columns to `*_raw`,
 preserving their numeric values, and adds nullable PM1.0/PM10 columns. Historical
 MQ values are not converted: verify they were raw readings before using them
 for training. Existing rows have NULL for the newly added particle sizes.
+The migration also removes the obsolete `nh3_ppm` column and its historical
+values. MQ137 continues to be stored as raw ADC counts; no ammonia concentration
+is inferred from that sensor. Back up before migrating to preserve old values.
 See [SERVER_COMMANDS.md](SERVER_COMMANDS.md) for updates, backups, truncation,
 and a separate full database reset procedure.
 
@@ -99,11 +157,6 @@ inference is implemented. Measured data and predictions must remain separate.
 The dashboard already provides descriptive analytics and an unavailable forecast
 panel; it does not generate predictions or substitute simulated values.
 
-Applying `schema.sql` removes the obsolete `nh3_ppm` column and its historical
-values. Back up the database before the migration if those values might be
-needed. MQ137 continues to be stored as raw ADC counts; no ammonia concentration
-is inferred from that sensor.
-
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
 Dashboard, Data, and export require authentication; existing sessions remain valid
 until logout or expiry.
@@ -120,8 +173,10 @@ QoS 1 alone does not guarantee a database commit; do not claim lossless collecti
 Offline device buffering and retry/deduplication need end-to-end testing before
 unattended collection.
 
-The dashboard summarizes stored rows, not live broker/device connectivity.
-There are no predictions or calibrated MQ gas conversions. Analytics refresh manually.
+Dashboard analytics summarize stored rows and refresh manually. The separate
+WebSocket panel shows live ESP32 readings and confirmed collection status;
+a live broadcast does not prove that PostgreSQL stored the reading.
+There are no predictions or calibrated MQ gas conversions.
 The Flask development server is used locally; deployment hardening comes later.
 
 ## Checks

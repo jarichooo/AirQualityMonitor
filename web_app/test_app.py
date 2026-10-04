@@ -121,7 +121,8 @@ class AppTestCase(unittest.TestCase):
             cursor = connect.return_value.cursor.return_value.__enter__.return_value
             cursor.fetchone.side_effect = [(3, start), (start, 30) + (None,) * 7,
                                           (30, 31, 32, 3) + (None, None, None, 0) * 7]
-            cursor.fetchall.return_value = series
+            cursor.fetchall.side_effect = [series, [(start + timedelta(hours=23), 30, "node-1"),
+                                                   (start + timedelta(hours=23, minutes=1), 32, "node-1")]]
             page = self.client.get("/dashboard?sensor=bad")
             self.assertEqual(page.status_code, 200)
             self.assertIn(b"30.00", page.data)
@@ -130,11 +131,29 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"2-hour forecast", page.data)
             self.assertIn(b"Awaiting integration", page.data)
             self.assertIn(b"<polyline", page.data)
-            self.assertIn("AVG(temperature_c)", cursor.execute.call_args.args[0])
+            self.assertIn(b"Temperature recorded readings", page.data)
+            self.assertIn(b"View recorded values", page.data)
+            self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
+            self.assertIn("SELECT recorded_at, temperature_c, device_id", cursor.execute.call_args.args[0])
         trend = application.build_trend(series, start)
         self.assertEqual(len(trend["segments"]), 2)
         self.assertEqual(len(trend["points"]), 3)
         self.assertFalse(application.build_trend([(start, None)], start)["points"])
+
+    def test_recorded_graph_preserves_time_gaps_and_device_boundaries(self):
+        start = datetime(2026, 10, 4, 6, tzinfo=timezone.utc)
+        rows = [(start, 30, "a"), (start + timedelta(minutes=1), 31, "a"),
+                (start + timedelta(minutes=10), 32, "a"),
+                (start + timedelta(minutes=10), 29, "b"),
+                (start + timedelta(minutes=11), None, "b"),
+                (start + timedelta(minutes=12), 30, "b")]
+        trend = application.build_trend(rows, start, hourly=False)
+        self.assertEqual(len(trend["points"]), 5)
+        self.assertEqual(len(trend["segments"]), 4)
+        self.assertEqual(trend["points"][0]["x"], 60)
+        self.assertEqual(trend["points"][1]["x"], round(60 + 700 / 60, 2))
+        self.assertEqual(trend["points"][3]["device"], "b")
+        self.assertFalse(application.build_trend([(start, None, "a")], start, hourly=False)["points"])
 
     def test_compact_numbered_pagination(self):
         self.assertEqual(application.build_pagination_items(1, 1), [1])
