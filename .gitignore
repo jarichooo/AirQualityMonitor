@@ -1,4 +1,4 @@
-airqualitymonitor.ino
+airqualitymonitor/
 db_data/
 __pycache__/
 *.py[cod]
