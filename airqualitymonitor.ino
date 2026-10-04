@@ -9,6 +9,7 @@
 #include <MHZ19.h>
 #include <ArduinoJson.h>
 #include <math.h>
+#include <string.h>
 #include <time.h>
 #include <vector>
 
@@ -34,7 +35,7 @@ const int MHZ19_TX = 8;  // Sensor RX -> ESP32 TX
 const int PMS_RX = 9;
 const int PMS_TX = 10;
 
-const unsigned long READ_INTERVAL_MS = 5000;
+const unsigned long READ_INTERVAL_MS = 60000;
 const unsigned long PMS_MAX_AGE_MS = 15000;
 const long RTC_OFFSET_SECONDS = 8 * 3600;  // RTC stores Philippine local time.
 const size_t MAX_CACHE_SIZE = 120;
@@ -58,6 +59,7 @@ bool pmsInitialized = false;
 bool mdnsStarted = false;
 bool mdnsAttempted = false;
 bool webSocketStarted = false;
+bool readingsPaused = false;
 bool havePms = false;
 unsigned long lastPmsTime = 0;
 unsigned long lastReadTime = 0;
@@ -67,8 +69,19 @@ String deviceId;
 // ponytail: RAM-only buffer, lost on reset; use persistent storage for longer outages.
 std::vector<String> offlineCache;
 
+void webSocketEvent(uint8_t, WStype_t type, uint8_t* payload, size_t length) {
+  if (type != WStype_TEXT || length > 16) return;
+  if (length == 5 && memcmp(payload, "PAUSE", 5) == 0) readingsPaused = true;
+  else if (length == 6 && memcmp(payload, "RESUME", 6) == 0) readingsPaused = false;
+  else if (!(length == 6 && memcmp(payload, "STATUS", 6) == 0)) return;
+
+  webSocket.broadcastTXT(readingsPaused
+      ? "{\"type\":\"control\",\"paused\":true}"
+      : "{\"type\":\"control\",\"paused\":false}");
+}
+
 void pollPms() {
-  // Drain complete frames continuously so a five-second sample uses recent data.
+  // Drain complete frames continuously so each minute's sample uses recent data.
   while (pmsInitialized && pmsSerial.available() >= 32) {
     PM25_AQI_Data reading;
     if (aqi.read(&reading)) {
@@ -173,6 +186,7 @@ void setup() {
     Serial.println("[WiFi] Static IP configuration failed");
   }
   WiFi.begin(ssid, password);
+  lastReadTime = millis() - READ_INTERVAL_MS;
   lastWifiAttempt = millis();
   deviceId = "esp32-" + WiFi.macAddress();
   deviceId.replace(":", "");
@@ -180,6 +194,7 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   client.setBufferSize(768);
   client.setSocketTimeout(2);
+  webSocket.onEvent(webSocketEvent);
   offlineCache.reserve(MAX_CACHE_SIZE);
 }
 
@@ -213,10 +228,11 @@ void loop() {
   if (client.connected()) {
     client.loop();
     // Publish one cached reading per loop; only remove it after a successful write.
-    if (!offlineCache.empty() && client.publish(MQTT_TOPIC, offlineCache.front().c_str())) {
+    if (!readingsPaused && !offlineCache.empty() && client.publish(MQTT_TOPIC, offlineCache.front().c_str())) {
       offlineCache.erase(offlineCache.begin());
     }
   }
+  if (readingsPaused) return;
   if (millis() - lastReadTime < READ_INTERVAL_MS) return;
   lastReadTime = millis();
   JsonDocument doc;

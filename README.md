@@ -10,8 +10,9 @@ ESP32 or an optional Python simulator publishes JSON to `poultry/sensors`.
 Mosquitto receives it; Python ingestion validates and stores readings in
 PostgreSQL. The authenticated Flask website shows a collection summary and
 a searchable, paginated Data page with date filters and CSV export. The logged-in
-dashboard can also connect directly to the ESP32's read-only WebSocket for live
-sensor values; MQTT remains the path used to store readings in PostgreSQL.
+dashboard can connect directly to the ESP32 over WebSocket for live sensor
+values and pause/resume collection; MQTT remains the path used to store readings
+in PostgreSQL. The ESP32 samples once per minute.
 
 Sensors: SHT31 temperature/humidity, MH-Z19E CO2, MQ135/MQ137 raw signals,
 and PM1.0, PM2.5, PM10 mass concentrations in µg/m³.

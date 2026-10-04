@@ -1,8 +1,9 @@
 # ESP32-S3 sensor firmware
 
-`airqualitymonitor.ino` is the hardware collector. It samples every five seconds,
+`airqualitymonitor.ino` is the hardware collector. It samples every 60 seconds,
 publishes JSON to Mosquitto on the Ubuntu server, topic `poultry/sensors`, and
-broadcasts the same live sensor readings on a read-only WebSocket at port 81.
+broadcasts the same live sensor readings on a WebSocket at port 81. The dashboard
+can pause or resume both MQTT uploads and live broadcasts.
 `simulate_esp32.py` is the separate simulator; stop it before real collection.
 
 ## Wiring and stored fields
@@ -75,13 +76,13 @@ settings were preserved while its sensor code was updated.
 Open Serial Monitor at 115200 baud. A successful connection shows
 `[MQTT] Connected`; each live reading shows `[PUBLISHED]` and its JSON. Missing
 sensors print diagnostics. The device ID comes from the ESP32 MAC address. The
-WebSocket server is read-only at `ws://<ESP32-IP>:81/`; the IP is printed in the
+WebSocket server is at `ws://<ESP32-IP>:81/`; the IP is printed in the
 Serial Monitor after WiFi connects. Log in to the dashboard and use the Live
 ESP32 readings panel. The dashboard and ESP32 must be reachable on the same LAN;
 enter the printed IP as `ws://<ESP32-IP>:81/` if `.local` name resolution is
 unavailable. The dashboard remembers the address. The device socket broadcasts
-readings without authentication, so keep it on a trusted LAN; it accepts no
-control commands.
+readings and accepts pause/resume commands without authentication, so keep it
+on a trusted LAN. Pausing holds queued MQTT readings on the ESP32 until resumed.
 
 ## Time and buffering
 

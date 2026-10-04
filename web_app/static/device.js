@@ -8,11 +8,13 @@
     const dot = document.querySelector("#device-live-dot");
     const time = document.querySelector("#device-live-time");
     const fields = [...document.querySelectorAll("[data-live-sensor]")];
+    const pauseButton = document.querySelector("#device-pause-toggle");
     const storageKey = "henvironment-esp32-websocket";
     let socket;
     let reconnectTimer;
     let reconnectDelay = 1000;
     let manuallyClosed = false;
+    let readingsPaused = null;
 
     try {
         address.value = localStorage.getItem(storageKey) || address.value;
@@ -28,6 +30,13 @@
     const displayReading = (value) => {
         if (typeof value !== "number" || !Number.isFinite(value)) return "—";
         return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+    };
+
+    const renderControl = (message) => {
+        readingsPaused = message.paused === true;
+        pauseButton.disabled = false;
+        pauseButton.textContent = readingsPaused ? "Resume readings" : "Pause readings";
+        showStatus(readingsPaused ? "Connected · Readings paused" : "Connected · Sending every minute", "is-current");
     };
 
     const renderReading = (reading) => {
@@ -70,12 +79,15 @@
         connection.addEventListener("open", () => {
             if (socket !== connection) return;
             reconnectDelay = 1000;
+            connection.send("STATUS");
             showStatus("Connected; waiting for a sensor reading", "is-current");
         });
         connection.addEventListener("message", (event) => {
             if (socket !== connection) return;
             try {
-                renderReading(JSON.parse(event.data));
+                const message = JSON.parse(event.data);
+                if (message.type === "control") renderControl(message);
+                else renderReading(message);
             } catch (_) {
                 showStatus("Received an invalid device reading", "is-unavailable");
             }
@@ -85,6 +97,8 @@
         });
         connection.addEventListener("close", () => {
             if (socket !== connection || manuallyClosed) return;
+            readingsPaused = null;
+            pauseButton.disabled = true;
             showStatus("Disconnected; reconnecting", "is-unavailable");
             reconnectTimer = setTimeout(connect, reconnectDelay);
             reconnectDelay = Math.min(reconnectDelay * 2, 15000);
@@ -94,6 +108,11 @@
     form.addEventListener("submit", (event) => {
         event.preventDefault();
         connect();
+    });
+    pauseButton.addEventListener("click", () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
+        pauseButton.disabled = true;
+        socket.send(readingsPaused ? "RESUME" : "PAUSE");
     });
     window.addEventListener("pagehide", () => {
         manuallyClosed = true;
