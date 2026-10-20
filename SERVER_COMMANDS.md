@@ -198,16 +198,23 @@ sudo docker compose logs --tail=50 ingestion web_dashboard
 For moving real data to another server, use a PostgreSQL dump and restore, not a
 copy of a running `db_data/` directory.
 
-The sensor migration renames `mq135_ppm`/`mq137_ppm` to `mq135_raw`/`mq137_raw`
-without converting historical values. It keeps `pm25_ugm3` and adds nullable
-`pm1_ugm3` and `pm10_ugm3`. It also drops the retired `nh3_ppm` column and all
-NH3 values stored in it. The initialization block above creates and validates a
-PostgreSQL dump before applying this destructive column change; do not proceed
-if the dump is missing, empty, or `pg_restore --list` failed. Existing other
-readings and login accounts remain intact. Verify historical MQ readings were
-raw values before training a model with them. Updated publishers should send
-`mq135_raw`, `mq137_raw`, `pm1`, `pm25`, and `pm10`. Older MQTT keys
-`mq135`/`mq137` still work as raw values.
+The sensor migration creates `mq4_ppm` (methane estimate) and `mq137_ppm`
+(ammonia estimate). Historical MQ raw values are preserved under `legacy_`
+column names, including `legacy_mq135_raw` and `legacy_mq137_raw`; the numbers
+are not converted or displayed as ppm. Previously mislabeled raw columns are
+also handled. Existing rows have NULL in the new ppm fields. The update keeps
+readings and accounts, adds missing PM1.0/PM10 fields, and can be applied again.
+Only continue after the dump above has been validated. Do not delete `db_data/`
+or truncate the table to perform this upgrade.
+The previous `nh3_ppm` retirement still drops that obsolete column if it exists;
+preserve its values in the verified backup before applying the schema.
+
+Update publishers and ingestion together: the live payload now uses
+`mq4_ppm`, `mq137_ppm`, `pm1`, `pm25`, and `pm10`. Old raw/ambiguous MQ keys are
+not accepted as concentration measurements. Flash the updated sketch after
+applying the schema and rebuilding containers, then Resume readings from the
+dashboard. MQ-4 uses borrowed RL/R0 values provisionally; calibrate the installed
+sensor before treating its ppm estimates as accurate methane concentrations.
 
 Open `http://192.168.0.110:5000` (substitute the current server IP) and log in with
 your existing account. Check dashboard analytics, the Data page, and CSV export.
@@ -250,6 +257,10 @@ The dump includes readings and account password hashes. Keep it private. These
 commands do not back up `.env`; preserve the server's existing `.env` separately.
 
 ## Clear readings only (TRUNCATE)
+
+An admin can also use **Data > Delete all readings** and accept the confirmation
+popup. It performs the same truncate/reset operation below. Pause devices and
+simulators first if the table must stay empty; accounts remain unchanged.
 
 This permanently deletes sensor rows and resets their IDs, while keeping the
 schema and dashboard accounts. Back up first using the preceding section.
@@ -391,7 +402,7 @@ At the `air_quality=#` prompt, try:
 \d air_quality_logs
 SELECT COUNT(*) FROM air_quality_logs;
 SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-       pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw
+       pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm
 FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;
 SELECT username, role FROM dashboard_users ORDER BY username;
 SELECT COUNT(*) FROM air_quality_logs
@@ -434,7 +445,7 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "\d dashboard_u
 
 # Count all readings and list the 10 most recent
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT COUNT(*) AS total_readings FROM air_quality_logs;"
-sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm FROM air_quality_logs ORDER BY recorded_at DESC LIMIT 10;"
 
 # Recent activity and a 24-hour temperature summary
 sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT MAX(recorded_at) AS latest_reading FROM air_quality_logs;"
