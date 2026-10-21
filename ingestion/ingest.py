@@ -16,7 +16,8 @@ DB_PASS = os.environ.get("DB_PASS", "notsosecretpass")
 MQTT_BROKER = os.environ.get("MQTT_BROKER", "mqtt_broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "poultry/sensors")
-SENSOR_KEYS = ("t", "h", "co2", "pm1", "pm25", "pm10", "mq135_raw", "mq137_raw")
+SENSOR_KEYS = ("t", "h", "co2", "pm1", "pm25", "pm10", "mq4_ppm", "mq137_ppm")
+LEGACY_GAS_KEYS = ("mq4", "mq135", "mq137", "mq4_raw", "mq135_raw", "mq137_raw", "mq135_ppm")
 LEGACY_TIMEZONE = timezone(timedelta(hours=8))
 
 
@@ -35,8 +36,13 @@ def parse_reading(raw):
         if recorded_at.tzinfo is None:
             recorded_at = recorded_at.replace(tzinfo=LEGACY_TIMEZONE)
         recorded_at = recorded_at.astimezone(timezone.utc)
-    # Older firmware uses mq135/mq137 for the same raw values.
-    values = [payload.get(key, payload.get(key.removesuffix("_raw"))) for key in SENSOR_KEYS]
+    legacy_keys = [key for key in LEGACY_GAS_KEYS if key in payload]
+    if legacy_keys:
+        raise ValueError(
+            f"Legacy gas keys are not accepted: {', '.join(legacy_keys)}; "
+            "use mq4_ppm and mq137_ppm"
+        )
+    values = [payload.get(key) for key in SENSOR_KEYS]
     if all(value is None for value in values):
         raise ValueError("At least one sensor reading is required")
     for key, value in zip(SENSOR_KEYS, values):
@@ -63,7 +69,7 @@ def save_reading(reading):
                 cursor.execute("""
                     INSERT INTO air_quality_logs
                     (recorded_at, device_id, temperature_c, humidity_perc, co2_ppm,
-                     pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw)
+                     pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, reading)
 

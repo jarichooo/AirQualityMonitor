@@ -9,7 +9,7 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
 
@@ -30,8 +30,8 @@ READING_COLUMNS = (
     "pm1_ugm3",
     "pm25_ugm3",
     "pm10_ugm3",
-    "mq135_raw",
-    "mq137_raw",
+    "mq4_ppm",
+    "mq137_ppm",
 )
 CSV_HEADERS = (
     "Timestamp (UTC)",
@@ -41,8 +41,8 @@ CSV_HEADERS = (
     "PM1.0 (µg/m³)",
     "PM2.5 (µg/m³)",
     "PM10 (µg/m³)",
-    "MQ135 (raw)",
-    "MQ137 (raw)",
+    "Methane (ppm)",
+    "Ammonia (ppm)",
 )
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
@@ -53,8 +53,8 @@ SENSORS = (
     ("pm1_ugm3", "PM1.0", "µg/m³"),
     ("pm25_ugm3", "PM2.5", "µg/m³"),
     ("pm10_ugm3", "PM10", "µg/m³"),
-    ("mq135_raw", "MQ135", "raw"),
-    ("mq137_raw", "MQ137", "raw"),
+    ("mq4_ppm", "Methane estimate (MQ-4)", "ppm"),
+    ("mq137_ppm", "Ammonia estimate (MQ-137)", "ppm"),
 )
 LIVE_SENSORS = (
     ("t", "Temperature", "°C"),
@@ -63,8 +63,8 @@ LIVE_SENSORS = (
     ("pm1", "PM1.0", "µg/m³"),
     ("pm25", "PM2.5", "µg/m³"),
     ("pm10", "PM10", "µg/m³"),
-    ("mq135_raw", "MQ135", "raw"),
-    ("mq137_raw", "MQ137", "raw"),
+    ("mq4_ppm", "Methane estimate (MQ-4)", "ppm"),
+    ("mq137_ppm", "Ammonia estimate (MQ-137)", "ppm"),
 )
 
 
@@ -326,6 +326,8 @@ def dashboard():
 @app.route("/data")
 @login_required
 def data_page():
+    if session.get("role") == "admin":
+        session.setdefault("delete_readings_token", secrets.token_hex(32))
     filters = parse_filters(request.args)
     readings = []
     total = 0
@@ -382,6 +384,30 @@ def data_page():
         filter_error=filter_error,
         database_error=database_error,
     )
+
+
+@app.route("/data/delete", methods=["POST"])
+@login_required
+def delete_readings():
+    if session.get("role") != "admin":
+        abort(403)
+    token = session.get("delete_readings_token", "")
+    submitted = request.form.get("csrf_token", "")
+    if not token or not secrets.compare_digest(token.encode(), submitted.encode()):
+        abort(400)
+    if request.form.get("confirmation") != "delete_all":
+        abort(400)
+    try:
+        with closing(get_db_connection()) as conn:
+            with conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '5s'")
+                    cursor.execute("TRUNCATE TABLE air_quality_logs RESTART IDENTITY")
+        flash("All sensor readings were deleted and the ID sequence was reset to 1. Active devices may already add new readings.", "success")
+    except psycopg2.Error:
+        app.logger.exception("Unable to delete sensor readings")
+        flash("Unable to delete readings. The reset was not completed; please try again.", "error")
+    return redirect(url_for("data_page"), code=303)
 
 
 @app.route("/data/export.csv")

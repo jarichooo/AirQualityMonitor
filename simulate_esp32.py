@@ -41,8 +41,8 @@ try:
             "pm1": round(random.uniform(5.0, 10.0), 1),
             "pm25": round(random.uniform(10.0, 25.0), 1),
             "pm10": round(random.uniform(25.0, 40.0), 1),
-            "mq135_raw": random.randint(10, 50),
-            "mq137_raw": random.randint(20, 60)
+            "mq4_ppm": round(random.uniform(300.0, 10000.0), 1),
+            "mq137_ppm": round(random.uniform(5.0, 500.0), 1)
         }
 
         # 3. Publish to Mosquitto
