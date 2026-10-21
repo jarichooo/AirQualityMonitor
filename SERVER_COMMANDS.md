@@ -464,20 +464,27 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorde
 The simulator runs in the **Ubuntu host's virtual environment**. It generates
 fake readings every five seconds.
 
+First-time setup (also fixes `ModuleNotFoundError: No module named 'paho'`):
+
+```bash
+sudo apt install -y python3-venv
+python3 -m venv ~/henvironment-venv
+~/henvironment-venv/bin/python -m pip install 'paho-mqtt>=2,<3'
+```
+
+Start the containers, then run the simulator:
+
 ```bash
 cd ~/AirQualityMonitor
-~/henvironment-venv/bin/python simulate_esp32.py
+sudo docker compose up -d
+~/henvironment-venv/bin/python ~/AirQualityMonitor/simulate_esp32.py
 ```
 
-Press Ctrl+C to stop it. If the environment has not been created yet:
-
-```bash
-python3 -m venv ~/henvironment-venv
-~/henvironment-venv/bin/pip install 'paho-mqtt>=2,<3'
-```
-
-The simulator stops when its terminal closes or the server loses power. It is
-separate from the four Compose services.
+For later runs, use the same simulator command; no environment activation or
+container rebuild is needed. Press **Ctrl+C** to stop it. Stop the simulator before
+collecting real sensor data so fake readings do not mix with device readings.
+The simulator stops when its terminal closes or the server loses power. It runs
+separately from the four Compose services.
 
 ## Optional Ollama + Qwen2.5 reasoning engine
 
