@@ -23,33 +23,38 @@ class IngestionTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 ingest.parse_reading(raw)
 
-    def test_raw_mq_and_all_particle_sizes(self):
-        raw = b'{"pm1":8,"pm25":15,"pm10":22,"mq135_raw":1200,"mq137_raw":1600}'
+    def test_ppm_gases_and_all_particle_sizes(self):
+        raw = b'{"pm1":8,"pm25":15,"pm10":22,"mq4_ppm":850,"mq137_ppm":25}'
         row = ingest.parse_reading(raw)
-        self.assertEqual(row[2:], (None, None, None, 8, 15, 22, 1200, 1600))
-        self.assertEqual(ingest.parse_reading(b'{"mq135":12,"mq137":32}')[8:], (12, 32))
-        self.assertEqual(ingest.parse_reading(b'{"mq135_raw":0,"mq135":99}')[8], 0)
-        for invalid in (b'{"pm1":-1}', b'{"pm10":NaN}', b'{"mq135_raw":true}', b'{"mq137_raw":"12"}'):
+        self.assertEqual(row[2:], (None, None, None, 8, 15, 22, 850, 25))
+        for invalid in (b'{"pm1":-1}', b'{"pm10":NaN}', b'{"mq4_ppm":true}',
+                        b'{"mq137_ppm":"12"}', b'{"mq4_ppm":-1}'):
             with self.subTest(raw=invalid), self.assertRaises(ValueError):
                 ingest.parse_reading(invalid)
         with patch.object(ingest.psycopg2, "connect") as connect:
             ingest.save_reading(row)
             query, values = connect.return_value.cursor.return_value.__enter__.return_value.execute.call_args.args
-            self.assertIn("pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw", query)
+            self.assertIn("pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm", query)
             self.assertEqual(query.count("%s"), len(values))
+
+    def test_legacy_gas_keys_are_rejected(self):
+        for key in ingest.LEGACY_GAS_KEYS:
+            raw = json.dumps({"t": 30, key: 100}).encode()
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "Legacy gas keys"):
+                ingest.parse_reading(raw)
 
     def test_sensor_device_payload_and_failed_sensors(self):
         # A real device omits failed sensors instead of sending -1/-999 sentinels.
         payload = {"device_id": "esp32-AABBCCDDEEFF", "ts": "2026-10-04T14:00:00+08:00",
                    "t": 30.25, "h": 68.5, "co2": 420, "pm1": 8, "pm25": 15,
-                   "pm10": 22, "mq135_raw": 1200.5, "mq137_raw": 1600.2}
+                   "pm10": 22, "mq4_ppm": 850.5, "mq137_ppm": 25.2}
         row = ingest.parse_reading(json.dumps(payload).encode())
         self.assertEqual(row[0], datetime(2026, 10, 4, 6, tzinfo=timezone.utc))
-        self.assertEqual(row[2:], (30.25, 68.5, 420, 8, 15, 22, 1200.5, 1600.2))
+        self.assertEqual(row[2:], (30.25, 68.5, 420, 8, 15, 22, 850.5, 25.2))
         for key in ("t", "h", "co2", "pm1", "pm25", "pm10"):
             payload.pop(key)
         self.assertEqual(ingest.parse_reading(json.dumps(payload).encode())[2:],
-                         (None, None, None, None, None, None, 1200.5, 1600.2))
+                         (None, None, None, None, None, None, 850.5, 25.2))
 
     def test_database_failure_does_not_stop_next_reading(self):
         msg = SimpleNamespace(payload=b'{"t":30}')

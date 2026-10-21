@@ -26,6 +26,13 @@ class AppTestCase(unittest.TestCase):
             dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
         self.assertIn(b"Good day", dashboard.data)
+        self.assertIn(b"Methane estimate (MQ-4)", dashboard.data)
+        self.assertIn(b"Ammonia estimate (MQ-137)", dashboard.data)
+        self.assertIn(b"borrowed calibration constants", dashboard.data)
+        self.assertIn("mq4_ppm", application.READING_COLUMNS)
+        self.assertIn("mq137_ppm", application.READING_COLUMNS)
+        self.assertNotIn("mq135_raw", application.READING_COLUMNS)
+        self.assertNotIn("mq137_raw", application.READING_COLUMNS)
 
         row = (datetime(2026, 9, 27, 5, 50, 25, tzinfo=timezone.utc), 31.5, 68, 420, 8.0, 15.2, 22.0, 12, 32)
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
@@ -54,10 +61,12 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"Timestamp (UTC),Temp", export.data)
             self.assertIn(b"2026-09-27 05:50:25", export.data)
             csv_rows = list(csv.reader(io.StringIO(export.data.decode())))
-            self.assertEqual(csv_rows[0][-5:], ["PM1.0 (µg/m³)", "PM2.5 (µg/m³)", "PM10 (µg/m³)", "MQ135 (raw)", "MQ137 (raw)"])
+            self.assertEqual(csv_rows[0][-5:], ["PM1.0 (µg/m³)", "PM2.5 (µg/m³)", "PM10 (µg/m³)", "Methane (ppm)", "Ammonia (ppm)"])
             self.assertEqual(csv_rows[1][-5:], ["8.0", "15.2", "22.0", "12", "32"])
-            self.assertIn(b"MQ135 (raw)", page.data)
-            self.assertNotIn(b"MQ135 (ppm)", page.data)
+            self.assertIn(b"Methane (ppm)", page.data)
+            self.assertIn(b"Ammonia (ppm)", page.data)
+            self.assertNotIn(b"MQ135", page.data)
+            self.assertNotIn(b"(raw)", page.data)
 
     def test_custom_date_validation(self):
         filters = application.parse_filters({
@@ -67,6 +76,66 @@ class AppTestCase(unittest.TestCase):
         })
         _, _, error = application.build_where_clause(filters)
         self.assertIsNotNone(error)
+
+    def test_delete_readings_requires_admin_token_and_confirmation(self):
+        with patch.object(application, "get_db_connection") as connect:
+            self.assertEqual(self.client.post("/data/delete").location, "/login")
+            self.login()
+            self.assertEqual(self.client.get("/data/delete").status_code, 405)
+            self.assertEqual(self.client.post("/data/delete").status_code, 400)
+            with self.client.session_transaction() as session:
+                session["delete_readings_token"] = "test-token"
+            for fields in ({"csrf_token": "wrong", "confirmation": "delete_all"},
+                           {"csrf_token": "test-token"},
+                           {"csrf_token": "test-token", "confirmation": "cancel"},
+                           {"csrf_token": "\u00e9", "confirmation": "delete_all"}):
+                self.assertEqual(self.client.post("/data/delete", data=fields).status_code, 400)
+            with self.client.session_transaction() as session:
+                session["role"] = "viewer"
+            self.assertEqual(self.client.post("/data/delete", data={"csrf_token": "test-token", "confirmation": "delete_all"}).status_code, 403)
+            connect.assert_not_called()
+
+    def test_delete_readings_commits_only_sensor_table_and_reports_failures(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {"csrf_token": "test-token", "confirmation": "delete_all"}
+        with patch.object(application, "get_db_connection") as connect:
+            response = self.client.post("/data/delete", data=fields)
+            self.assertEqual(response.status_code, 303)
+            self.assertEqual(response.location, "/data")
+            conn = connect.return_value
+            commands = [call.args[0] for call in conn.cursor.return_value.__enter__.return_value.execute.call_args_list]
+            self.assertEqual(commands, ["SET LOCAL lock_timeout = '5s'", "TRUNCATE TABLE air_quality_logs RESTART IDENTITY"])
+            conn.__exit__.assert_called_once_with(None, None, None)
+            conn.close.assert_called_once()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            self.assertIn(b"ID sequence was reset to 1", self.client.get("/data").data)
+        with patch.object(application, "get_db_connection") as connect:
+            conn = connect.return_value
+            conn.cursor.return_value.__enter__.return_value.execute.side_effect = [None, application.psycopg2.OperationalError("locked")]
+            with self.assertLogs(application.app.logger, level="ERROR"):
+                self.assertEqual(self.client.post("/data/delete", data=fields).status_code, 303)
+            self.assertIs(conn.__exit__.call_args.args[0], application.psycopg2.OperationalError)
+            conn.close.assert_called_once()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data")
+            self.assertIn(b"reset was not completed", page.data)
+            self.assertNotIn(b"ID sequence was reset to 1", page.data)
+
+    def test_delete_button_and_token_are_only_available_to_admins(self):
+        self.login()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data?q=hidden")
+            self.assertIn(b'id="delete-all-readings"', page.data)
+            self.assertIn(b'form="delete-readings-form"', page.data)
+            self.assertIn(b'name="confirmation" value=""', page.data)
+            with self.client.session_transaction() as session:
+                self.assertIn(session["delete_readings_token"].encode(), page.data)
+                session["role"] = "viewer"
+            page = self.client.get("/data")
+            self.assertNotIn(b'id="delete-all-readings"', page.data)
+            self.assertNotIn(b'id="delete-readings-form"', page.data)
 
     def test_collection_summary_empty_populated_and_unavailable(self):
         self.assertEqual(self.client.get("/").status_code, 302)

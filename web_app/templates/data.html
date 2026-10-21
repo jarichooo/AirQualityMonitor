@@ -7,8 +7,14 @@
             <h1>Data</h1>
             <p>Review, filter, and export environmental sensor readings.</p>
         </div>
+        {% if session.get('role') == 'admin' %}
+        <button class="button button-danger" id="delete-all-readings" type="submit" form="delete-readings-form" disabled>Delete all readings</button>
+        {% endif %}
     </div>
 
+    {% for category, message in get_flashed_messages(with_categories=true) %}
+    <p class="data-notice data-notice-{{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
+    {% endfor %}
     <section class="data-panel" aria-labelledby="sensor-readings-title">
         <div class="data-panel-heading">
             <div class="panel-heading-summary">
@@ -124,4 +130,11 @@
         {% endif %}
     </section>
 </form>
+{% if session.get('role') == 'admin' %}
+<form id="delete-readings-form" method="post" action="{{ url_for('delete_readings') }}">
+    <input type="hidden" name="csrf_token" value="{{ session['delete_readings_token'] }}">
+    <input type="hidden" name="confirmation" value="">
+</form>
+{% endif %}
 {% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js') }}" defer></script>{% endblock %}

@@ -461,8 +461,8 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorde
 
 ## Host Python simulator
 
-The simulator is the only Python command here that uses the **Ubuntu host's
-virtual environment**. It generates fake readings every five seconds.
+The simulator runs in the **Ubuntu host's virtual environment**. It generates
+fake readings every five seconds.
 
 ```bash
 cd ~/AirQualityMonitor
@@ -478,6 +478,100 @@ python3 -m venv ~/henvironment-venv
 
 The simulator stops when its terminal closes or the server loses power. It is
 separate from the four Compose services.
+
+## Optional Ollama + Qwen2.5 reasoning engine
+
+The Python script checks or installs **Ollama** and **`qwen2.5:3b`** on the Ubuntu
+host. It needs no Python packages or virtual environment. It runs separately from
+the four Docker services; no Docker rebuild or database reset is needed.
+The model comes from [Ollama's library](https://ollama.com/library/qwen2.5:3b) and
+downloads approximately 1.9 GB. Allow extra disk space for the engine and downloads.
+
+After pulling the script and empty thresholds file from GitHub:
+
+```bash
+cd ~/AirQualityMonitor
+sudo apt update
+sudo apt install -y python3 curl zstd
+python3 setup_reasoning_ai.py
+python3 setup_reasoning_ai.py --install
+python3 setup_reasoning_ai.py --smoke-test
+```
+
+The first check returns code 1 for missing components; proceed with `--install`.
+Continue after installation only if it succeeds. When Ollama is missing, the helper
+downloads and runs the official Linux installation script, which may request your
+sudo password. Run the Python helper as your normal user so project model files
+stay owned by your account. Installation needs internet. A broken installed engine
+is reported for repair rather than overwritten.
+
+`OLLAMA_MODELS` is set to the absolute project path `ai_model/reasoning ai/models/`.
+The script reuses complete project models and leaves other model stores untouched.
+Setup and smoke tests use a temporary local Ollama server and stop it afterward.
+The official installer may also create the normal system service on port 11434;
+that service has its own default model store, independent of this project's server.
+
+To check later without downloading or starting a server:
+
+```bash
+cd ~/AirQualityMonitor
+python3 setup_reasoning_ai.py
+```
+
+This checks the CLI and local manifest/blob sizes, without rehashing every blob.
+Ollama verifies downloads. `--smoke-test` also checks actual loading and generation.
+To repair a corrupted model, start the project's server below and run
+`OLLAMA_HOST=127.0.0.1:11435 ollama pull qwen2.5:3b` in another terminal.
+
+For manual testing, start the project's server:
+
+```bash
+cd ~/AirQualityMonitor
+python3 setup_reasoning_ai.py --serve
+```
+
+Keep the terminal open; Ctrl+C stops it. The API listens only at
+`http://127.0.0.1:11435`. In a second SSH terminal:
+
+```bash
+OLLAMA_HOST=127.0.0.1:11435 ollama list
+OLLAMA_HOST=127.0.0.1:11435 ollama run qwen2.5:3b
+```
+
+This project server is not started automatically on reboot. It supports the current
+installation/testing phase; later application integration needs a service setup.
+An Ollama service on port 11434 does not automatically serve these project files.
+
+Edit your initially empty thresholds file when ready:
+
+```bash
+nano "ai_model/reasoning ai/thresholds.md"
+```
+
+Existing contents are preserved. The file is reserved for thresholds and response
+guidance for all sensors. The later `.h5` model will predict readings two hours
+ahead, and Qwen will describe predictions using your rules. That integration is
+not part of this setup. The generic smoke test does not validate poultry guidance.
+On the 8 GB server, check memory with `free -h` and test response time before
+connecting inference to the application.
+
+For SCP, copy the script from **PowerShell on the laptop**, replacing the address:
+
+```powershell
+scp .\setup_reasoning_ai.py airqualitymonitor@192.168.xxx.xxx:~/AirQualityMonitor/
+```
+
+Then run the Ubuntu setup commands above. Installation creates an empty thresholds
+file only if missing. Download separately on each machine; do not copy Windows
+programs or environments to Ubuntu. Git ignores `ai_model/reasoning ai/models/`;
+commit the script and thresholds Markdown instead. Back up server-specific rules
+before replacing them through Git.
+
+If installation fails, read the error and check internet, free disk, and sudo
+access. Consult the official [Linux](https://docs.ollama.com/linux) or
+[Windows](https://docs.ollama.com/windows) installation instructions. If the newly
+installed CLI is not found, reopen the terminal. Normal checks and tests never
+upgrade an existing engine automatically.
 
 ## Shut down or reboot the server
 

@@ -24,7 +24,7 @@ IPAddress primaryDNS(192, 168, 11, 1);
 const int mqtt_port = 1883;
 const char* MQTT_TOPIC = "poultry/sensors";
 
-const int MQ135_PIN = 1;
+const int MQ4_PIN = 1;
 const int MQ137_PIN = 2;
 const int SHT_SDA = 4;
 const int SHT_SCL = 11;
@@ -39,6 +39,25 @@ const unsigned long READ_INTERVAL_MS = 60000;
 const unsigned long PMS_MAX_AGE_MS = 15000;
 const long RTC_OFFSET_SECONDS = 8 * 3600;  // RTC stores Philippine local time.
 const size_t MAX_CACHE_SIZE = 120;
+
+constexpr float V_CC = 5.0f;
+constexpr float ADC_REF_V = 3.3f;  // Electrical reference; analogReadMilliVolts already applies ADC calibration.
+constexpr float DIVIDER_FACTOR = 1.5f;
+constexpr float ADC_MAX_MEASURABLE_V = 3.1f;  // ESP32-S3 at ADC_11db.
+constexpr int GAS_SAMPLE_COUNT = 10;
+static_assert(ADC_MAX_MEASURABLE_V <= ADC_REF_V, "ADC range must not exceed its reference");
+
+// Provisional MQ4 calibration: RL/R0 are borrowed from the previous gas sensor until MQ4 is calibrated.
+constexpr float RL_MQ4 = 10.0f;
+constexpr float R0_MQ4 = 10.947f;
+// Methane fit used by MQUnifiedsensor for the MQ-4 datasheet curve: ppm = A * (Rs/R0)^B.
+constexpr float MQ4_A = 1012.7f;
+constexpr float MQ4_B = -2.786f;
+
+constexpr float RL_MQ137 = 1.0f;
+constexpr float R0_MQ137 = 0.310f;
+constexpr float MQ137_A = 102.2f;
+constexpr float MQ137_B = -2.473f;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -127,19 +146,49 @@ bool addTimestamp(JsonDocument& doc) {
   return false;
 }
 
+bool gasPpm(float adcMillivolts, float rlKOhm, float r0KOhm, float a, float b, float& ppm) {
+  float adcVoltage = adcMillivolts / 1000.0f;
+  if (!isfinite(adcVoltage) || adcVoltage <= 0.0f || adcVoltage >= ADC_MAX_MEASURABLE_V ||
+      !isfinite(rlKOhm) || !isfinite(r0KOhm) || !isfinite(a) || !isfinite(b) ||
+      rlKOhm <= 0.0f || r0KOhm <= 0.0f || a <= 0.0f) return false;
+
+  float sensorVoltage = adcVoltage * DIVIDER_FACTOR;
+  if (!isfinite(sensorVoltage) || sensorVoltage <= 0.01f || sensorVoltage >= V_CC - 0.05f) return false;
+
+  float rsKOhm = rlKOhm * (V_CC - sensorVoltage) / sensorVoltage;
+  float ratio = rsKOhm / r0KOhm;
+  if (!isfinite(ratio) || ratio <= 0.0f) return false;
+  ppm = a * powf(ratio, b);
+  return isfinite(ppm) && ppm > 0.0f;
+}
+
 bool readSensors(JsonDocument& doc) {
   doc["device_id"] = deviceId;
   bool hasTimestamp = addTimestamp(doc);
 
-  uint32_t adc135 = 0, adc137 = 0;
-  for (int i = 0; i < 10; ++i) {
-    adc135 += analogRead(MQ135_PIN);
-    adc137 += analogRead(MQ137_PIN);
+  uint32_t mq4Millivolts = 0, mq137Millivolts = 0;
+  for (int i = 0; i < GAS_SAMPLE_COUNT; ++i) {
+    mq4Millivolts += analogReadMilliVolts(MQ4_PIN);
     delay(2);
   }
-  // Store averaged 12-bit ADC counts. No gas/ppm conversion or guessed R0.
-  doc["mq135_raw"] = adc135 / 10.0;
-  doc["mq137_raw"] = adc137 / 10.0;
+  for (int i = 0; i < GAS_SAMPLE_COUNT; ++i) {
+    mq137Millivolts += analogReadMilliVolts(MQ137_PIN);
+    delay(2);
+  }
+
+  float ppm = 0.0f;
+  if (gasPpm(mq4Millivolts / static_cast<float>(GAS_SAMPLE_COUNT),
+             RL_MQ4, R0_MQ4, MQ4_A, MQ4_B, ppm)) {
+    doc["mq4_ppm"] = ppm;
+  } else {
+    Serial.println("[MQ4] Invalid/saturated reading; omitting mq4_ppm");
+  }
+  if (gasPpm(mq137Millivolts / static_cast<float>(GAS_SAMPLE_COUNT),
+             RL_MQ137, R0_MQ137, MQ137_A, MQ137_B, ppm)) {
+    doc["mq137_ppm"] = ppm;
+  } else {
+    Serial.println("[MQ137] Invalid/saturated reading; omitting mq137_ppm");
+  }
 
   if (!shtOnline) shtOnline = sht.begin(0x44) || sht.begin(0x45);
   if (shtOnline) {
@@ -174,6 +223,7 @@ bool readSensors(JsonDocument& doc) {
 void setup() {
   Serial.begin(115200);
   Serial.println("[COLLECTION] Boot: Paused; waiting for dashboard Resume");
+  Serial.println("[MQ4] Using provisional RL/R0 from the previous gas sensor; calibrate MQ4 for final ppm");
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
   Wire.begin(SHT_SDA, SHT_SCL);

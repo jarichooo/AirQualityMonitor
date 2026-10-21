@@ -10,8 +10,8 @@ can pause or resume both MQTT uploads and live broadcasts.
 
 | Sensor | ESP32 GPIO | MQTT fields | Database fields |
 | --- | --- | --- | --- |
-| MQ135 analog output | 1 | `mq135_raw` | `mq135_raw` |
-| MQ137 analog output | 2 | `mq137_raw` | `mq137_raw` |
+| MQ-4 Flying Fish methane module AO | 1 | `mq4_ppm` | `mq4_ppm` |
+| MQ137 ammonia module AO | 2 | `mq137_ppm` | `mq137_ppm` |
 | SHT31 I2C | SDA 4, SCL 11 | `t`, `h` | `temperature_c`, `humidity_perc` |
 | DS3231 I2C (second bus) | SDA 13, SCL 12 | `ts` | `recorded_at` |
 | MH-Z19E UART1 | RX 7, TX 8 | `co2` | `co2_ppm` |
@@ -19,17 +19,58 @@ can pause or resume both MQTT uploads and live broadcasts.
 
 Connect UART sensor TX to ESP32 RX and sensor RX to ESP32 TX. Keep the tested
 power and voltage-divider wiring: GPIO1/2 must receive ESP32-safe analog levels.
-MQ values are averages of ten 12-bit ADC reads (0–4095 counts), without voltage,
-resistance, or ppm conversion. A disconnected analog wire can still yield a
-number; a raw value alone does not prove that the MQ sensor is working.
+MQ concentration estimates use ten voltage samples per sensor and the
+configured divider, load resistor, reference resistance, and gas-specific curve.
+A disconnected analog wire can still yield a voltage; a plausible ppm value
+alone does not prove that the sensor or its calibration is working.
 
 PMS fields use `pm10_env`, `pm25_env`, and `pm100_env`, respectively: atmospheric
 mass concentrations in µg/m³, not particle counts. The firmware continuously
 drains UART frames and omits PM readings if no valid frame arrived within 15 seconds.
 SHT31 uses address 0x44 or 0x45. Failed SHT/CO2 reads are omitted. Missing keys
 become database NULLs; -1, -999, and NaN are never used as error readings.
-MQ137 is reported as raw ADC counts; no calibrated ammonia concentration is
-stored.
+MQ-4 reports estimated methane ppm and MQ137 reports estimated ammonia ppm.
+Invalid voltage or conversion results are omitted, never sent as -1 ppm.
+
+## MQ conversion and calibration
+
+The conversion follows:
+
+```text
+sensor_voltage = adc_voltage * DIVIDER_FACTOR
+Rs = RL * (V_CC - sensor_voltage) / sensor_voltage
+ppm = A * (Rs / R0)^B
+```
+
+The supplied defaults are V_CC = 5.0 V, ADC_REF_V = 3.3 V, and
+DIVIDER_FACTOR = 1.5. Check the divider factor against the installed resistors;
+the analog input must remain within the ESP32-S3 ADC's measurable voltage range.
+The ADC reference setting is not permission to apply 5 V directly to GPIO1/2.
+
+| Sensor | RL (kOhm) | R0 (kOhm) | Conversion |
+| --- | --- | --- | --- |
+| MQ-4 Flying Fish | 10.0 | 10.947 | `1012.7 * pow(Rs/R0, -2.786)` |
+| MQ137 | 1.0 | 0.310 | `102.2 * pow(Rs/R0, -2.473)` |
+
+**MQ-4's RL and R0 were intentionally borrowed from the replaced gas sensor at
+the owner's request.** They are provisional values, not a calibration of the
+Flying Fish module. Check its actual load resistance and calibrate R0 using a
+known methane reference before claiming concentration accuracy. The user-supplied
+air-quality curve `110.47 * pow(Rs/R0, -2.862)` is not a methane-specific MQ-4
+curve and is not used for the replacement sensor. MQ137 uses the requested
+ammonia formula and constants; its output is also an estimate until validated.
+
+The methane coefficients follow the [MQUnifiedsensor MQ-4 example](https://github.com/miguel5612/MQSensorsLib/blob/master/examples/MQ-4/MQ-4.ino),
+not the old air-quality curve. The firmware implements the equation directly;
+no additional gas-sensor library is required. See the [Winsen MQ-4 manual](https://www.winsen-sensor.com/d/files/MQ-4.pdf)
+for sensing characteristics and conditioning requirements. A fitted curve does
+not replace per-module calibration.
+
+`analogReadMilliVolts()` supplies the ESP32's calibrated ADC voltage rather than
+assuming every raw ADC count scales linearly to 3.3 V. The sketch averages ten
+samples, reconstructs the module AO voltage with the divider factor, and rejects
+ADC saturation at the documented 3.1 V limit for ESP32-S3 `ADC_11db`. The sensor
+voltage must also be greater than 0.01 V and less than `V_CC - 0.05 V`.
 
 The MH-Z19E is read with the library's `getCO2(false)` (0x86 request); a
 successful response and positive concentration are required. Automatic baseline
@@ -54,7 +95,7 @@ packages (including dependencies):
 
 Set `ssid`, `password`, `mqtt_server`, and the `local_IP`, `gateway`, `subnet`,
 and `primaryDNS` addresses at the top of the sketch to match your router's LAN.
-The current defaults assume server `192.168.11.50`, ESP32 `192.168.11.51`, and
+The current defaults assume server `192.168.11.50`, ESP32 `192.168.11.55`, and
 router/DNS `192.168.11.1` on a `/24` subnet. Confirm the gateway and subnet in
 your router, and reserve the ESP32 address there (or confirm it is outside the
 DHCP pool) to prevent an address conflict. MQTT uses port 1883. WiFi station
@@ -124,7 +165,7 @@ sudo docker compose logs -f ingestion
 Use Ctrl+C to exit log viewing. In another SSH terminal, inspect real-device rows:
 
 ```bash
-sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq135_raw, mq137_raw FROM air_quality_logs WHERE device_id LIKE 'esp32-%' ORDER BY recorded_at DESC LIMIT 10;"
+sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorded_at, device_id, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm FROM air_quality_logs WHERE device_id LIKE 'esp32-%' ORDER BY recorded_at DESC LIMIT 10;"
 ```
 
 Match values and timestamps against Serial Monitor, then log in to the server's

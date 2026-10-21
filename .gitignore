@@ -5,3 +5,12 @@ __pycache__/
 .env
 .test-deps/
 .codex/
+Commission_Agreement_Revised.txt
+client_manual/
+.venv-reasoning/
+ai_model/reasoning ai/*.gguf
+ai_model/reasoning ai/.cache/
+ai_model/reasoning ai/.qwen-download-*/
+.dump/
+output/
+tmp/
