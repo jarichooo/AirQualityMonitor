@@ -4,6 +4,30 @@ Phase one of a poultry air quality monitoring application: prepare containers,
 sensor data collection, and a usable web interface. Real collection has not
 started; there is no predictive AI.
 
+## Methodology
+
+1. The [ESP32 firmware](airqualitymonitor.ino) samples connected sensors once per minute when collection is resumed; the optional [simulator](simulate_esp32.py) supplies synthetic development messages.
+2. MQTT carries readings through Mosquitto to the [Python ingestion service](ingestion/), which validates numeric values and timestamps before storing them using the [PostgreSQL schema](schema.sql).
+3. The [Flask web application](web_app/) provides authenticated access to live readings, descriptive charts, searchable history and CSV exports. WebSocket commands control the connected ESP32 separately from database ingestion.
+4. Firmware gas conversions use sensor-specific calibration constants. The MQ-4 constants remain provisional; calibration and end-to-end collection verification are required before interpreting estimates as measured concentrations.
+
+## Results and current status
+
+The repository implements the collection infrastructure, firmware controls, database ingestion and monitoring interface described below. Its documented checks cover routes, data validation, timestamp handling and recovery behavior with mocked database access. No field collection study, reference-gas accuracy measurement, uptime benchmark or prediction accuracy result is reported here.
+
+Real collection has not started according to the project status. Simulator values are test data. Predictive regression and dashboard AI integration remain planned; the optional Ollama setup verifies a separate runtime and does not produce sensor forecasts.
+
+## Source code, data and documentation
+
+- [Firmware](airqualitymonitor.ino), [ingestion](ingestion/), [web interface](web_app/) and [Docker Compose configuration](docker-compose.yml) contain the implementation.
+- Operational readings live in the local PostgreSQL database; use the authenticated CSV export for permitted sharing. The [simulator](simulate_esp32.py) can reproduce test inputs without presenting them as real measurements.
+- A database dump is present in the repository, but this README does not establish its provenance or redistribution permissions; it is not presented as a validated research dataset.
+- [Firmware guide](FIRMWARE.md), [server commands](SERVER_COMMANDS.md) and the setup and checks below explain configuration, backups and verification.
+
+## Topics
+
+`internet-of-things` · `esp32` · `mqtt` · `postgresql` · `flask` · `air-quality` · `environmental-monitoring`
+
 ## Hardware
 
 | Hardware | Specifications / role |
