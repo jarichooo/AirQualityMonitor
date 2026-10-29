@@ -18,6 +18,9 @@
     const renderForecast = (forecast) => {
         const article = document.createElement("article");
         addText(article, "h3", `Device ${forecast.device_id}`);
+        if (forecast.data_class === "SIMULATED") {
+            addText(article, "p", `Simulated readings${forecast.scenario ? ` · ${forecast.scenario} input conditions` : ""}. Forecasts are model estimates.`);
+        }
         addText(article, "p", `Input through ${formatTime(forecast.input_cutoff_at)} · Forecast target ${formatTime(forecast.target_at)}`);
         if (forecast.status !== "available") {
             addText(article, "p", forecast.reason || "The forecast is unavailable.");

@@ -33,9 +33,13 @@ def _valid_sensor_value(key, value):
 
 
 def _unavailable(row, reason, explanation_status, explanation):
+    device = row[1].strip() if isinstance(row[1], str) else None
+    scenario = {"sim-farm-good": "Good", "sim-farm-mid": "Warning", "sim-farm-bad": "Critical"}.get(device)
     return {
         "forecast_id": str(row[0]) if row[0] is not None else None,
-        "device_id": row[1].strip() if isinstance(row[1], str) else None,
+        "device_id": device,
+        "data_class": "SIMULATED" if scenario or device == "python-simulator" else "RECORDED",
+        "scenario": scenario,
         "input_row_id": row[2],
         "input_cutoff_at": _iso(row[3]),
         "target_at": _iso(row[4]),

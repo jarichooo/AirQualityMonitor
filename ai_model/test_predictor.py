@@ -2,6 +2,7 @@ import csv
 import importlib.util
 import tempfile
 import unittest
+import warnings
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -72,6 +73,19 @@ class PredictorContractTests(unittest.TestCase):
 class PredictorArtifactTests(unittest.TestCase):
     def tearDown(self):
         predictor._load_forecaster.cache_clear()
+
+    def test_all_demo_profiles_produce_finite_model_outputs_without_overflow(self):
+        import math
+        from ai_model.simulation import generate_readings
+
+        now = datetime(2026, 10, 29, 15, 42, tzinfo=timezone.utc)
+        for profile in ("good", "mid", "bad"):
+            rows = generate_readings(profile, now)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                values = predictor.predict(rows)
+            self.assertEqual(set(values), set(predictor.TARGET_COLUMNS))
+            self.assertTrue(all(math.isfinite(value) for value in values.values()))
 
     def test_supplied_example_matches_endpoint(self):
         root = Path(predictor.__file__).parent

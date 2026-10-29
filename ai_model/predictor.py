@@ -14,7 +14,7 @@ class ModelUnavailable(RuntimeError):
 
 MODEL_SHA256 = "eaef59203a1654e4c51c626420f0a558e3aab939c30b881bcaeaad370763b959"
 MODEL_PATH = Path(__file__).with_name("microclimate_forecaster.joblib")
-MODEL_VERSION = f"gru-v1-{MODEL_SHA256[:12]}"
+MODEL_VERSION = f"gru-v2-{MODEL_SHA256[:12]}"
 LOOKBACK_SAMPLES = 120
 FEATURE_COLUMNS = (
     "temperature_c", "humidity_perc", "co2_ppm", "pm1_ugm3",

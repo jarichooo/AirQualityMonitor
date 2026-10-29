@@ -21,7 +21,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(self.client.get("/data").status_code, 302)
         self.login()
         with patch.object(application, "get_db_connection") as connect:
-            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.side_effect = [(0, None), None, (None, None, None, 0) * 8]
+            connect.return_value.cursor.return_value.__enter__.return_value.fetchone.return_value = (0, None, None)
             connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
             dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
@@ -140,15 +140,20 @@ class AppTestCase(unittest.TestCase):
     def test_collection_summary_empty_populated_and_unavailable(self):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.login()
-        for result, expected in (((0, None), b"No readings yet"),
-                                 ((3, datetime(2026, 10, 1, 12)), b"<strong>3</strong> stored readings")):
+        earliest = datetime(2026, 10, 1, 10, tzinfo=timezone.utc)
+        latest = datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
+        for result, expected in (((0, None, None), b"No readings yet"),
+                                 ((3, earliest, latest), b"<strong>3</strong> stored readings")):
             with patch.object(application, "get_db_connection") as connect:
                 cursor = connect.return_value.cursor.return_value.__enter__.return_value
-                cursor.fetchone.side_effect = [result, None, (None, None, None, 0) * 8]
+                cursor.fetchone.side_effect = [result, (latest, 30) + (None,) * 7,
+                                               (None, None, None, 0) * 8]
                 cursor.fetchall.return_value = []
                 page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
                 self.assertIn(expected, page.data)
+                if result[0]:
+                    self.assertIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
                 connect.return_value.close.assert_called_once()
         with patch.object(application, "get_db_connection", side_effect=application.psycopg2.OperationalError):
             self.assertIn(b"Collection status is unavailable", self.client.get("/dashboard").data)
@@ -184,16 +189,23 @@ class AppTestCase(unittest.TestCase):
 
     def test_analytics_and_missing_hour_gaps(self):
         self.login()
-        start = datetime.now(timezone.utc) - timedelta(hours=24)
-        series = [(start, 30), (start + timedelta(hours=1), 32), (start + timedelta(hours=3), 31)]
+        earliest = datetime(2026, 10, 4, 5, 36, tzinfo=timezone.utc)
+        latest = datetime(2026, 10, 26, 23, 59, tzinfo=timezone.utc)
+        chart_start = earliest.replace(minute=0)
+        series = [(chart_start, 30), (chart_start + timedelta(hours=1), 32),
+                  (chart_start + timedelta(hours=3), 31)]
         with patch.object(application, "get_db_connection") as connect:
             cursor = connect.return_value.cursor.return_value.__enter__.return_value
-            cursor.fetchone.side_effect = [(3, start), (start, 30) + (None,) * 7,
+            cursor.fetchone.side_effect = [(32320, earliest, latest), (latest, 30) + (None,) * 7,
                                           (30, 31, 32, 3) + (None, None, None, 0) * 7]
-            cursor.fetchall.side_effect = [series, [(start + timedelta(hours=23), 30, "node-1"),
-                                                   (start + timedelta(hours=23, minutes=1), 32, "node-1")]]
+            cursor.fetchall.side_effect = [series, [(latest - timedelta(minutes=1), 30, "node-1"),
+                                                   (latest, 32, "node-1")]]
             page = self.client.get("/dashboard?sensor=bad")
             self.assertEqual(page.status_code, 200)
+            self.assertIn(b"All stored readings (UTC)", page.data)
+            self.assertIn(b"2026-10-04 05:36:00 to 2026-10-26 23:59:00", page.data)
+            self.assertIn(b"10-27 00:00 UTC", page.data)
+            self.assertNotIn(b"Last 24 hours (UTC)", page.data)
             self.assertIn(b"30.00", page.data)
             self.assertIn(b"31.00", page.data)
             self.assertIn(b"32.00", page.data)
@@ -205,10 +217,13 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
             self.assertIn("SELECT recorded_at, temperature_c, device_id", cursor.execute.call_args.args[0])
-        trend = application.build_trend(series, start)
+            self.assertEqual(cursor.execute.call_args_list[-3].args[1], (earliest, latest))
+            self.assertEqual(cursor.execute.call_args_list[-2].args[1], (earliest, latest))
+            self.assertEqual(cursor.execute.call_args.args[1], (latest - timedelta(hours=1), latest))
+        trend = application.build_trend(series, chart_start, datetime(2026, 10, 27, tzinfo=timezone.utc))
         self.assertEqual(len(trend["segments"]), 2)
         self.assertEqual(len(trend["points"]), 3)
-        self.assertFalse(application.build_trend([(start, None)], start)["points"])
+        self.assertFalse(application.build_trend([(chart_start, None)], chart_start)["points"])
 
     def test_recorded_graph_preserves_time_gaps_and_device_boundaries(self):
         start = datetime(2026, 10, 4, 6, tzinfo=timezone.utc)

@@ -366,6 +366,20 @@ sudo docker compose restart web_dashboard    # Restart one existing container
 The services are `postgres_db`, `mqtt_broker`, `ingestion`, and `web_dashboard`.
 Compose already sets `restart: unless-stopped` for each service.
 
+## Good, warning and critical farm demos
+
+For a demonstration without the sensor device, use the three scripts in
+`ai_model/`: `simulate_good.py`, `simulate_mid.py`, and `simulate_bad.py`.
+They add 120 fresh, minute-aligned simulated inputs, run the trained model, and
+save its two-hour forecast and Qwen guidance in the existing dashboard box.
+They preserve the original dataset; the trends cover all stored dates.
+
+Follow [the complete demo commands](ai_model/README.md#three-farm-demonstrations-without-a-device).
+Stop the normal forecast worker first, start Qwen with
+`python3 setup_reasoning_ai.py --serve` in another terminal, and run only one
+scenario at a time. The older `simulate_esp32.py` below tests MQTT ingestion;
+it does not provide the model's required one-minute history.
+
 ## Dashboard accounts
 
 The account script runs **inside the web container**. Do not activate the host

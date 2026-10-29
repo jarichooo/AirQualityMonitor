@@ -72,41 +72,54 @@ LIVE_SENSORS = (
 
 def fetch_dashboard_data(sensor):
     """Measured analytics; saved forecasts are fetched separately by the panel."""
-    start = datetime.now(timezone.utc) - timedelta(hours=24)
+    now = datetime.now(timezone.utc)
     with closing(get_db_connection()) as conn:
         with conn.cursor() as cursor:
-            cursor.execute("SELECT COUNT(*), MAX(recorded_at) FROM air_quality_logs")
-            total, latest = cursor.fetchone()
-            cursor.execute(f"SELECT {', '.join(READING_COLUMNS)} FROM air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1")
-            latest_row = cursor.fetchone()
-            aggregates = ", ".join(f"MIN({col}), AVG({col}), MAX({col}), COUNT({col})" for col, _, _ in SENSORS)
-            cursor.execute(f"SELECT {aggregates} FROM air_quality_logs WHERE recorded_at >= %s AND recorded_at <= %s",
-                           (start, start + timedelta(hours=24)))
-            summary = cursor.fetchone()
+            cursor.execute("SELECT COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM air_quality_logs")
+            total, earliest, latest = cursor.fetchone()
+            if latest is None:
+                start, end = now - timedelta(hours=24), now
+                recorded_start, recorded_end = now - timedelta(hours=1), now
+                latest_row = None
+                summary = (None, None, None, 0) * len(SENSORS)
+                series = []
+                recorded_series = []
+            else:
+                start = earliest.replace(minute=0, second=0, microsecond=0)
+                end = latest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                recorded_start, recorded_end = latest - timedelta(hours=1), latest
+                cursor.execute(f"SELECT {', '.join(READING_COLUMNS)} FROM air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1")
+                latest_row = cursor.fetchone()
+                aggregates = ", ".join(f"MIN({col}), AVG({col}), MAX({col}), COUNT({col})" for col, _, _ in SENSORS)
+                cursor.execute(f"SELECT {aggregates} FROM air_quality_logs WHERE recorded_at >= %s AND recorded_at <= %s",
+                               (earliest, latest))
+                summary = cursor.fetchone()
+                # sensor is selected from SENSORS by the route, never interpolated from raw input.
+                cursor.execute(f"SELECT date_trunc('hour', recorded_at), AVG({sensor}) FROM air_quality_logs "
+                               "WHERE recorded_at >= %s AND recorded_at <= %s "
+                               "GROUP BY 1 ORDER BY 1", (earliest, latest))
+                series = cursor.fetchall()
+                cursor.execute(f"SELECT recorded_at, {sensor}, device_id FROM air_quality_logs "
+                               "WHERE recorded_at >= %s AND recorded_at <= %s "
+                               "ORDER BY device_id NULLS FIRST, recorded_at, id",
+                               (recorded_start, recorded_end))
+                recorded_series = cursor.fetchall()
             metrics = []
             for index, (column, label, unit) in enumerate(SENSORS):
                 low, average, high, count = summary[index * 4:index * 4 + 4]
                 metrics.append(dict(column=column, label=label, unit=unit,
                                     value=latest_row[index + 1] if latest_row else None,
                                     minimum=low, average=average, maximum=high, count=count))
-            # sensor is selected from SENSORS by the route, never interpolated from raw input.
-            cursor.execute(f"SELECT date_trunc('hour', recorded_at), AVG({sensor}) FROM air_quality_logs "
-                           "WHERE recorded_at >= %s AND recorded_at <= %s "
-                           "GROUP BY 1 ORDER BY 1", (start, start + timedelta(hours=24)))
-            series = cursor.fetchall()
-            recorded_start = start + timedelta(hours=23)
-            cursor.execute(f"SELECT recorded_at, {sensor}, device_id FROM air_quality_logs "
-                           "WHERE recorded_at >= %s AND recorded_at <= %s "
-                           "ORDER BY device_id NULLS FIRST, recorded_at, id",
-                           (recorded_start, start + timedelta(hours=24)))
-            recorded_series = cursor.fetchall()
-    return dict(total=total, latest=latest, metrics=metrics, series=series, start=start,
-                recorded_series=recorded_series, recorded_start=recorded_start)
+    return dict(total=total, earliest=earliest, latest=latest, metrics=metrics, series=series,
+                start=start, end=end, recorded_series=recorded_series,
+                recorded_start=recorded_start, recorded_end=recorded_end)
 
 
-def build_trend(series, start, hourly=True):
+def build_trend(series, start, end=None, hourly=True):
     """Plot hourly averages or individual readings, separating gaps and devices."""
-    duration = timedelta(hours=24 if hourly else 1)
+    duration = (end - start) if end is not None else timedelta(hours=24 if hourly else 1)
+    if duration.total_seconds() <= 0:
+        duration = timedelta(hours=1)
     max_gap = timedelta(hours=1) if hourly else timedelta(minutes=2)
     valid = [float(row[1]) for row in series if row[1] is not None and math.isfinite(float(row[1]))]
     if not valid:
@@ -305,10 +318,11 @@ def dashboard():
     sensor = request.args.get("sensor", "temperature_c")
     if sensor not in {column for column, _, _ in SENSORS}:
         sensor = "temperature_c"
-    data = dict(total=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
+    now = datetime.now(timezone.utc)
+    data = dict(total=None, earliest=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
                 minimum=None, average=None, maximum=None, count=0) for c, l, u in SENSORS], series=[],
-                start=datetime.now(timezone.utc) - timedelta(hours=24), recorded_series=[],
-                recorded_start=datetime.now(timezone.utc) - timedelta(hours=1))
+                start=now - timedelta(hours=24), end=now, recorded_series=[],
+                recorded_start=now - timedelta(hours=1), recorded_end=now)
     database_error = False
     try:
         data = fetch_dashboard_data(sensor)
@@ -317,8 +331,9 @@ def dashboard():
         database_error = True
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
-                           trend=build_trend(data["series"], data["start"]), database_error=database_error,
-                           recorded_trend=build_trend(data["recorded_series"], data["recorded_start"], hourly=False),
+                           trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
+                           recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
+                                                      data["recorded_end"], hourly=False),
                            recorded_ticks=[(60 + minute / 60 * 700,
                                             (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
                                            for minute in (0, 15, 30, 45, 60)],

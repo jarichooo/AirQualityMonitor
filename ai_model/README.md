@@ -29,7 +29,7 @@ The adapter uses this delivered contract:
 
 | Metadata | Required meaning |
 | --- | --- |
-| `MODEL_VERSION` | `gru-v1-eaef59203a16`, identifying this artifact and adapter contract. |
+| `MODEL_VERSION` | `gru-v2-eaef59203a16`, identifying this artifact and stable CPU inference implementation. |
 | `LOOKBACK_SAMPLES` | 120 consecutive one-minute rows. |
 | `FEATURE_COLUMNS` | All eight database channels, in the order below. |
 | `TARGET_COLUMNS` | The same eight channels, from the final forecast row. |
@@ -199,6 +199,103 @@ docker compose up -d --build web_dashboard
 Sign in and open `/dashboard`. `/api/forecasts` uses the same login. Until the
 forecast schema exists it returns a clear not-configured state. Sensor panels
 remain independent of forecasting.
+
+## Three farm demonstrations without a device
+
+These scripts write labelled simulated inputs directly to PostgreSQL and run the
+real predictor and Qwen flow. They do not need MQTT or a physical ESP32:
+
+| Script | Input conditions | Stored device ID |
+| --- | --- | --- |
+| `simulate_good.py` | Normal for every channel | `sim-farm-good` |
+| `simulate_mid.py` | Warning for every channel | `sim-farm-mid` |
+| `simulate_bad.py` | Critical for every channel | `sim-farm-bad` |
+
+The generated ranges follow the existing general `thresholds.md` policy, without
+week-specific temperatures. MQ-4 is methane and MQ-137 is ammonia, correcting the
+swapped gas labels in the source chart. Each script inserts a 120-minute starting
+history ending at the current UTC minute, then adds missing demo minutes on each
+worker cycle. You do not wait two hours to start the demonstration. All samples
+have exact minute timestamps and valid particulate ordering.
+
+Existing dataset/device rows are never deleted or modified. Repeated runs skip
+already-present demo device/minute pairs under the worker lock. Run **one**
+scenario at a time; a competing worker makes the simulator exit clearly instead
+of silently creating no data. After switching scenarios, the previous device's
+forecast becomes stale normally; it is never relabelled as the new scenario.
+
+The scenario describes **input conditions**, not a forced model result. The GRU
+owns the future numbers and can predict another category. The CPU sigmoid uses a
+numerically stable equivalent to handle extreme demo concentrations without
+overflow; the supplied example still matches within the verification tolerance.
+Extreme scenarios are not a validation of the model's field accuracy.
+
+After committing/pushing and pulling these changes, rebuild on the server:
+
+```bash
+cd ~/AirQualityMonitor
+sudo docker compose --profile forecast stop forecast_worker
+sudo docker compose --profile forecast build forecast_worker
+sudo docker compose up -d --build --no-deps web_dashboard
+```
+
+Keep the project's Qwen server running in another terminal:
+
+```bash
+cd ~/AirQualityMonitor
+python3 setup_reasoning_ai.py --serve
+```
+
+Back in the simulation terminal, enter the real PostgreSQL password without
+echoing it. Preserving `DB_PASS` through sudo matters for Compose interpolation:
+
+```bash
+cd ~/AirQualityMonitor
+read -rsp 'PostgreSQL password: ' DB_PASS; echo
+export DB_PASS
+
+# Choose ONE command. Ctrl+C stops it; then choose another scenario.
+sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate good
+sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate mid
+sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate bad
+```
+
+In an already-configured native Python 3.12 environment with the same database
+environment variables, the three script entrypoints are:
+
+```bash
+python -m ai_model.simulate_good
+python -m ai_model.simulate_mid
+python -m ai_model.simulate_bad
+```
+
+Direct `python ai_model/simulate_good.py` also works. Append `--once` for one
+seed/prediction cycle. Do not run the old five-second `simulate_esp32.py` under
+these device IDs; it does not satisfy the trained model's one-minute contract.
+
+Open `/dashboard`: the existing **2-hour forecast** box shows simulated source,
+input cutoff, future target, all eight model values, threshold categories and a
+separate **Reasoning AI guidance** section. Numerical values are committed first;
+they can appear while Qwen is still working. Ollama requests have a 90-second
+default timeout for CPU generation, configurable with `OLLAMA_TIMEOUT` for native
+runs. Guidance failure is logged and retried while numerical results stay visible.
+
+The trends now cover the **whole stored date range**, including October data.
+Hourly averages represent all stored readings; the individual graph shows the
+latest recorded hour even when that hour is historical. The Data page retains
+pagination/export for the complete original records. Refresh the page to reload
+the measured charts; forecasts refresh every minute automatically. A disconnected
+Live ESP32 panel is expected during a database-only demonstration.
+
+To check that the imported rows remain intact, if they were imported with the
+earlier `dataset-import` ID:
+
+```bash
+sudo docker exec postgres_db psql -U admin -d air_quality -c "SELECT device_id, COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM air_quality_logs GROUP BY device_id ORDER BY device_id;"
+```
+
+The original `dataset-import` group should still contain 32,320 rows. Additional
+`sim-farm-*` groups are separate simulated inputs, not replacements.
 
 ## Results and failure behavior
 
