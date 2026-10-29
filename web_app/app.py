@@ -9,8 +9,10 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
+
+from forecast import fetch_latest_forecasts
 
 
 app = Flask(__name__)
@@ -69,7 +71,7 @@ LIVE_SENSORS = (
 
 
 def fetch_dashboard_data(sensor):
-    """Descriptive analytics only; forecast inference will be integrated later."""
+    """Measured analytics; saved forecasts are fetched separately by the panel."""
     start = datetime.now(timezone.utc) - timedelta(hours=24)
     with closing(get_db_connection()) as conn:
         with conn.cursor() as cursor:
@@ -321,6 +323,26 @@ def dashboard():
                                             (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
                                            for minute in (0, 15, 30, 45, 60)],
                            live_sensors=LIVE_SENSORS)
+
+
+@app.route("/api/forecasts")
+@login_required
+def forecasts_api():
+    try:
+        with closing(get_db_connection()) as conn:
+            payload = {"configured": True, "forecasts": fetch_latest_forecasts(conn, SENSORS)}
+        response = jsonify(payload)
+    except psycopg2.Error as error:
+        if isinstance(error, psycopg2.errors.UndefinedTable) or error.pgcode == "42P01":
+            response = jsonify(configured=False, forecasts=[],
+                               message="Forecasting is not configured yet.")
+        else:
+            app.logger.exception("Unable to load forecasts")
+            response = jsonify(configured=True, forecasts=[],
+                               message="Forecasts are temporarily unavailable.")
+            response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/data")

@@ -549,16 +549,17 @@ This project server is not started automatically on reboot. It supports the curr
 installation/testing phase; later application integration needs a service setup.
 An Ollama service on port 11434 does not automatically serve these project files.
 
-Edit your initially empty thresholds file when ready:
+Review the project's general thresholds when needed:
 
 ```bash
 nano "ai_model/reasoning ai/thresholds.md"
 ```
 
-Existing contents are preserved. The file is reserved for thresholds and response
-guidance for all sensors. The later `.h5` model will predict readings two hours
-ahead, and Qwen will describe predictions using your rules. That integration is
-not part of this setup. The generic smoke test does not validate poultry guidance.
+Existing contents are preserved. The file supplies thresholds and response
+guidance for all sensors. The forecast worker reads it for classification and
+Qwen context; follow [ai_model/README.md](ai_model/README.md) for the separate
+forecast schema, trained-model adapter and dashboard integration. The generic
+Ollama smoke test does not validate poultry guidance.
 On the 8 GB server, check memory with `free -h` and test response time before
 connecting inference to the application.
 
