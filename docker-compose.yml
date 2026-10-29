@@ -54,3 +54,20 @@ services:
       postgres_db:
         condition: service_healthy
     restart: unless-stopped
+
+  forecast_worker:
+    build:
+      context: ./ai_model
+    profiles: ["forecast"]
+    network_mode: host
+    environment:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_NAME: air_quality
+      DB_USER: admin
+      DB_PASS: ${DB_PASS:-}
+      OLLAMA_URL: http://127.0.0.1:11435
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+    restart: unless-stopped

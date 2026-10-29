@@ -464,20 +464,27 @@ sudo docker exec -it postgres_db psql -U admin -d air_quality -c "SELECT recorde
 The simulator runs in the **Ubuntu host's virtual environment**. It generates
 fake readings every five seconds.
 
+First-time setup (also fixes `ModuleNotFoundError: No module named 'paho'`):
+
+```bash
+sudo apt install -y python3-venv
+python3 -m venv ~/henvironment-venv
+~/henvironment-venv/bin/python -m pip install 'paho-mqtt>=2,<3'
+```
+
+Start the containers, then run the simulator:
+
 ```bash
 cd ~/AirQualityMonitor
-~/henvironment-venv/bin/python simulate_esp32.py
+sudo docker compose up -d
+~/henvironment-venv/bin/python ~/AirQualityMonitor/simulate_esp32.py
 ```
 
-Press Ctrl+C to stop it. If the environment has not been created yet:
-
-```bash
-python3 -m venv ~/henvironment-venv
-~/henvironment-venv/bin/pip install 'paho-mqtt>=2,<3'
-```
-
-The simulator stops when its terminal closes or the server loses power. It is
-separate from the four Compose services.
+For later runs, use the same simulator command; no environment activation or
+container rebuild is needed. Press **Ctrl+C** to stop it. Stop the simulator before
+collecting real sensor data so fake readings do not mix with device readings.
+The simulator stops when its terminal closes or the server loses power. It runs
+separately from the four Compose services.
 
 ## Optional Ollama + Qwen2.5 reasoning engine
 
@@ -542,16 +549,17 @@ This project server is not started automatically on reboot. It supports the curr
 installation/testing phase; later application integration needs a service setup.
 An Ollama service on port 11434 does not automatically serve these project files.
 
-Edit your initially empty thresholds file when ready:
+Review the project's general thresholds when needed:
 
 ```bash
 nano "ai_model/reasoning ai/thresholds.md"
 ```
 
-Existing contents are preserved. The file is reserved for thresholds and response
-guidance for all sensors. The later `.h5` model will predict readings two hours
-ahead, and Qwen will describe predictions using your rules. That integration is
-not part of this setup. The generic smoke test does not validate poultry guidance.
+Existing contents are preserved. The file supplies thresholds and response
+guidance for all sensors. The forecast worker reads it for classification and
+Qwen context; follow [ai_model/README.md](ai_model/README.md) for the separate
+forecast schema, trained-model adapter and dashboard integration. The generic
+Ollama smoke test does not validate poultry guidance.
 On the 8 GB server, check memory with `free -h` and test response time before
 connecting inference to the application.
 

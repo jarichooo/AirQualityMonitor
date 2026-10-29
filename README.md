@@ -47,10 +47,19 @@ The ESP32 has these connected sensors and clock:
 | MH-Z19E | CO2 concentration in ppm. |
 | DS3231 | Real-time clock for measurement timestamps. |
 
-MQ readings are model-derived ppm estimates. MQ-4 temporarily uses the previous
-sensor's RL = 10 kOhm and R0 = 10.947 kOhm at the owner's request; this is a
-provisional calibration, not a validated methane measurement. See
-[FIRMWARE.md](FIRMWARE.md) for conversion constants, wiring, and Arduino libraries.
+MQ readings are model-derived ppm estimates. The collector in
+`airqualitymonitor/airqualitymonitor.ino` uses MQ4 RL=1 kOhm, default R0=0.945 kOhm,
+and `1000 * pow(Rs/R0, -2.95)`. MQ137 uses RL=47 kOhm, default R0=20 kOhm,
+and `pow(10, (log10(Rs/R0) - 0.42) / -0.263)`. These user-supplied defaults are
+provisional; actual load resistors and calibration remain unverified.
+
+The collector supports deliberate Serial calibration using known reference gas,
+saves R0 to NVS across restarts, and never calibrates automatically at boot.
+It retains small estimates without artificial floors or zeroing and flags
+out-of-range estimates in Serial diagnostics. See [FIRMWARE.md](FIRMWARE.md#mq-conversion-and-calibration)
+for `show`, `c4 <known ppm> stable` and `c137 <known ppm> stable` instructions.
+The tracked root sketch contains the same code. The older separate diagnostic
+uses different gas settings; use the collector's built-in commands instead.
 
 ## Data flow
 
@@ -152,8 +161,8 @@ Use one JSON object per MQTT message:
   together with ingestion. Invalid voltage/conversion results are omitted so
   PostgreSQL stores NULL, rather than a misleading negative concentration.
 - Firmware estimates sensor resistance from the measured ADC voltage and the
-  configured divider, load resistance, R0, and gas-specific curve. MQ-4's borrowed
-  calibration must be replaced after calibration of the installed module.
+  configured divider, load resistance, R0, and gas-specific curve. Verify MQ-4's
+  supplied calibration using the collector's Serial commands described in FIRMWARE.md.
 - Values must be finite numbers. Humidity is 0–100; gas and particulate
   readings cannot be negative. Booleans and numeric strings are rejected.
 - `device_id` is optional and at most 100 characters.
@@ -225,9 +234,9 @@ found after installation, reopen PowerShell and retry. Ollama requires Windows
 
 Model manifests and blobs are stored under `ai_model/reasoning ai/models/` using
 `OLLAMA_MODELS`. Models installed elsewhere remain there; the script checks this
-project's store. `ai_model/reasoning ai/thresholds.md` starts empty and is preserved
-on subsequent runs. Add thresholds, units, poultry context, and response rules
-later. Downloaded model files are ignored by Git; the script and Markdown can be
+project's store. `ai_model/reasoning ai/thresholds.md` contains the project's
+general thresholds and response rules and is preserved on subsequent runs.
+Downloaded model files are ignored by Git; the script and Markdown can be
 committed.
 
 The default check is offline and makes no changes. It checks the CLI and local
@@ -251,16 +260,20 @@ $env:OLLAMA_HOST = '127.0.0.1:11435'
 ollama run qwen2.5:3b
 ```
 
-The intended later flow is collected readings -> custom `.h5` regression model ->
-readings predicted two hours ahead -> thresholds and Qwen -> explanatory sentences.
-This change installs and checks the runtime only. It does not yet interpret the
-thresholds, generate sensor assessments, or connect Qwen to the dashboard or
-regression model. Missing thresholds must not be replaced with invented limits.
+The forecast pipeline is collected PostgreSQL readings -> trained predictor ->
+readings predicted two hours ahead -> thresholds and Qwen -> dashboard numbers
+and explanatory sentences. The worker and webpage integration are prepared in
+[ai_model/README.md](ai_model/README.md). The supplied GRU Joblib artifact and its
+preprocessing are connected through `ai_model/predictor.py`, using pinned CPU
+dependencies and an optional Python 3.12 worker container. It needs 120 consecutive,
+minute-aligned readings; current firmware timestamp alignment remains a live-input
+prerequisite. Missing models or invalid inputs never produce invented values.
 
 See [SERVER_COMMANDS.md](SERVER_COMMANDS.md#optional-ollama--qwen25-reasoning-engine)
-for Ubuntu, SCP, and troubleshooting instructions. No Docker rebuild or database
-migration is required. Test speed and available memory on the 8 GB server before
-connecting inference to the application.
+for Ubuntu, SCP, and troubleshooting instructions. Ollama setup alone needs no
+Docker rebuild or database migration. Enabling forecasts separately requires the
+additive forecast schema and dashboard rebuild described in the worker README.
+Test speed and available memory on the 8 GB server before running both models.
 
 ## Reliability boundaries
 
@@ -277,7 +290,8 @@ unattended collection.
 Dashboard analytics summarize stored rows and refresh manually. The separate
 WebSocket panel shows live ESP32 readings and confirmed collection status;
 a live broadcast does not prove that PostgreSQL stored the reading.
-There are no AI predictions. MQ concentration conversions are estimates and
+Forecasts require the trained model adapter and a running worker. They are
+predictions, separately labelled from measured readings. MQ concentration conversions are estimates and
 have not been validated against reference gas measurements; do not use them as
 certified gas alarms or mix the retired raw signals with ppm training features.
 The Flask development server is used locally; deployment hardening comes later.
@@ -287,12 +301,17 @@ The Flask development server is used locally; deployment hardening comes later.
 Install dependencies:
 `python -m pip install -r web_app/requirements.txt -r ingestion/requirements.txt`
 
+For the artifact checks, use the Python 3.12 forecast environment and install
+`ai_model/requirements.txt` as described in [ai_model/README.md](ai_model/README.md).
+The web/ingestion containers retain their existing dependency sets.
+
 Run:
 ```powershell
 python -m unittest discover -s web_app -p "test_*.py"
 python -m unittest discover -s ingestion -p "test_*.py"
 python firmware_gas_math_test.py
 python -m unittest test_setup_reasoning_ai.py
+python -m unittest discover -s ai_model -t . -p "test_*.py"
 docker compose config --quiet
 ```
 

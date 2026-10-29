@@ -8,6 +8,7 @@
 #include <Adafruit_PM25AQI.h>
 #include <MHZ19.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <math.h>
 #include <string.h>
 #include <time.h>
@@ -47,17 +48,25 @@ constexpr float ADC_MAX_MEASURABLE_V = 3.1f;  // ESP32-S3 at ADC_11db.
 constexpr int GAS_SAMPLE_COUNT = 10;
 static_assert(ADC_MAX_MEASURABLE_V <= ADC_REF_V, "ADC range must not exceed its reference");
 
-// Provisional MQ4 calibration: RL/R0 are borrowed from the previous gas sensor until MQ4 is calibrated.
-constexpr float RL_MQ4 = 10.0f;
-constexpr float R0_MQ4 = 10.947f;
-// Methane fit used by MQUnifiedsensor for the MQ-4 datasheet curve: ppm = A * (Rs/R0)^B.
-constexpr float MQ4_A = 1012.7f;
-constexpr float MQ4_B = -2.786f;
+// Provisional user-supplied curve/settings; verify actual RL and calibrate with known gas.
+constexpr float RL_MQ4 = 1.0f;
+constexpr float R0_MQ4 = 0.945f;
+constexpr float MQ4_A = 1000.0f;
+constexpr float MQ4_B = -2.95f;
 
-constexpr float RL_MQ137 = 1.0f;
-constexpr float R0_MQ137 = 0.310f;
-constexpr float MQ137_A = 102.2f;
-constexpr float MQ137_B = -2.473f;
+// User-supplied NH3 log-log fit; verify RL and calibrate R0 on the actual module.
+constexpr float RL_MQ137 = 47.0f;
+constexpr float R0_MQ137 = 20.0f;
+constexpr float MQ137_M = -0.263f;
+constexpr float MQ137_B = 0.42f;
+static_assert(MQ137_M < 0.0f, "NH3 curve slope must be negative");
+
+Preferences gasPreferences;
+bool gasStorageReady = false;
+float r0Methane = R0_MQ4;
+float r0Ammonia = R0_MQ137;
+bool methaneCalibrated = false;
+bool ammoniaCalibrated = false;
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -146,46 +155,205 @@ bool addTimestamp(JsonDocument& doc) {
   return false;
 }
 
-bool gasPpm(float adcMillivolts, float rlKOhm, float r0KOhm, float a, float b, float& ppm) {
+bool gasResistance(float adcMillivolts, float rlKOhm, float& rsKOhm) {
   float adcVoltage = adcMillivolts / 1000.0f;
   if (!isfinite(adcVoltage) || adcVoltage <= 0.0f || adcVoltage >= ADC_MAX_MEASURABLE_V ||
-      !isfinite(rlKOhm) || !isfinite(r0KOhm) || !isfinite(a) || !isfinite(b) ||
-      rlKOhm <= 0.0f || r0KOhm <= 0.0f || a <= 0.0f) return false;
+      !isfinite(rlKOhm) || rlKOhm <= 0.0f) return false;
 
   float sensorVoltage = adcVoltage * DIVIDER_FACTOR;
   if (!isfinite(sensorVoltage) || sensorVoltage <= 0.01f || sensorVoltage >= V_CC - 0.05f) return false;
 
-  float rsKOhm = rlKOhm * (V_CC - sensorVoltage) / sensorVoltage;
-  float ratio = rsKOhm / r0KOhm;
-  if (!isfinite(ratio) || ratio <= 0.0f) return false;
+  rsKOhm = rlKOhm * (V_CC - sensorVoltage) / sensorVoltage;
+  return isfinite(rsKOhm) && rsKOhm > 0.0f;
+}
+
+bool gasRatio(float adcMillivolts, float rlKOhm, float r0KOhm, float& ratio) {
+  float rsKOhm;
+  if (!isfinite(r0KOhm) || r0KOhm <= 0.0f ||
+      !gasResistance(adcMillivolts, rlKOhm, rsKOhm)) return false;
+  ratio = rsKOhm / r0KOhm;
+  return isfinite(ratio) && ratio > 0.0f;
+}
+
+bool gasPpm(float adcMillivolts, float rlKOhm, float r0KOhm, float a, float b, float& ppm) {
+  float ratio;
+  if (!gasRatio(adcMillivolts, rlKOhm, r0KOhm, ratio) ||
+      !isfinite(a) || !isfinite(b) || a <= 0.0f) return false;
   ppm = a * powf(ratio, b);
   return isfinite(ppm) && ppm > 0.0f;
+}
+
+bool ammoniaPpm(float adcMillivolts, float& ppm) {
+  float ratio;
+  if (!gasRatio(adcMillivolts, RL_MQ137, r0Ammonia, ratio)) return false;
+  ppm = powf(10.0f, (log10f(ratio) - MQ137_B) / MQ137_M);
+  return isfinite(ppm) && ppm > 0.0f;
+}
+
+// Called only after a valid conversion; log the same sample that is published.
+void logGasReading(const char* sensor, float adcMillivolts, float rlKOhm, float r0KOhm, float ppm) {
+  float adcVoltage = adcMillivolts / 1000.0f;
+  float sensorVoltage = adcVoltage * DIVIDER_FACTOR;
+  float rsOhms = rlKOhm * 1000.0f * (V_CC - sensorVoltage) / sensorVoltage;
+  Serial.printf("%s: ADC=%.4f V | AO=%.4f V | Rs=%.2f Ohm | R0=%.2f Ohm | ppm=%.6f (estimate)\n",
+                sensor, adcVoltage, sensorVoltage, rsOhms, r0KOhm * 1000.0f, ppm);
+}
+
+bool sampleGasVoltage(int pin, float rlKOhm, float& averageMillivolts) {
+  float sum = 0.0f;
+  for (int i = 0; i < GAS_SAMPLE_COUNT; ++i) {
+    float millivolts = analogReadMilliVolts(pin);
+    float rsKOhm;
+    // Reject individual rail/invalid samples instead of hiding them in an average.
+    if (!gasResistance(millivolts, rlKOhm, rsKOhm)) return false;
+    sum += millivolts;
+    delay(2);
+  }
+  averageMillivolts = sum / GAS_SAMPLE_COUNT;
+  return true;
+}
+
+// One NVS record binds R0 to its curve and circuit; older configurations are ignored.
+void calibrationRecord(bool ammonia, float r0, float (&record)[7]) {
+  record[0] = r0;
+  record[1] = ammonia ? RL_MQ137 : RL_MQ4;
+  record[2] = ammonia ? MQ137_M : MQ4_A;
+  record[3] = ammonia ? MQ137_B : MQ4_B;
+  record[4] = V_CC;
+  record[5] = DIVIDER_FACTOR;
+  record[6] = ADC_MAX_MEASURABLE_V;
+}
+
+void loadGasCalibration(bool ammonia) {
+  const char* key = ammonia ? "mq137" : "mq4";
+  float record[7], expected[7];
+  if (!gasStorageReady || gasPreferences.getBytesLength(key) != sizeof(record) ||
+      gasPreferences.getBytes(key, record, sizeof(record)) != sizeof(record) ||
+      !isfinite(record[0]) || record[0] <= 0.0f) return;
+  calibrationRecord(ammonia, record[0], expected);
+  for (size_t i = 1; i < 7; ++i) {
+    if (record[i] != expected[i]) return;
+  }
+  if (ammonia) { r0Ammonia = record[0]; ammoniaCalibrated = true; }
+  else { r0Methane = record[0]; methaneCalibrated = true; }
+}
+
+void printGasSettings() {
+  Serial.printf("[MQ4] RL=%.1f Ohm | R0=%.3f Ohm | %s\n", RL_MQ4 * 1000.0f,
+                r0Methane * 1000.0f, methaneCalibrated ? "saved reference calibration" : "PROVISIONAL, not calibrated");
+  Serial.printf("[MQ137] RL=%.1f Ohm | R0=%.3f Ohm | %s\n", RL_MQ137 * 1000.0f,
+                r0Ammonia * 1000.0f, ammoniaCalibrated ? "saved reference calibration" : "PROVISIONAL, not calibrated");
+}
+
+void printGasSample(bool ammonia) {
+  float millivolts, ppm;
+  float rl = ammonia ? RL_MQ137 : RL_MQ4;
+  float r0 = ammonia ? r0Ammonia : r0Methane;
+  if (sampleGasVoltage(ammonia ? MQ137_PIN : MQ4_PIN, rl, millivolts) &&
+      (ammonia ? ammoniaPpm(millivolts, ppm)
+               : gasPpm(millivolts, rl, r0, MQ4_A, MQ4_B, ppm))) {
+    logGasReading(ammonia ? "MQ137 ammonia" : "MQ4 methane", millivolts, rl, r0, ppm);
+  } else Serial.println(ammonia ? "[MQ137] Invalid/saturated sample" : "[MQ4] Invalid/saturated sample");
+}
+
+void calibrateGas(bool ammonia, float referencePpm) {
+  if (!readingsPaused || !offlineCache.empty()) {
+    Serial.println("[CALIBRATION] Pause collection first; queued readings must be delivered before calibration.");
+    return;
+  }
+  float minimum = ammonia ? 5.0f : 300.0f;
+  float maximum = ammonia ? 500.0f : 10000.0f;
+  if (!isfinite(referencePpm) || referencePpm < minimum || referencePpm > maximum) {
+    Serial.printf("[CALIBRATION] Known reference must be within %.0f-%.0f ppm.\n", minimum, maximum);
+    return;
+  }
+  float millivolts, rsKOhm;
+  float rl = ammonia ? RL_MQ137 : RL_MQ4;
+  if (!sampleGasVoltage(ammonia ? MQ137_PIN : MQ4_PIN, rl, millivolts) ||
+      !gasResistance(millivolts, rl, rsKOhm)) {
+    Serial.println("[CALIBRATION] Invalid/saturated voltage; previous R0 retained.");
+    return;
+  }
+  float referenceRatio = ammonia
+      ? powf(10.0f, MQ137_M * log10f(referencePpm) + MQ137_B)
+      : powf(referencePpm / MQ4_A, 1.0f / MQ4_B);
+  float r0 = rsKOhm / referenceRatio;
+  if (!isfinite(r0) || r0 <= 0.0f) {
+    Serial.println("[CALIBRATION] Invalid R0; previous R0 retained.");
+    return;
+  }
+  float record[7];
+  calibrationRecord(ammonia, r0, record);
+  if (!gasStorageReady || gasPreferences.putBytes(ammonia ? "mq137" : "mq4", record, sizeof(record)) != sizeof(record)) {
+    Serial.println("[CALIBRATION] Flash write failed; previous R0 retained.");
+    return;
+  }
+  if (ammonia) { r0Ammonia = r0; ammoniaCalibrated = true; }
+  else { r0Methane = r0; methaneCalibrated = true; }
+  Serial.println("[CALIBRATION] Saved reference R0. Verify accuracy against additional reference points.");
+  printGasSettings();
+}
+
+void handleGasCommand(const char* line) {
+  if (strcmp(line, "show") == 0) {
+    printGasSettings();
+    Serial.println("[DIAGNOSTIC] Current samples below are not uploaded.");
+    printGasSample(false);
+    printGasSample(true);
+    return;
+  }
+  char command[8], confirmation[8], extra;
+  float reference;
+  if (sscanf(line, "%7s %f %7s %c", command, &reference, confirmation, &extra) == 3 &&
+      strcmp(confirmation, "stable") == 0) {
+    if (strcmp(command, "c4") == 0) { calibrateGas(false, reference); return; }
+    if (strcmp(command, "c137") == 0) { calibrateGas(true, reference); return; }
+  }
+  Serial.println("Commands: show | c4 <known ppm> stable | c137 <known ppm> stable");
+  Serial.println("'stable' confirms conditioned heaters, stable readings in KNOWN reference gas, and verified circuit settings. No ambient auto-calibration.");
+}
+
+void pollGasCommands() {
+  static char line[64];
+  static size_t length = 0;
+  static bool overflow = false;
+  while (Serial.available()) {
+    char ch = Serial.read();
+    if (ch == '\r') continue;
+    if (ch == '\n') {
+      line[length] = '\0';
+      if (overflow) Serial.println("Command too long; ignored.");
+      else if (length) handleGasCommand(line);
+      length = 0;
+      overflow = false;
+    } else if (length < sizeof(line) - 1) line[length++] = ch;
+    else overflow = true;
+  }
 }
 
 bool readSensors(JsonDocument& doc) {
   doc["device_id"] = deviceId;
   bool hasTimestamp = addTimestamp(doc);
 
-  uint32_t mq4Millivolts = 0, mq137Millivolts = 0;
-  for (int i = 0; i < GAS_SAMPLE_COUNT; ++i) {
-    mq4Millivolts += analogReadMilliVolts(MQ4_PIN);
-    delay(2);
-  }
-  for (int i = 0; i < GAS_SAMPLE_COUNT; ++i) {
-    mq137Millivolts += analogReadMilliVolts(MQ137_PIN);
-    delay(2);
-  }
-
+  float mq4AverageMillivolts, mq137AverageMillivolts;
   float ppm = 0.0f;
-  if (gasPpm(mq4Millivolts / static_cast<float>(GAS_SAMPLE_COUNT),
-             RL_MQ4, R0_MQ4, MQ4_A, MQ4_B, ppm)) {
+
+  if (sampleGasVoltage(MQ4_PIN, RL_MQ4, mq4AverageMillivolts) &&
+      gasPpm(mq4AverageMillivolts, RL_MQ4, r0Methane, MQ4_A, MQ4_B, ppm)) {
     doc["mq4_ppm"] = ppm;
+    logGasReading("MQ4 methane", mq4AverageMillivolts, RL_MQ4, r0Methane, ppm);
+    if (!methaneCalibrated) Serial.println("[MQ4] PROVISIONAL calibration; estimate only");
+    if (ppm < 300.0f || ppm > 10000.0f) Serial.println("[MQ4] Estimate outside specified 300-10000 ppm range; value retained without clamping");
   } else {
     Serial.println("[MQ4] Invalid/saturated reading; omitting mq4_ppm");
   }
-  if (gasPpm(mq137Millivolts / static_cast<float>(GAS_SAMPLE_COUNT),
-             RL_MQ137, R0_MQ137, MQ137_A, MQ137_B, ppm)) {
+
+  if (sampleGasVoltage(MQ137_PIN, RL_MQ137, mq137AverageMillivolts) &&
+      ammoniaPpm(mq137AverageMillivolts, ppm)) {
     doc["mq137_ppm"] = ppm;
+    logGasReading("MQ137 ammonia", mq137AverageMillivolts, RL_MQ137, r0Ammonia, ppm);
+    if (!ammoniaCalibrated) Serial.println("[MQ137] PROVISIONAL calibration; estimate only");
+    if (ppm < 5.0f || ppm > 500.0f) Serial.println("[MQ137] Estimate outside specified 5-500 ppm range; value retained without clamping");
   } else {
     Serial.println("[MQ137] Invalid/saturated reading; omitting mq137_ppm");
   }
@@ -223,9 +391,15 @@ bool readSensors(JsonDocument& doc) {
 void setup() {
   Serial.begin(115200);
   Serial.println("[COLLECTION] Boot: Paused; waiting for dashboard Resume");
-  Serial.println("[MQ4] Using provisional RL/R0 from the previous gas sensor; calibrate MQ4 for final ppm");
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
+  gasStorageReady = gasPreferences.begin("mq-collector-v1", false);
+  loadGasCalibration(false);
+  loadGasCalibration(true);
+  if (!gasStorageReady) Serial.println("[CALIBRATION] Flash unavailable; calibration saving disabled.");
+  printGasSettings();
+  handleGasCommand("help");
+
   Wire.begin(SHT_SDA, SHT_SCL);
   shtOnline = sht.begin(0x44) || sht.begin(0x45);
   I2C_RTC.begin(RTC_SDA, RTC_SCL);
@@ -259,6 +433,7 @@ void setup() {
 
 void loop() {
   pollPms();
+  pollGasCommands();
   unsigned long now = millis();
   if (webSocketStarted) webSocket.loop();
   if (WiFi.status() != WL_CONNECTED) {

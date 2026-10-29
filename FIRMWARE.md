@@ -32,52 +32,119 @@ become database NULLs; -1, -999, and NaN are never used as error readings.
 MQ-4 reports estimated methane ppm and MQ137 reports estimated ammonia ppm.
 Invalid voltage or conversion results are omitted, never sent as -1 ppm.
 
+The collector prints each published gas estimate with ADC voltage, reconstructed
+AO voltage, Rs, and the active R0 in Serial Monitor at 115200 baud. Out-of-range
+estimates are reported without clamping or replacing small values with zero.
+Invalid electrical readings are omitted, rather than stored as zero.
+
 ## MQ conversion and calibration
 
-The conversion follows:
+The collector in **`airqualitymonitor/airqualitymonitor.ino`** includes calibration
+commands directly; no separate calibration firmware is required. The tracked root
+`airqualitymonitor.ino` contains the same code.
 
 ```text
 sensor_voltage = adc_voltage * DIVIDER_FACTOR
 Rs = RL * (V_CC - sensor_voltage) / sensor_voltage
-ppm = A * (Rs / R0)^B
+MQ4_ppm = 1000 * (Rs / R0)^(-2.95)
+MQ137_ppm = 10^((log10(Rs / R0) - 0.42) / -0.263)
 ```
 
-The supplied defaults are V_CC = 5.0 V, ADC_REF_V = 3.3 V, and
-DIVIDER_FACTOR = 1.5. Check the divider factor against the installed resistors;
-the analog input must remain within the ESP32-S3 ADC's measurable voltage range.
-The ADC reference setting is not permission to apply 5 V directly to GPIO1/2.
-
-| Sensor | RL (kOhm) | R0 (kOhm) | Conversion |
+| Sensor | RL (kOhm) | Default R0 (kOhm) | Curve |
 | --- | --- | --- | --- |
-| MQ-4 Flying Fish | 10.0 | 10.947 | `1012.7 * pow(Rs/R0, -2.786)` |
-| MQ137 | 1.0 | 0.310 | `102.2 * pow(Rs/R0, -2.473)` |
+| MQ-4 Flying Fish | 1.0 | 0.945 | `1000 * pow(Rs/R0, -2.95)` |
+| MQ137 | 47.0 | 20.0 | `pow(10, (log10(Rs/R0) - 0.42) / -0.263)` |
 
-**MQ-4's RL and R0 were intentionally borrowed from the replaced gas sensor at
-the owner's request.** They are provisional values, not a calibration of the
-Flying Fish module. Check its actual load resistance and calibrate R0 using a
-known methane reference before claiming concentration accuracy. The user-supplied
-air-quality curve `110.47 * pow(Rs/R0, -2.862)` is not a methane-specific MQ-4
-curve and is not used for the replacement sensor. MQ137 uses the requested
-ammonia formula and constants; its output is also an estimate until validated.
+These are the latest local sketch's starting settings, not verified measurements
+of your modules. Check the actual load resistor before using them. Changing a
+constant does not change the resistor on a module. V_CC is 5.0 V and the divider
+factor is 1.5; verify both against your circuit and compare voltages with a meter.
+Never connect 5 V AO directly to the ESP32 GPIO.
 
-The methane coefficients follow the [MQUnifiedsensor MQ-4 example](https://github.com/miguel5612/MQSensorsLib/blob/master/examples/MQ-4/MQ-4.ino),
-not the old air-quality curve. The firmware implements the equation directly;
-no additional gas-sensor library is required. See the [Winsen MQ-4 manual](https://www.winsen-sensor.com/d/files/MQ-4.pdf)
-for sensing characteristics and conditioning requirements. A fitted curve does
-not replace per-module calibration.
+MQ137 now uses the requested log-log equation with slope `MQ137_M = -0.263`
+and intercept `MQ137_B = 0.42`. These are user-supplied tutorial coefficients,
+not a verified fit to your module. The 47 kOhm RL must match the physical load
+resistor; default R0 is 20 kOhm (20000 Ohm), pending calibration. The ESP32 keeps
+its calibrated millivolt readings and divider correction rather than using the
+Arduino Uno example's `analogRead(A0) * 5 / 1023` scaling.
 
-`analogReadMilliVolts()` supplies the ESP32's calibrated ADC voltage rather than
-assuming every raw ADC count scales linearly to 3.3 V. The sketch averages ten
-samples, reconstructs the module AO voltage with the divider factor, and rejects
-ADC saturation at the documented 3.1 V limit for ESP32-S3 `ADC_11db`. The sensor
-voltage must also be greater than 0.01 V and less than `V_CC - 0.05 V`.
+`analogReadMilliVolts()` supplies calibrated ADC voltage. Ten samples are averaged
+per sensor. Each sample must be valid: ADC voltage above zero and below 3.1 V
+(the ESP32-S3 `ADC_11db` measurable limit), reconstructed AO above 0.01 V and below
+4.95 V, and finite positive resistance. One invalid sample rejects that sensor's
+reading. Conversion results must also be finite and positive. No methane floor
+or ammonia zeroing is applied before MQTT uploads or live WebSocket broadcasts.
 
-The MH-Z19E is read with the library's `getCO2(false)` (0x86 request); a
-successful response and positive concentration are required. Automatic baseline
-correction is disabled, as in the tested device code. Allow the sensor's
-[one-minute preheat](https://www.winsen-sensor.com/sensors/co2-sensor/mh-z19e.html)
-before treating readings as stable; MQ heater conditioning and calibration
-remain part of the hardware setup.
+### Calibration in the collector
+
+1. Verify RL, divider, supply and curve settings. Condition/preheat the sensors
+   according to their manufacturer and wait for stable readings. A short sample
+   average does not establish heater or gas stabilization. See the manufacturer
+   [MQ-4 specifications](https://www.winsen-sensor.com/product/mq-4.html) and
+   [MQ137 specifications](https://www.winsen-sensor.com/product/mq137.html).
+2. Keep collection **paused** while calibrating. If the ESP32 has queued readings,
+   first Resume to deliver those readings, then Pause. The calibration command
+   refuses to run while collecting or while the offline queue is nonempty.
+3. Use a controlled **known reference gas concentration**, with stable readings.
+   Room air is not a known calibration reference. Calibration accepts methane
+   references within 300-10000 ppm or ammonia references within 5-500 ppm.
+4. Open Serial Monitor at **115200 baud**, with **Newline** enabled. Run the command
+   for the sensor you are calibrating. The word `stable` acknowledges that heater
+   conditioning, reference-gas stabilization and circuit verification are complete;
+   the firmware cannot independently confirm them.
+
+| Command | Action |
+| --- | --- |
+| `show` | Print active R0/calibration status and a current voltage/resistance/ppm sample; no upload. |
+| `c4 <known ppm> stable` | Calculate and save MQ4 R0 from a known methane reference. |
+| `c137 <known ppm> stable` | Calculate and save MQ137 R0 from a known ammonia reference. |
+
+For example, `c137 50 stable` is appropriate only when the sensor is actually
+stable in a known 50 ppm ammonia reference. Do not use it just to make the output
+read 50. Repeat `show` while paused to inspect whether voltage/resistance is
+settling without uploading the reference-gas samples. The inverse of the selected
+curve determines R0:
+
+```text
+MQ4 R0 = measured_Rs / pow(reference_ppm / 1000, 1 / -2.95)
+MQ137 R0 = measured_Rs / pow(10, -0.263 * log10(reference_ppm) + 0.42)
+```
+
+A successful command saves only that sensor's calibration to ESP32 NVS flash and
+then applies it. Invalid references, invalid voltage, invalid R0 or failed flash
+writes retain the previous R0. On reboot the collector loads saved values; it
+never recalibrates automatically from surrounding air. NVS survives restarts and
+power loss ([Espressif Preferences documentation](https://docs.espressif.com/projects/arduino-esp32/en/latest/api/preferences.html)).
+The stored record includes R0, RL, curve coefficients (MQ4 A/B or MQ137 m/b),
+supply voltage, divider and ADC range.
+Saved records with a different circuit/curve configuration are ignored. Missing
+or invalid records use the explicit defaults and print **PROVISIONAL, not
+calibrated**. Provisional estimates can still be collected, so record calibration
+changes when preparing training data. Ordinary sampling never writes flash.
+
+The collector uses a separate `mq-collector-v1` namespace. It does not import
+settings from the older optional `firmware/mq_calibration/mq_calibration.ino`
+diagnostic: that sketch uses different gas settings and is unnecessary for this
+workflow. Do not copy its older R0 into the current collector. Saved MQ137
+calibration from the old `102.2 * pow(Rs/R0, -2.473)` configuration is automatically
+ignored because the load resistor and curve no longer match; the new default is
+20 kOhm until recalibrated. Compatible saved MQ4 calibration remains usable.
+
+After calibration, remove the reference gas, allow readings to stabilize in the
+measurement environment, and Resume from the dashboard. The ESP32 still starts
+paused and samples once per minute. Check accuracy at additional known reference
+points. Recalibrate after changing sensors, RL, divider, supply or curve; firmware
+cannot detect replacement of a physical module with identical settings.
+
+MQ4's specified range is 300-10000 ppm; MQ137's is 5-500 ppm. Serial diagnostics
+flag estimates outside those ranges, but retain the calculated values unchanged.
+A small number is not proof of true zero or accurate sub-ppm measurement. This
+code adds no temperature/humidity compensation and does not verify the physical
+load resistors or curve accuracy.
+
+No database migration or Docker rebuild is needed. Upload the new firmware to
+the ESP32. Existing database rows retain their original values; record the
+firmware/calibration transition when selecting data for model training.
 
 ## Compile and flash
 

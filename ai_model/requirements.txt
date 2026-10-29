@@ -1,0 +1,12 @@
+# CPU forecast worker. Validated with Python 3.12; no TensorFlow/PyTorch required.
+psycopg2-binary==2.9.11
+joblib==1.6.0
+numpy==2.3.5
+pandas==2.2.3
+
+# Transitive runtime dependencies, pinned from the verified clean environment.
+cloudpickle==3.1.2
+python-dateutil==3.0.0
+pytz==2026.5
+six==1.17.0
+tzdata==2026.6
