@@ -151,17 +151,26 @@ class ForecastTestCase(unittest.TestCase):
         })
 
         dashboard_data = dict(
-            total=0, latest=None,
+            total=0, earliest=None, latest=None,
             metrics=[dict(column=key, label=label, unit=unit, value=None,
                           minimum=None, average=None, maximum=None, count=0)
                      for key, label, unit in application.SENSORS],
-            series=[], start=datetime.now(timezone.utc) - timedelta(hours=24),
+            series=[], start=datetime.now(timezone.utc) - timedelta(hours=24), end=datetime.now(timezone.utc),
             recorded_series=[], recorded_start=datetime.now(timezone.utc) - timedelta(hours=1),
+            recorded_end=datetime.now(timezone.utc),
         )
         with patch.object(application, "fetch_dashboard_data", return_value=dashboard_data):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'id="forecast-panel"', page.data)
+
+    def test_simulated_forecasts_are_labelled_without_changing_model_values(self):
+        now = datetime.now(timezone.utc)
+        forecast = serialize_forecast(self.row(now, device_id="sim-farm-good"), application.SENSORS, now)
+        self.assertEqual(forecast["data_class"], "SIMULATED")
+        self.assertEqual(forecast["scenario"], "Good")
+        self.assertEqual(forecast["predictions"][0]["value"], 34.25)
+        self.assertEqual(forecast["predictions"][0]["severity"], "warning")
 
     def test_browser_renderer_uses_text_only_for_model_output(self):
         source = (Path(__file__).parent / "static" / "forecasts.js").read_text(encoding="utf-8")

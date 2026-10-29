@@ -291,17 +291,20 @@ def acquire_worker_lock(conn):
 def call_qwen(predictions, severity, policy_text, target_at):
     prompt = (
         "Use the trusted policy below to explain this two-hour model forecast in 1-3 concise sentences. "
+        "Use at most 70 words and summarize the most concerning channels; all numeric forecasts are displayed separately. "
         "Keep every supplied value and category unchanged. Clearly call it a forecast, include the target time, "
         "do not claim any action occurred, and only recommend checks supported by the policy.\n\n"
+        f"Trusted policy:\n{policy_text}\n\n"
         f"Target time (UTC): {target_at.astimezone(timezone.utc).isoformat()}\n"
         f"Forecast: {json.dumps(predictions, sort_keys=True)}\n"
-        f"Categories: {json.dumps(severity, sort_keys=True)}\n\nTrusted policy:\n{policy_text}"
+        f"Categories: {json.dumps(severity, sort_keys=True)}"
     )
     payload = json.dumps({
         "model": os.environ.get("OLLAMA_MODEL", "qwen2.5:3b"),
         "prompt": prompt + "\nReturn JSON only as {\"message\": \"your explanation\"}.",
         "stream": False,
-        "format": "json",
+        "format": {"type": "object", "properties": {"message": {"type": "string"}},
+                   "required": ["message"], "additionalProperties": False},
         "options": {"temperature": 0, "num_predict": 160},
     }).encode()
     try:
@@ -310,7 +313,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
             f"{base_url}/api/generate", data=payload,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "20"))
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "90"))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("OLLAMA_TIMEOUT must be a finite positive number")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -399,28 +402,41 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
             return "policy_error"
 
     try:
-        explanation = qwen(predictions, severity, policy.text, target_at)
-    except QwenUnavailable:
+        policy_text = policy.text
+        if device_id.startswith("sim-farm-"):
+            policy_text = "Input source: SIMULATED farm readings, not physical sensor measurements. State that this is a simulation.\n\n" + policy_text
+        explanation = qwen(predictions, severity, policy_text, target_at)
+    except QwenUnavailable as exc:
+        print(json.dumps({"device_id": device_id, "reasoning": "unavailable", "reason": str(exc)}),
+              file=sys.stderr, flush=True)
         update_explanation(conn, device_id, forecast_id, "error")
         return "explanation_error"
     update_explanation(conn, device_id, forecast_id, "available", explanation)
     return "created" if not same_numeric else "explanation_retried"
 
 
-def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen):
+def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen, simulation=None):
     cycle_now = now or utc_now()
     results = {}
     with closing(connection_factory()) as conn:
         if not acquire_worker_lock(conn):
-            return {"_worker": "skipped: another forecast worker is running"}
+            status = "unavailable" if simulation else "skipped"
+            return {"_worker": f"{status}: another forecast worker is running"}
         try:
             validate_model_contract(model)
         except (ContractError, predictor.ModelUnavailable) as exc:
             invalidate_forecast(conn, str(exc))
             return {"_worker": f"unavailable: {exc}"}
+        if simulation is not None:
+            from ai_model.simulation import write_history
+
+            seeded = write_history(conn, simulation, cycle_now)
+            results["_simulation"] = {
+                **seeded, "latest_at": seeded["latest_at"].isoformat(), "profile": simulation,
+            }
         policy_result = load_policy_result()
         invalidate_stale_forecasts(conn, cycle_now)
-        devices = fetch_active_devices(conn, cycle_now)
+        devices = [seeded["device_id"]] if simulation is not None else fetch_active_devices(conn, cycle_now)
         conn.commit()
         for device_id in devices:
             try:
@@ -450,6 +466,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="process available devices once and exit")
     parser.add_argument("--init-db", action="store_true", help="create the forecast table and query index")
+    parser.add_argument("--simulate", choices=("good", "mid", "bad"),
+                        help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)
     try:
         if args.init_db:
@@ -464,8 +482,10 @@ def main(argv=None):
         while True:
             started = time.monotonic()
             try:
-                results = run_once()
+                results = run_once(simulation=args.simulate) if args.simulate else run_once()
                 print(json.dumps({"at": utc_now().isoformat(), "devices": results}), flush=True)
+                if args.simulate and results.get("_worker", "").startswith("unavailable:"):
+                    return 1
             except (ContractError, predictor.ModelUnavailable, RuntimeError) as exc:
                 print(json.dumps({"status": "unavailable", "reason": str(exc)}), file=sys.stderr, flush=True)
                 if args.once:
@@ -475,7 +495,8 @@ def main(argv=None):
                 if args.once:
                     return 1
             if args.once:
-                return 1 if results.get("_worker", "").startswith("unavailable:") else 0
+                return int(any(isinstance(result, str) and result.startswith(("unavailable:", "error:"))
+                               for result in results.values()))
             time.sleep(max(0, POLL_SECONDS - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 130

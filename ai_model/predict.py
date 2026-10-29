@@ -10,6 +10,11 @@ import numpy as np
 import pandas as pd
 
 
+def sigmoid(values):
+    # Extreme demo concentrations saturate gates without overflowing exp.
+    return np.exp(-np.logaddexp(0, -values))
+
+
 def numpy_gru(features, weights):
     """Evaluate the exported two-layer GRU equations in float32 on CPU.
 
@@ -27,8 +32,8 @@ def numpy_gru(features, weights):
         output = np.empty((len(sequence), 64), dtype=np.float32)
         for t, gates in enumerate(input_gates):
             recurrent = wh @ hidden + bh
-            reset = 1 / (1 + np.exp(-(gates[:64] + recurrent[:64])))
-            update = 1 / (1 + np.exp(-(gates[64:128] + recurrent[64:128])))
+            reset = sigmoid(gates[:64] + recurrent[:64])
+            update = sigmoid(gates[64:128] + recurrent[64:128])
             new = np.tanh(gates[128:] + reset * recurrent[128:])
             hidden = (1-update)*new + update*hidden
             output[t] = hidden

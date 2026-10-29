@@ -71,7 +71,8 @@ dashboard can connect directly to the ESP32 over WebSocket for live sensor
 values and pause/resume collection; MQTT remains the path used to store readings
 in PostgreSQL. The ESP32 samples once per minute.
 The dashboard plots individual stored readings for the selected sensor over
-the last hour, alongside hourly averages for the last 24 hours. Select a sensor
+the latest recorded hour, alongside hourly averages across the entire stored
+date range. Historical imports therefore remain visible. Select a sensor
 card to change both graphs and use Refresh to load newly recorded data. Gaps
 longer than two minutes break the individual-reading line; devices have separate
 lines. Point tooltips and the expandable values table show measurement times
@@ -192,15 +193,19 @@ values. See [FIRMWARE.md](FIRMWARE.md) for pins, Arduino libraries, flashing, an
 verification on Ubuntu. `simulate_esp32.py` remains the optional test simulator;
 stop it before collecting real readings.
 
-## Planned predictive AI integration
+## Predictive AI and farm demonstrations
 
-The custom regression model will be saved as `.h5` in `ai_model/`. Its inference
-script will prepare collected readings as model inputs and retrieve predictions
-for readings **two hours ahead**. Input features, lookback window, preprocessing,
-target sensors, and model runtime must be confirmed from the trained model before
-inference is implemented. Measured data and predictions must remain separate.
-The dashboard already provides descriptive analytics and an unavailable forecast
-panel; it does not generate predictions or substitute simulated values.
+The supplied GRU Joblib model uses 120 consecutive one-minute inputs to predict
+the next 120 minutes. The worker saves the final two-hour-ahead values, applies
+`ai_model/reasoning ai/thresholds.md`, and asks Qwen to explain them. The existing
+2-hour forecast panel displays numerical values and guidance separately.
+
+For a demonstration without the ESP32, `ai_model/simulate_good.py`,
+`simulate_mid.py` and `simulate_bad.py` seed fresh, labelled input histories and
+run that same real inference pipeline. They preserve the imported dataset and
+require no MQTT ingestion. See [ai_model/README.md](ai_model/README.md#three-farm-demonstrations-without-a-device)
+for server commands, source labels and model limitations. Run one scenario at a
+time and stop the normal forecast worker first.
 
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
 Dashboard, Data, and export require authentication; existing sessions remain valid

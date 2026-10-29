@@ -3,7 +3,7 @@
 {% block content %}
 <div class="dashboard-page">
     <div class="page-heading dashboard-heading">
-        <div class="page-heading-copy"><h1>Dashboard</h1><p>Environmental readings and descriptive analytics &middot; Last 24 hours (UTC)</p></div>
+        <div class="page-heading-copy"><h1>Dashboard</h1><p>Environmental readings and descriptive analytics &middot; All stored readings (UTC)</p></div>
         <div class="dashboard-heading-tools">
             <a class="button button-secondary" href="{{ url_for('dashboard', sensor=selected.column) }}">Refresh</a>
             <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
@@ -12,7 +12,7 @@
     {% if database_error %}
     <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
     {% else %}
-    <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %} &middot; Latest recorded measurement (UTC): {{ latest.strftime('%Y-%m-%d %H:%M:%S') if latest else 'No readings yet' }}</p>
+    <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %}{% if earliest and latest %} &middot; Recorded range (UTC): {{ earliest.strftime('%Y-%m-%d %H:%M:%S') }} to {{ latest.strftime('%Y-%m-%d %H:%M:%S') }}{% else %} &middot; No readings yet{% endif %}</p>
     {% endif %}
     <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
         <div class="dashboard-panel-heading device-live-heading">
@@ -52,11 +52,11 @@
         {% endfor %}
     </div>
     <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
-        <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Last 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
+        <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
         <div class="trend-chart-wrap">
             {% if recorded_trend.points %}
             <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="recorded-trend-description">
-                <title id="recorded-trend-description">{{ selected.label }} recorded readings over the last hour in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
+                <title id="recorded-trend-description">{{ selected.label }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                 {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
                 <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
                 {% endfor %}
@@ -67,20 +67,20 @@
             </svg>
             <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th><th>{{ selected.label }} ({{ selected.unit }})</th></tr></thead><tbody>{% for point in recorded_trend.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td><td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
             {% else %}
-            <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings in the last hour' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
+            <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
             {% endif %}
         </div>
     </section>
     <div class="dashboard-layout">
         <section class="dashboard-panel" aria-labelledby="trend-title">
-            <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; UTC &middot; All reporting devices</p></div></div>
+            <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; All stored readings &middot; UTC &middot; All reporting devices</p></div></div>
             <div class="trend-chart-wrap">
                 {% if trend.points %}
                 <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="trend-description">
-                    <title id="trend-description">{{ selected.label }} hourly averages over the last 24 hours. Missing hours are gaps. Values in {{ selected.unit }}.</title>
+                    <title id="trend-description">{{ selected.label }} hourly averages across all stored readings. Missing hours are gaps. Values in {{ selected.unit }}.</title>
                     <path class="trend-axis" d="M60 25V210H760"/>
                     <text x="52" y="35" text-anchor="end">{{ trend.high }}</text><text x="52" y="210" text-anchor="end">{{ trend.low }}</text>
-                    <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">Now (UTC)</text>
+                    <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">{{ end.strftime('%m-%d %H:%M') }} UTC</text>
                     {% for segment in trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
                     {% for point in trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
                 </svg>
@@ -91,9 +91,9 @@
             </div>
             <div class="dashboard-stats">
                 {% for label, value in (('Minimum', selected.minimum), ('Average', selected.average), ('Maximum', selected.maximum)) %}
-                <div class="dashboard-stat"><span>{{ label }} (24h)</span><strong>{{ reading(value) }} {{ selected.unit }}</strong></div>
+                <div class="dashboard-stat"><span>{{ label }} (all stored)</span><strong>{{ reading(value) }} {{ selected.unit }}</strong></div>
                 {% endfor %}
-                <div class="dashboard-stat"><span>Valid readings (24h)</span><strong>{{ '—' if database_error else selected.count }}</strong></div>
+                <div class="dashboard-stat"><span>Valid readings (all stored)</span><strong>{{ '—' if database_error else selected.count }}</strong></div>
             </div>
         </section>
         <div class="dashboard-side-column">

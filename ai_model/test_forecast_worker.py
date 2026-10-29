@@ -176,6 +176,47 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertIn("another forecast worker", result["_worker"])
         invalidate.assert_not_called()
 
+    def test_simulation_seeds_under_the_worker_lock_before_forecasting(self):
+        events = []
+        seeded = dict(device_id="sim-farm-good", inserted=120, latest_at=self.now)
+        with (
+            patch.object(worker, "acquire_worker_lock", side_effect=lambda conn: events.append("lock") or True),
+            patch("ai_model.simulation.write_history", side_effect=lambda *args: events.append("seed") or seeded),
+            patch.object(worker, "load_policy_result", return_value=(self.policy, None)),
+            patch.object(worker, "invalidate_stale_forecasts"),
+            patch.object(worker, "fetch_active_devices") as fetch_devices,
+            patch.object(worker, "process_device", side_effect=lambda *args: events.append("forecast") or "created"),
+        ):
+            result = worker.run_once(lambda: MagicMock(), self.model, self.now, simulation="good")
+        self.assertEqual(events, ["lock", "seed", "forecast"])
+        self.assertEqual(result["_simulation"]["inserted"], 120)
+        self.assertEqual(result["sim-farm-good"], "created")
+        fetch_devices.assert_not_called()
+
+    def test_lock_contention_does_not_insert_simulation_history(self):
+        with (
+            patch.object(worker, "acquire_worker_lock", return_value=False),
+            patch("ai_model.simulation.write_history") as seed,
+        ):
+            result = worker.run_once(lambda: MagicMock(), self.model, self.now, simulation="bad")
+        seed.assert_not_called()
+        self.assertTrue(result["_worker"].startswith("unavailable:"))
+
+    def test_continuous_simulator_fails_clearly_when_another_worker_is_running(self):
+        with (
+            patch.object(worker, "run_once", return_value={"_worker": "unavailable: another forecast worker is running"}),
+            patch("builtins.print"),
+        ):
+            self.assertEqual(worker.main(["--simulate", "good"]), 1)
+
+    def test_three_script_entrypoints_select_the_expected_worker_profile(self):
+        from ai_model import simulation
+
+        for profile in ("good", "mid", "bad"):
+            with patch.object(worker, "main", return_value=0) as main:
+                self.assertEqual(simulation.main(profile, ["--once"]), 0)
+                main.assert_called_once_with(["--simulate", profile, "--once"])
+
     def test_single_cycle_unavailable_status_is_an_unsuccessful_check(self):
         with (
             patch.object(worker, "run_once", return_value={"_worker": "unavailable: MODEL_VERSION is not configured"}),
