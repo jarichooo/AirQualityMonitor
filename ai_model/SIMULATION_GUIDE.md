@@ -5,20 +5,35 @@ Run one condition at a time, then use **Predict now** to create a two-hour forec
 **Each launch deletes all existing sensor readings, forecasts, and prediction
 requests, then seeds the selected condition. Accounts are kept.**
 
-| Condition | Script/module |
+| Condition | Script |
 | --- | --- |
-| Good | `ai_model.simulate_good` |
-| Warning | `ai_model.simulate_mid` |
-| Critical | `ai_model.simulate_bad` |
+| Good | `ai_model/simulate_good.py` |
+| Warning | `ai_model/simulate_mid.py` |
+| Critical | `ai_model/simulate_bad.py` |
 
-Stop any previous simulation with **Ctrl+C**, then paste this into the server's
-SSH terminal:
+## One-time Python setup
+
+Connect through SSH and paste this once. Skip it on later runs:
+
+```bash
+(
+  set -e
+  sudo apt install -y python3-venv
+  python3 -m venv ~/henvironment-simulation-venv
+  ~/henvironment-simulation-venv/bin/python3 -m pip install psycopg2-binary==2.9.11
+)
+```
+
+## Start the background services
+
+Run this once before presenting. The services keep running when
+you stop a simulation or change conditions; you only need one SSH terminal.
 
 ```bash
 (
   set -e
   cd ~/AirQualityMonitor
-  sudo docker compose --profile forecast stop ingestion forecast_worker
+  sudo docker compose stop ingestion
   sudo docker compose up -d --wait postgres_db
   sudo docker compose up -d --no-deps web_dashboard
   sudo systemctl start henvironment-ollama.service
@@ -27,21 +42,13 @@ SSH terminal:
 
   sudo docker compose --profile forecast up \
     -d --no-deps forecast_worker
-  sudo docker compose --profile forecast run \
-    --rm --no-deps --name farm_simulation --entrypoint python \
-    forecast_worker -m ai_model.simulate_good
 )
 ```
 
-This block runs **Good**. To run **Warning** or **Critical**, change only the last
-module name to `ai_model.simulate_mid` or `ai_model.simulate_bad`, then paste the
-whole block again after stopping the previous run.
+## Every simulation run
 
-The scripts and Docker worker use `notsosecretpass` by default, so no database
-password prompt is needed. An existing `DB_PASS` setting overrides this default.
-
-If the services are already running and you installed the native Python setup,
-you can run the script directly:
+Stop the previous simulation with **Ctrl+C** and wait for any active prediction
+to finish. This is the only block you need each time:
 
 ```bash
 (
@@ -52,13 +59,19 @@ you can run the script directly:
 )
 ```
 
+This runs **Good**. For **Warning**, replace `simulate_good.py` with
+`simulate_mid.py`. For **Critical**, use `simulate_bad.py`. Do not recreate the
+environment or reinstall packages each time.
+
+The database password is already included, so you do not need to enter it.
+
 Keep the terminal open. Each script inserts **120 readings for its condition**,
 then keeps adding **one reading per minute until you press Ctrl+C**. There is no
-five-minute limit. The scripts do not run the predictive model or Qwen themselves.
+five-minute limit. The scripts only supply readings.
 
 Open `http://<server-IP>:5000/dashboard`, sign in, and click **Predict now**
-after the terminal reports `seeded: 120`. The predicted values appear first;
-Qwen guidance follows when ready. You can click again after a new reading has
+after the terminal reports `seeded: 120`. The predicted values appear first,
+and the advice follows when ready. You can click again after a new reading has
 arrived, at least 60 seconds after the previous request, and after the current
 prediction finishes. The button disables itself while it cannot run.
 
@@ -66,10 +79,9 @@ All 120 model inputs match the selected condition. Forecast colours still follow
 the model's own predicted values; they are not forced to match the input label.
 
 Each new condition replaces the previous data and restarts reading IDs at 1.
-If seeding fails, the reset rolls back. Stop other simulations and wait for any
-active prediction to finish before starting another condition.
+If seeding fails, the reset rolls back.
 
-To stop the simulation, press **Ctrl+C**. The dashboard, forecast worker, and Qwen service
+To stop the simulation, press **Ctrl+C**. The dashboard and prediction services
 continue in the background. After the readings stop, request a prediction within
 about three minutes before they become too old.
 
@@ -101,3 +113,4 @@ PY
 
 Refresh the dashboard afterward. Technical server instructions are in
 [SERVER_COMMANDS.md](../SERVER_COMMANDS.md).
+Start the background services again before using **Predict now** after cleanup.

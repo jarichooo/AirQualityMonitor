@@ -242,8 +242,10 @@ After pulling this feature, stop old one-off simulators and prepare the server:
 )
 ```
 
-Then follow [the client guide](SIMULATION_GUIDE.md). It starts the manual worker
-with the database password and runs the chosen simulator in the same SSH terminal.
+Then follow [the client guide](SIMULATION_GUIDE.md). It separates one-time Python
+setup from background service startup and the short command used for every run.
+The native scripts use `~/henvironment-simulation-venv`; packages are installed
+once, not before each simulation. The manual prediction worker stays in Docker.
 Docker uses `--entrypoint python forecast_worker -m ai_model.simulate_good`; native
 Python uses `python -m ai_model.simulate_good` or `python ai_model/simulate_good.py`.
 Replace `simulate_good` with `simulate_mid` or `simulate_bad` for the other conditions.
