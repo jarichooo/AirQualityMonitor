@@ -58,6 +58,39 @@ class SimulationTest(unittest.TestCase):
         connection.rollback.assert_called_once_with()
         connection.commit.assert_not_called()
 
+    def test_cleanup_targets_only_known_simulators_and_leaves_commit_to_seeding(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 8
+        cursor.fetchone.return_value = ("public", "renamed_id_sequence", 32322)
+        result = simulation.clear_history(connection)
+        calls = cursor.execute.call_args_list
+        self.assertEqual(calls[1].args[0], "LOCK TABLE public.air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
+        self.assertEqual(calls[2].args[0], "LOCK TABLE public.air_quality_logs IN ACCESS EXCLUSIVE MODE")
+        for execution in calls[3:5]:
+            self.assertIn("WHERE device_id = ANY(%s)", execution.args[0])
+            self.assertEqual(execution.args[1], (["sim-farm-good", "sim-farm-mid", "sim-farm-bad", "python-simulator"],))
+        self.assertIn("MAX(id)", calls[5].args[0])
+        self.assertEqual(result, {"readings_deleted": 8, "forecasts_deleted": 8})
+        connection.commit.assert_not_called()
+
+    def test_cleanup_without_readings_does_not_reset_the_sequence(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 0
+        self.assertEqual(simulation.clear_history(connection)["readings_deleted"], 0)
+        self.assertEqual(cursor.execute.call_count, 5)
+        cursor.fetchone.assert_not_called()
+
+    def test_cleanup_fails_if_the_readings_id_sequence_is_missing(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 1
+        cursor.fetchone.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "sequence is missing"):
+            simulation.clear_history(connection)
+        connection.commit.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -214,8 +214,12 @@ For one complete demonstration, use `simulate_series.py`. It runs five updates
 each for the existing good, mid, and bad scenarios, in that order, then exits.
 Each update uses the real GRU and Qwen pipeline. Updates normally run about a
 minute apart; slow inference can extend the roughly 15-minute demonstration.
-The stages do not skip ahead based on wall-clock time. Existing readings and
-their IDs remain unchanged; each stage keeps its existing `sim-farm-*` device ID.
+The stages do not skip ahead based on wall-clock time. At launch, previous demo
+readings and forecasts are removed for `sim-farm-good`, `sim-farm-mid`,
+`sim-farm-bad`, and `python-simulator`. Imported/physical readings and their IDs
+remain unchanged. Cleanup runs once before seeding, including with `--once`,
+and never between stages. New IDs follow the highest retained ID; the first
+cycle logs `_cleanup` counts. Cleanup and the first seed share one transaction.
 
 After pulling/rebuilding the worker and dashboard, with PostgreSQL and the Qwen
 background service running and other workers stopped:
@@ -260,11 +264,11 @@ history ending at the current UTC minute, then adds missing demo minutes on each
 worker cycle. You do not wait two hours to start the demonstration. All samples
 have exact minute timestamps and valid particulate ordering.
 
-Existing dataset/device rows are never deleted or modified. Repeated runs skip
-already-present demo device/minute pairs under the worker lock. Run **one**
-scenario at a time; a competing worker makes the simulator exit clearly instead
-of silently creating no data. After switching scenarios, the previous device's
-forecast becomes stale normally; it is never relabelled as the new scenario.
+Imported dataset and physical-device rows are never deleted or modified. Each
+script clears the four known simulator device IDs once at startup, then adds
+missing demo minutes on subsequent cycles under the worker lock. Stop earlier
+simulators before starting another run; cleanup exits on a busy worker lock or
+database failure. Earlier simulation forecasts are removed with their readings.
 
 To remove demo readings afterward, stop all writers and use the Data page's
 **Delete readings** controls. Select an inclusive start time in UTC and keep
