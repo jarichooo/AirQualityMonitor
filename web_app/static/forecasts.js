@@ -35,7 +35,6 @@
             });
             article.append(list);
         }
-        addText(article, "h3", "______________________________________");
         const guidanceFallback = forecast.explanation_status === "pending"
             ? "This panel updates automatically."
             : forecast.explanation_status === "error" && forecast.status === "available"
