@@ -15,6 +15,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 from werkzeug.security import check_password_hash
 
 from forecast import fetch_latest_forecasts
+from prediction import PredictionRejected, enqueue_prediction, get_prediction_state
 
 
 app = Flask(__name__)
@@ -327,6 +328,7 @@ def index():
 @app.route("/dashboard")
 @login_required
 def dashboard():
+    session.setdefault("prediction_token", secrets.token_hex(32))
     sensor = request.args.get("sensor", "temperature_c")
     if sensor not in {column for column, _, _ in SENSORS}:
         sensor = "temperature_c"
@@ -368,6 +370,66 @@ def forecasts_api():
             response = jsonify(configured=True, forecasts=[],
                                message="Forecasts are temporarily unavailable.")
             response.status_code = 503
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _prediction_unavailable(message, configured, status_code):
+    response = jsonify(
+        configured=configured,
+        status="idle",
+        request_id=None,
+        device_id=None,
+        input_row_id=None,
+        cooldown_seconds=0,
+        message=message,
+        can_predict=False,
+    )
+    response.status_code = status_code
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/api/predictions", methods=["GET", "POST"])
+@login_required
+def predictions_api():
+    if request.method == "POST":
+        body = request.get_json(silent=True)
+        submitted = body.get("csrf_token") if isinstance(body, dict) else None
+        token = session.get("prediction_token")
+        try:
+            valid_token = (isinstance(submitted, str) and bool(token)
+                           and secrets.compare_digest(token.encode(), submitted.encode()))
+        except UnicodeError:
+            valid_token = False
+        if not valid_token:
+            return _prediction_unavailable("Invalid prediction request token.", True, 400)
+
+    try:
+        with closing(get_db_connection()) as conn:
+            if request.method == "POST":
+                try:
+                    payload = enqueue_prediction(conn)
+                    status_code = 202
+                except PredictionRejected as error:
+                    payload = error.payload
+                    status_code = error.status_code
+            else:
+                payload = get_prediction_state(conn)
+                status_code = 200
+        response = jsonify(payload)
+        response.status_code = status_code
+    except psycopg2.Error as error:
+        missing_schema = isinstance(error, psycopg2.errors.UndefinedTable) or error.pgcode == "42P01"
+        if not missing_schema:
+            app.logger.exception("Unable to access prediction requests")
+        return _prediction_unavailable(
+            "Manual prediction is not configured yet."
+            if missing_schema else "Manual prediction is temporarily unavailable.",
+            not missing_schema,
+            200 if missing_schema and request.method == "GET" else 503,
+        )
+
     response.headers["Cache-Control"] = "no-store"
     return response
 

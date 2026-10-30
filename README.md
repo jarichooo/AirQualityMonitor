@@ -198,6 +198,14 @@ stop it before collecting real readings.
 
 ## Predictive AI and farm demonstrations
 
+For a button-controlled demo, `ai_model/simulate_manual.py` seeds 120 readings
+and adds five more at one-minute intervals. Click **Predict now** on the dashboard
+to run the GRU and Qwen. The server blocks concurrent requests, repeated source
+readings, and requests less than 60 seconds apart. Follow the short
+[simulation guide](ai_model/SIMULATION_GUIDE.md). The forecast worker's Compose
+service now waits for manual requests by default; legacy automatic simulation
+commands remain available below.
+
 The supplied GRU Joblib model uses 120 consecutive one-minute inputs to predict
 the next 120 minutes. The worker saves the final two-hour-ahead values, applies
 `ai_model/reasoning ai/thresholds.md`, and asks Qwen to explain them. The existing

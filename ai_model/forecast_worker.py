@@ -37,6 +37,7 @@ FRESHNESS_SECONDS = 180
 POLL_SECONDS = 60
 SERIES_PHASES = ("good", "mid", "bad")
 SERIES_CYCLES_PER_PHASE = 5
+WORKER_LOCK_ID = 739_783_247_071_623_201
 
 
 class ContractError(ValueError):
@@ -303,7 +304,7 @@ def invalidate_stale_forecasts(conn, now):
 
 def acquire_worker_lock(conn):
     with conn.cursor() as cursor:
-        cursor.execute("SELECT pg_try_advisory_lock(%s)", (739_783_247_071_623_201,))
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (WORKER_LOCK_ID,))
         return bool(cursor.fetchone()[0])
 
 
@@ -503,6 +504,55 @@ def initialize_database(connection_factory=database_connection):
         conn.commit()
 
 
+def run_manual_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen):
+    """Process at most one button request; acquiring the lock also recovers interrupted jobs."""
+    with closing(connection_factory()) as conn:
+        if not acquire_worker_lock(conn):
+            return {}
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                "SELECT request_id, device_id FROM public.air_quality_prediction_requests "
+                "WHERE id = 1 AND status IN ('queued', 'running') FOR UPDATE"
+            )
+            job = cursor.fetchone()
+            if job is None:
+                conn.commit()
+                return {}
+            cursor.execute(
+                "UPDATE public.air_quality_prediction_requests SET status = 'running', "
+                "started_at = CURRENT_TIMESTAMP, completed_at = NULL, error = NULL "
+                "WHERE id = 1 AND request_id = %s", (job["request_id"],),
+            )
+        conn.commit()
+        error = None
+        try:
+            validate_model_contract(model)
+            result = process_device(conn, job["device_id"], model, now, qwen=qwen)
+            if result == "explanation_error":
+                error = "Predictions are saved, but Qwen could not finish. Check the forecast worker and Ollama logs."
+            elif result == "policy_error":
+                error = "The threshold policy could not be used. Check thresholds.md."
+        except (ContractError, predictor.ModelUnavailable) as exc:
+            conn.rollback()
+            error = str(exc)
+            invalidate_forecast(conn, error, job["device_id"])
+            result = f"unavailable: {error}"
+        except Exception as exc:
+            conn.rollback()
+            print(json.dumps({"device_id": job["device_id"], "reason": str(exc)}), file=sys.stderr, flush=True)
+            error = "Prediction failed. Check the forecast worker logs."
+            invalidate_forecast(conn, error, job["device_id"], "error")
+            result = "error: Prediction failed"
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "UPDATE public.air_quality_prediction_requests SET status = %s, "
+                "completed_at = CURRENT_TIMESTAMP, error = %s WHERE id = 1 AND request_id = %s",
+                ("error" if error else "completed", error, job["request_id"]),
+            )
+        conn.commit()
+        return {job["device_id"]: result}
+
+
 def _failed_results(results):
     return any(isinstance(result, str) and result.startswith(("unavailable:", "error:"))
                for result in results.values())
@@ -566,7 +616,9 @@ def main(argv=None):
     parser.add_argument("--once", action="store_true",
                         help="process once and exit; with --simulate series, run only its first good cycle")
     parser.add_argument("--init-db", action="store_true", help="create the forecast table and query index")
-    parser.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--manual", action="store_true", help="only predict when the dashboard queues a request")
+    mode.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
                         help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)
     try:
@@ -585,9 +637,13 @@ def main(argv=None):
         while True:
             started = time.monotonic()
             try:
-                results = run_once(simulation=args.simulate, reset_simulation=first_cycle) if args.simulate else run_once()
+                if args.manual:
+                    results = run_manual_once()
+                else:
+                    results = run_once(simulation=args.simulate, reset_simulation=first_cycle) if args.simulate else run_once()
                 first_cycle = False
-                print(json.dumps({"at": utc_now().isoformat(), "devices": results}), flush=True)
+                if results or not args.manual:
+                    print(json.dumps({"at": utc_now().isoformat(), "devices": results}), flush=True)
                 if args.simulate and results.get("_worker", "").startswith("unavailable:"):
                     return 1
             except (ContractError, predictor.ModelUnavailable, RuntimeError) as exc:
@@ -600,7 +656,7 @@ def main(argv=None):
                     return 1
             if args.once:
                 return int(_failed_results(results))
-            time.sleep(max(0, POLL_SECONDS - (time.monotonic() - started)))
+            time.sleep(1 if args.manual else max(0, POLL_SECONDS - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 130
 

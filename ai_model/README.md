@@ -208,6 +208,53 @@ Sign in and open `/dashboard`. `/api/forecasts` uses the same login. Until the
 forecast schema exists it returns a clear not-configured state. Sensor panels
 remain independent of forecasting.
 
+## Manual prediction demonstration
+
+`simulate_manual.py` inserts 120 minute-aligned demo readings, then one new row
+at each of the next five UTC minute boundaries. It never runs the predictive
+model or Qwen. Use `--profile good`, `mid`, or `bad` (default `good`). Each launch
+clears earlier simulator rows and their forecasts/requests while preserving
+imported and physical-device data. Two manual seeders cannot run together.
+
+The dashboard's **Predict now** button queues a request. The Compose
+`forecast_worker` service runs `--manual` and only processes these requests.
+The server permits one queued/running request globally, enforces a 60-second
+cooldown, and requires a new fresh reading before accepting another request.
+Authentication and CSRF checks protect the POST; browser disabling is only feedback.
+Numerical values are saved before Qwen finishes; the previous guidance remains
+visible during an update. Readings continue arriving while Qwen runs.
+
+After pulling this feature, stop old one-off simulators and prepare the server:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  sudo docker compose --profile forecast stop ingestion forecast_worker
+  sudo docker compose up -d --wait postgres_db
+  sudo docker compose --profile forecast build web_dashboard forecast_worker
+  sudo docker exec -i postgres_db psql -X -v ON_ERROR_STOP=1 -U admin -d air_quality \
+    < ai_model/schema.sql
+  sudo docker compose up -d --no-deps web_dashboard
+)
+```
+
+Then follow the single startup block in [the client guide](SIMULATION_GUIDE.md).
+It starts the manual worker with the database password and runs the seeder in
+the same SSH terminal. Docker uses
+`--entrypoint python forecast_worker -m ai_model.simulate_manual --profile good`;
+native Python uses `python -m ai_model.simulate_manual --profile good`.
+The new queue table is additive; do not reset the database. Interrupted manual
+prediction requests are retried when the manual worker restarts and reacquires
+its exclusive worker lock. New requests remain queued while that worker is stopped.
+For prediction/Qwen errors, inspect
+`sudo docker compose --profile forecast logs --tail=50 forecast_worker` and
+`sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`.
+
+The older `--simulate good|mid|bad|series` commands below still combine simulated
+readings with automatic prediction. Do not run them alongside the manual demo.
+To run automatic live forecasting with native Python, omit `--manual`.
+
 ## Automatic good -> warning -> critical sequence
 
 For one complete demonstration, use `simulate_series.py`. It runs five updates
