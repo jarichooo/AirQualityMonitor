@@ -220,6 +220,10 @@ def save_forecast(conn, record):
                  severity = EXCLUDED.severity,
                  explanation_status = EXCLUDED.explanation_status,
                  explanation = EXCLUDED.explanation,
+                 last_guidance = CASE
+                   WHEN current_forecast.model_version = EXCLUDED.model_version
+                    AND current_forecast.policy_sha256 = EXCLUDED.policy_sha256
+                   THEN current_forecast.last_guidance ELSE NULL END,
                  policy_sha256 = EXCLUDED.policy_sha256,
                  source_hash = EXCLUDED.source_hash
                WHERE current_forecast.input_cutoff_at < EXCLUDED.input_cutoff_at
@@ -241,19 +245,32 @@ def set_policy_pending(conn, device_id, forecast_id, severity, policy_sha256):
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE public.air_quality_forecasts SET severity = %s, policy_sha256 = %s, "
-            "explanation_status = 'pending', explanation = NULL, reason = NULL "
+            "explanation_status = 'pending', explanation = NULL, reason = NULL, "
+            "last_guidance = CASE WHEN policy_sha256 = %s THEN last_guidance ELSE NULL END "
             "WHERE device_id = %s AND forecast_id = %s::uuid",
-            (Json(severity), policy_sha256, device_id, forecast_id),
+            (Json(severity), policy_sha256, policy_sha256, device_id, forecast_id),
         )
     conn.commit()
 
 
 def update_explanation(conn, device_id, forecast_id, status, explanation=None):
+    snapshot = ""
+    if status == "available":
+        snapshot = (
+            ", last_guidance = jsonb_build_object('text', %s::text, "
+            "'input_cutoff_at', input_cutoff_at, 'target_at', target_at, "
+            "'model_version', model_version, 'policy_sha256', policy_sha256)"
+        )
+    params = [status, explanation]
+    if snapshot:
+        params.append(explanation)
+    params.extend((device_id, forecast_id))
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE public.air_quality_forecasts SET explanation_status = %s, explanation = %s "
+            "UPDATE public.air_quality_forecasts SET explanation_status = %s, explanation = %s"
+            f"{snapshot} "
             "WHERE device_id = %s AND forecast_id = %s::uuid",
-            (status, explanation, device_id, forecast_id),
+            params,
         )
     conn.commit()
 
@@ -267,7 +284,7 @@ def invalidate_forecast(conn, reason, device_id=None, status="unavailable"):
         cursor.execute(
             "UPDATE public.air_quality_forecasts SET status = %s, reason = %s, "
             "predicted_values = %s, severity = %s, explanation_status = %s, "
-            f"explanation = NULL WHERE {where}", params,
+            f"explanation = NULL, last_guidance = NULL WHERE {where}", params,
         )
     conn.commit()
 

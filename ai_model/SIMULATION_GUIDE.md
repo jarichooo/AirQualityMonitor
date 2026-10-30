@@ -64,6 +64,8 @@ PostgreSQL or the webpage is stopped, use section 2 to start them first.
 
 Skip this section if you already rebuilt the latest images and applied the
 forecast schema. It is not needed every time you demonstrate the application.
+For the guidance-retention update, reapply the schema even if the forecast table
+already exists: it adds the `last_guidance` column without resetting readings.
 For the backup and pull procedure, see [server maintenance](../SERVER_COMMANDS.md#updating-an-existing-server).
 New local files must be committed and pushed before a server pull can fetch them.
 
@@ -180,7 +182,15 @@ For each stage, show:
    Critical**. Unavailable forecasts use a neutral style. The written labels remain
    visible so color is not the only indication.
 3. **Reasoning AI guidance:** show Qwen's explanation below the predicted values.
-   Numbers are saved before guidance, so guidance can initially be pending.
+   Numbers are saved before guidance, so the first response can initially be pending.
+   After Qwen completes a response, that guidance stays visible across page reloads
+   while the next response is being prepared, or if Qwen's update fails. Its original
+   input and target times identify it as previous guidance. When readings stop,
+   it remains labelled historical; it is not a fresh forecast. New completed
+   guidance replaces it automatically. Changing the model or thresholds, deleting
+   its device's readings, or completing a simulation stage clears retained guidance.
+   Apply `ai_model/schema.sql` after pulling this update (section 1); its new
+   `last_guidance` column preserves existing sensor readings and accounts.
 
 The forecast panel refreshes every 60 seconds while the tab is visible. The
 measured charts require Refresh. Qwen's default request timeout is 90 seconds;

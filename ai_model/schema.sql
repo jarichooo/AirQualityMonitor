@@ -20,6 +20,17 @@ CREATE TABLE IF NOT EXISTS public.air_quality_forecasts (
     source_hash TEXT NOT NULL
 );
 
+ALTER TABLE public.air_quality_forecasts ADD COLUMN IF NOT EXISTS last_guidance JSONB;
+
+UPDATE public.air_quality_forecasts
+SET last_guidance = jsonb_build_object(
+    'text', explanation, 'input_cutoff_at', input_cutoff_at,
+    'target_at', target_at, 'model_version', model_version,
+    'policy_sha256', policy_sha256
+)
+WHERE last_guidance IS NULL AND status = 'available'
+    AND explanation_status = 'available' AND btrim(explanation) <> '';
+
 CREATE INDEX IF NOT EXISTS air_quality_logs_device_recorded_id_idx
     ON public.air_quality_logs (device_id, recorded_at DESC, id DESC);
 

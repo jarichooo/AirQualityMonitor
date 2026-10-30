@@ -50,7 +50,7 @@ class PipelineTest(unittest.TestCase):
         for key in ("predicted_values", "severity"):
             saved[key] = saved[key].adapted
         explanation_params = calls[-1].args[1]
-        saved.update(explanation_status=explanation_params[0], explanation=explanation_params[1])
+        saved.update(explanation_status=explanation_params[0], explanation=explanation_params[1], last_guidance=None)
         result = serialize_forecast(tuple(saved[key] for key in FORECAST_COLUMNS),
                                     [("temperature_c", "Temperature", "°C")], now)
         self.assertEqual(result["status"], "available")
