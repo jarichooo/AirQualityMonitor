@@ -46,7 +46,7 @@
             addText(article, "p", forecast.explanation);
         } else if (forecast.last_guidance) {
             const update = forecast.status !== "available"
-                ? "Historical guidance; fresh readings are needed."
+                ? "Fresh readings are needed."
                 : forecast.explanation_status === "pending"
                     ? "Updating guidance for the latest readings…"
                     : "Guidance update failed; showing the last completed guidance.";
