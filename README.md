@@ -141,7 +141,7 @@ the next generated ID follows the highest retained ID (or starts at 1 if empty).
 The separate delete-all mode clears every reading and restarts at 1. Both modes
 ignore the table's display filters and keep accounts. Back up first and stop
 simulators, forecasting and collection before cleaning up. See the
-[simulation cleanup procedure](ai_model/SIMULATION_GUIDE.md#7-remove-simulation-readings-after-the-demo).
+[simulation cleanup procedure](SERVER_COMMANDS.md#remove-readings-from-a-timestamp).
 
 Without a configured session secret, Flask generates an ephemeral secret and
 sessions become invalid after a restart. Database credentials still default to
