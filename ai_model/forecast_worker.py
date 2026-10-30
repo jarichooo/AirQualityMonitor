@@ -253,7 +253,7 @@ def set_policy_pending(conn, device_id, forecast_id, severity, policy_sha256):
     conn.commit()
 
 
-def update_explanation(conn, device_id, forecast_id, status, explanation=None):
+def update_explanation(conn, device_id, forecast_id, status, explanation=None, reason=None):
     snapshot = ""
     if status == "available":
         snapshot = (
@@ -261,13 +261,13 @@ def update_explanation(conn, device_id, forecast_id, status, explanation=None):
             "'input_cutoff_at', input_cutoff_at, 'target_at', target_at, "
             "'model_version', model_version, 'policy_sha256', policy_sha256)"
         )
-    params = [status, explanation]
+    params = [status, explanation, reason]
     if snapshot:
         params.append(explanation)
     params.extend((device_id, forecast_id))
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE public.air_quality_forecasts SET explanation_status = %s, explanation = %s"
+            "UPDATE public.air_quality_forecasts SET explanation_status = %s, explanation = %s, reason = %s"
             f"{snapshot} "
             "WHERE device_id = %s AND forecast_id = %s::uuid",
             params,
@@ -322,9 +322,10 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "model": os.environ.get("OLLAMA_MODEL", "qwen2.5:3b"),
         "prompt": prompt + "\nReturn JSON only as {\"message\": \"your explanation\"}.",
         "stream": False,
+        "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 160},
+        "options": {"temperature": 0, "num_predict": 160, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")
@@ -332,7 +333,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
             f"{base_url}/api/generate", data=payload,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "90"))
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("OLLAMA_TIMEOUT must be a finite positive number")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -342,6 +343,8 @@ def call_qwen(predictions, severity, policy_text, target_at):
         raise QwenUnavailable(str(exc)) from exc
     if not isinstance(result, dict) or result.get("error") or result.get("done") is not True:
         raise QwenUnavailable("Ollama returned an invalid response")
+    if result.get("done_reason") == "length":
+        raise QwenUnavailable("Ollama response reached its output token limit (done_reason=length)")
     try:
         structured = json.loads(result["response"])
         explanation = structured["message"]
@@ -424,11 +427,15 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
         policy_text = policy.text
         if device_id.startswith("sim-farm-"):
             policy_text = "Input source: SIMULATED farm readings, not physical sensor measurements. State that this is a simulation.\n\n" + policy_text
+        print(json.dumps({"device_id": device_id, "reasoning": "generating"}), file=sys.stderr, flush=True)
         explanation = qwen(predictions, severity, policy_text, target_at)
     except QwenUnavailable as exc:
         print(json.dumps({"device_id": device_id, "reasoning": "unavailable", "reason": str(exc)}),
               file=sys.stderr, flush=True)
-        update_explanation(conn, device_id, forecast_id, "error")
+        cause = exc.__cause__
+        timed_out = isinstance(cause, TimeoutError) or isinstance(getattr(cause, "reason", None), TimeoutError)
+        reason = "QWEN_TIMEOUT" if timed_out else "QWEN_UNAVAILABLE"
+        update_explanation(conn, device_id, forecast_id, "error", reason=reason)
         return "explanation_error"
     update_explanation(conn, device_id, forecast_id, "available", explanation)
     return "created" if not same_numeric else "explanation_retried"

@@ -33,6 +33,8 @@ async function run() {
     const listeners = {};
     const payloads = [];
     let intervalCallback;
+    let refreshDelay;
+    let fetchCount = 0;
 
     const document = {
         hidden: false,
@@ -41,9 +43,11 @@ async function run() {
         addEventListener: (type, callback) => { listeners[type] = callback; },
     };
     const window = {
-        setTimeout: () => 1,
+        setTimeout: (callback, delay) => {
+            if (delay !== 10000) { intervalCallback = callback; refreshDelay = delay; }
+            return 1;
+        },
         clearTimeout: () => {},
-        setInterval: (callback) => { intervalCallback = callback; return 2; },
         location: { assign: () => assert.fail("Unexpected redirect") },
     };
     const response = (payload) => ({
@@ -85,6 +89,7 @@ async function run() {
         console,
         document,
         fetch: async () => {
+            fetchCount += 1;
             const payload = payloads.shift();
             if (payload instanceof Error) throw payload;
             return response(payload);
@@ -95,6 +100,7 @@ async function run() {
     await settle();
 
     assert.equal(panel.attributes["aria-busy"], "false");
+    assert.equal(refreshDelay, 60000);
     assert.equal(withClass(results, "forecast-legend").length, 0);
     assert.equal(withClass(results, "is-normal").some((node) => /Normal/.test(node.textContent)), true);
     assert.equal(withClass(results, "is-warning").some((node) => /Warning/.test(node.textContent)), true);
@@ -161,12 +167,39 @@ async function run() {
         assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target/);
         if (status === "unavailable") assert.equal(withClass(results, "forecast-value").length, 0);
         assert.match(results.textContent, status === "pending" ? /Updating guidance/ : status === "error" ? /update failed/ : /Historical guidance/);
+        assert.equal(refreshDelay, status === "pending" ? 3000 : 60000);
     }
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+        explanation_status: "pending", explanation: null,
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.match(results.textContent, /Qwen is generating guidance/);
+    assert.equal(refreshDelay, 3000);
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+        explanation_status: "error", explanation: null, reason: "QWEN_TIMEOUT",
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.match(results.textContent, /Qwen took too long to respond/);
+    assert.match(results.textContent, /Ollama service and simulation logs/);
+    assert.equal(withClass(results, "forecast-value").length, 1);
+    assert.equal(refreshDelay, 60000);
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+        explanation_status: "pending", explanation: null, last_guidance: savedGuidance,
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
     payloads.push(new Error("Offline"));
     intervalCallback();
     await settle();
     assert.match(results.textContent, /Previous advice: check ventilation/);
     assert.match(panel.textContent, /Could not refresh forecasts/);
+    assert.equal(refreshDelay, 15000);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation: "New completed guidance.", last_guidance: savedGuidance,
@@ -177,6 +210,7 @@ async function run() {
     assert.match(results.textContent, /New completed guidance/);
     assert.doesNotMatch(results.textContent, /Previous advice/);
     assert.doesNotMatch(panel.textContent, /Could not refresh/);
+    assert.equal(refreshDelay, 60000);
     payloads.push({ configured: true, forecasts: [] });
     intervalCallback();
     await settle();
@@ -185,6 +219,18 @@ async function run() {
     assert.match(results.textContent, /No predictions or guidance/);
 
     assert.equal(typeof listeners.visibilitychange, "function");
+    document.hidden = true;
+    const previousFetchCount = fetchCount;
+    intervalCallback();
+    await settle();
+    assert.equal(fetchCount, previousFetchCount);
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning")] });
+    document.hidden = false;
+    listeners.visibilitychange();
+    await settle();
+    await settle();
+    assert.equal(fetchCount, previousFetchCount + 1);
+    assert.match(results.textContent, /Review the forecast/);
     console.log("PASS: predictions before guidance, removed metadata, hidden empty/stale cards, colors, retained/replaced guidance, refresh failure, and text-only rendering.");
 }
 

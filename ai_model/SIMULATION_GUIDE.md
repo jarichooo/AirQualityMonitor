@@ -21,8 +21,15 @@ ID plus one. Stop earlier simulators before starting another run.
 
 The simulator immediately supplies 120 consecutive one-minute samples ending at
 the current UTC minute. The GRU uses them to forecast two hours beyond the latest
-sample. The worker classifies the predictions using `reasoning ai/thresholds.md`
+sample. The worker classifies the predictions using `ai_model/reasoning ai/thresholds.md`
 and asks Qwen to explain them. You do not need to wait two hours.
+
+Qwen receives that Markdown's full text, the predicted values, their calculated
+categories, the forecast target time, and a simulation label. The worker computes
+the categories; Qwen writes the explanation and recommendations. Ollama does not
+open the Markdown itself. The worker image includes a copy of the file, so after
+changing thresholds, rebuild `forecast_worker` and start a new simulation using
+section 1 followed by Quick start. Restarting Ollama alone does not update that copy.
 
 ## Quick start for an already configured server
 
@@ -39,35 +46,46 @@ The older simulator generated readings; these farm scripts also run the trained
 predictor and request Qwen guidance. Docker runs the Python script with its own
 installed dependencies, so you do not need to activate a Python environment.
 
-If PostgreSQL and the dashboard are running and other simulators/forecast workers
-are stopped, check whether the project's Ollama endpoint is already listening:
+Stop any running simulation with **Ctrl+C** and wait for it to exit. Stop any
+native worker or old `simulate_esp32.py` too; keep physical publishers paused.
+Then paste this entire block into the **server's SSH terminal**. It starts the
+required services, checks Ollama, asks for the database password, and runs the
+complete good -> warning -> critical sequence:
 
 ```bash
-curl --retry 15 --retry-connrefused --retry-delay 2 -fsS http://127.0.0.1:11435/api/tags
+(
+  set -e
+  cd ~/AirQualityMonitor
+  sudo docker compose --profile forecast stop ingestion forecast_worker
+  sudo docker compose up -d --wait postgres_db
+  sudo docker compose up -d --no-deps web_dashboard
+  sudo systemctl start henvironment-ollama.service
+  curl --retry 15 --retry-connrefused --retry-delay 2 -fsS \
+    http://127.0.0.1:11435/api/tags
+
+  read -rsp 'PostgreSQL password: ' DB_PASS; echo
+  export DB_PASS
+  sudo --preserve-env=DB_PASS docker compose --profile forecast run \
+    --rm --no-deps --name farm_simulation forecast_worker --simulate series
+)
 ```
 
-If the response lists `qwen2.5:3b`, use that running instance. The worker connects
-to port **11435**. Ollama listening only
-on port 11434 does not satisfy this project's configuration. A successful tags
-response confirms the endpoint and model listing; it does not test generation.
-If the endpoint is unavailable, use section 2 to start/check the service. An initial
-connection-refused line followed by a successful JSON response means a retry
-succeeded during startup. Model discovery does not verify actual guidance quality.
+The model list should contain `qwen2.5:3b`. Port **11435** is the project instance;
+the default Ollama port 11434 is separate. An initial connection-refused message
+followed by a successful retry is normal during startup. Model discovery confirms
+availability, not successful text generation. Qwen writes its first response
+after the numeric prediction is saved; see section 3 for pending/error behavior.
 
-Then start the complete good -> warning -> critical sequence in your SSH terminal:
-
-```bash
-cd ~/AirQualityMonitor
-read -rsp 'PostgreSQL password: ' DB_PASS; echo
-export DB_PASS
-sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps --name farm_simulation forecast_worker --simulate series
-```
+The password is hidden and stays inside this block's subshell. It is discarded
+when the command ends. Use the whole block again for the next run; no second
+serving terminal is needed. Starting a new run deletes earlier simulation history
+as described above. Imported data and accounts are preserved.
 
 The sequence runs five updates for each stage, then exits after the critical
 stage. Expect roughly five minutes per stage and about 15 minutes overall; slow
 prediction or Qwen requests can take longer. It does not skip stages to catch up
-with the clock. Continue at section 3 for what to show on the dashboard. If
-PostgreSQL or the webpage is stopped, use section 2 to start them first.
+with the clock. Leave this terminal open. Continue at section 3 for what to show
+on the dashboard. Use section 2 only if you want the startup steps separately.
 
 ## 1. Prepare after pulling an update
 
@@ -76,25 +94,41 @@ forecast schema. It is not needed every time you demonstrate the application.
 For the guidance-retention update, reapply the schema even if the forecast table
 already exists: it adds the `last_guidance` column without resetting readings.
 For the backup and pull procedure, see [server maintenance](../SERVER_COMMANDS.md#updating-an-existing-server).
-New local files must be committed and pushed before a server pull can fetch them.
+All changed source files, including files under `web_app` and `ai_model`, must
+be committed and pushed from the PC before pulling on the server. A commit that
+only updates this guide does not deploy the application changes.
 
 Stop any foreground simulator with Ctrl+C first. Then:
 
 ```bash
-cd ~/AirQualityMonitor
-sudo docker compose --profile forecast stop ingestion forecast_worker
-sudo docker compose up -d --wait postgres_db
-sudo docker compose --profile forecast build web_dashboard forecast_worker
-sudo docker exec -i postgres_db \
-  psql -X -v ON_ERROR_STOP=1 -U admin -d air_quality \
-  < ai_model/schema.sql
-sudo docker compose up -d --no-deps web_dashboard
+(
+  set -e
+  cd ~/AirQualityMonitor
+  git fetch origin
+  git switch major_updates
+  git pull --ff-only origin major_updates
+
+  sudo docker compose --profile forecast stop ingestion forecast_worker
+  sudo docker compose up -d --wait postgres_db
+  sudo docker compose --profile forecast build web_dashboard forecast_worker
+  sudo docker exec -i postgres_db \
+    psql -X -v ON_ERROR_STOP=1 -U admin -d air_quality \
+    < ai_model/schema.sql
+  sudo docker compose up -d --no-deps web_dashboard
+)
 ```
 
-Run each command only after the previous one succeeds. The forecast schema is
+This block stops at the first error. Resolve Git conflicts or local edits before
+retrying; do not reset the checkout or delete `db_data/` to fix a pull problem.
+Rebuild **both** images for UI and Qwen-worker changes. For a threshold-only
+change, rebuilding the worker is required. The forecast schema is
 additive and repeatable. These commands do not replace the imported dataset or
 remove dashboard accounts. No dataset import, full reset, or root sensor-schema
 migration is needed for this demonstration.
+
+Then use the Quick start block to launch the updated simulator. Refresh the
+browser with **Ctrl+Shift+R** after a dashboard update. Existing one-off containers
+keep their old code until stopped and launched again from the rebuilt image.
 
 ## 2. Start a demonstration session
 
@@ -138,7 +172,8 @@ read -rsp 'PostgreSQL password: ' DB_PASS; echo
 export DB_PASS
 ```
 
-`DB_PASS` exists in this terminal's environment. `--preserve-env=DB_PASS` in the
+When using these separate steps, `DB_PASS` exists in this terminal's environment.
+The Quick start block keeps it inside a subshell instead. `--preserve-env=DB_PASS` in the
 commands below passes it through sudo to Docker Compose. Repeat the password
 step when you open a new simulation terminal.
 
@@ -185,7 +220,8 @@ For each stage, show:
 1. **Stored readings and trends:** click Refresh to include the new demo rows.
    The hourly trends cover all stored dates, including the imported dataset.
    The individual-reading graph shows the latest recorded hour.
-2. **2-hour forecast:** show the predicted values first. The target is two hours
+2. **Predicted values in 2 hours:** this is the first visible heading; there is
+   no extra "2-hour forecast" title above it. The target is two hours
    after the input cutoff. Values use **green for Normal, amber/yellow for Warning,
    and red for Critical**, with written category labels. Device details, timestamps,
    completed-stage messages, and empty cards are hidden from this panel.
@@ -200,8 +236,13 @@ For each stage, show:
    Apply `ai_model/schema.sql` after pulling this update (section 1); its new
    `last_guidance` column preserves existing sensor readings and accounts.
 
-The forecast panel refreshes every 60 seconds while the tab is visible. The
-measured charts require Refresh. Qwen's default request timeout is 90 seconds;
+The visible forecast panel checks every 3 seconds while Qwen guidance is pending,
+then returns to every 60 seconds. The measured charts require Refresh. Predictions
+are ready before the Qwen response; the first response can take up to its
+120-second timeout on a cold CPU model. Pending text is replaced automatically
+when that response is saved. Errors show a service/log check instead of pretending
+guidance exists; detailed failures are in `sudo docker logs --tail=50 farm_simulation`.
+Qwen failures leave the numbers and any previous guidance available;
 slow generation can make a worker cycle take longer than a minute. The terminal
 cycle summary appears after that cycle's reasoning attempt finishes.
 
@@ -216,7 +257,13 @@ The new simulator writes to PostgreSQL directly, bypassing MQTT and the device.
 
 The complete sequence switches automatically; no command change or second terminal
 is needed. The existing individual scripts remain available if you want one stage
-to run continuously until Ctrl+C. Stop the sequence before running any of these:
+to run continuously until Ctrl+C. The easiest method is to paste the whole Quick
+start block and replace its final `--simulate series` with `--simulate good`,
+`--simulate mid`, or `--simulate bad`.
+
+The commands below are alternatives for a terminal prepared using the separate
+steps in section 2, including its password/export step. Stop the previous
+simulation before running another command:
 
 ```bash
 # Good inputs only
@@ -239,7 +286,7 @@ starting the final scenario:
 sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps --name farm_simulation forecast_worker --simulate bad
 ```
 
-| Scenario | Input category under the project policy | Device shown on the page |
+| Scenario | Input category under the project policy | Stored device ID |
 | --- | --- | --- |
 | Good | Normal | `sim-farm-good` |
 | Mid | Warning | `sim-farm-mid` |
@@ -260,10 +307,13 @@ not isolated scenario averages. No manual deletion is needed before a new run.
 
 ## 5. Verify and record what you demonstrated
 
-The simulation prints its cycle results in your one terminal. The following
-additional checks are optional: run them after stopping the simulation, or in
-another SSH terminal if you want to inspect it while it continues running.
-Qwen does not require that extra terminal.
+The simulation prints its cycle results in your one terminal. `_cleanup` appears
+once at startup, `reasoning: generating` means Qwen is working, and the cycle
+summary follows its reasoning attempt. The following extra checks are optional.
+Use another SSH terminal only if you want to inspect the running container;
+Qwen itself does not require an extra terminal. `--rm` removes `farm_simulation`
+after exit, so its Docker logs are available only while that container exists.
+After stopping, use the SQL queries or the persistent systemd journal instead.
 
 ```bash
 cd ~/AirQualityMonitor
@@ -285,6 +335,12 @@ The forecast should be `available`; successful Qwen guidance has
 `explanation_status = available`. A terminal result of `created` indicates a
 saved forecast with guidance; `explanation_error` means the reasoning attempt
 failed even though numerical predictions may already be saved.
+The `reason` column records `QWEN_TIMEOUT` or `QWEN_UNAVAILABLE` for those
+failures. Detailed errors stay in the simulator logs and Ollama's journal:
+
+```bash
+sudo journalctl -u henvironment-ollama.service -n 50 --no-pager
+```
 
 The automatic sequence stops early on a model, input, lock, policy, or database
 failure rather than claiming that every stage ran. A Qwen guidance error can be
@@ -398,11 +454,13 @@ pulling the update or rebuilding the dashboard does not delete anything.
 | Password missing or authentication failed | Repeat the password prompt in your simulation terminal, use the actual database password, and retain `--preserve-env=DB_PASS`. |
 | Connection to PostgreSQL fails | Check `sudo docker compose ps` and `sudo docker compose logs --tail=40 postgres_db`. Start PostgreSQL as in section 2. |
 | Forecast table does not exist | Apply `ai_model/schema.sql` using the command in section 1. Do not reset the database. |
-| Forecasts are saved, but no Qwen guidance appears | Check `sudo systemctl --no-pager status henvironment-ollama.service`, `sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`, and `sudo docker logs --tail=40 farm_simulation`. The worker logs reasoning errors and retries on later cycles. |
+| Predictions appear while guidance is pending | Qwen finishes after the numerical model. The visible panel checks every 3 seconds; the first generation can take longer on a cold CPU model. The default request timeout is 120 seconds. If it fails, inspect the error state, the forecast `reason`, and logs. |
+| `QWEN_TIMEOUT` or `QWEN_UNAVAILABLE` | Check `sudo systemctl --no-pager status henvironment-ollama.service`, `sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`, and `sudo docker logs --tail=40 farm_simulation` while the simulator exists. Subsequent worker cycles can retry. A final-cycle error requires another run. |
+| Threshold edits do not affect Qwen | Edit `ai_model/reasoning ai/thresholds.md`, commit/push/pull it, rebuild `forecast_worker`, and restart the simulation. The Markdown is copied into the worker image; restarting Ollama alone does not refresh it. |
 | Port 11435 is already in use | The background service normally owns this port. Check its status and `/api/tags`; do not start manual `--serve` alongside it. If the service itself cannot bind, stop the earlier manually started project server, then restart the service. |
 | A curl connection error appears before a successful model list | The retry reached the endpoint after startup. A final successful response listing `qwen2.5:3b` confirms discovery. |
 | Old-looking webpage or empty historical charts | Confirm the dashboard was rebuilt from the updated source, then refresh the browser and check the row-count query in section 5. A Git pull alone does not rebuild an image. |
-| Previous scenario still appears | Check the device IDs. Old forecast entries can remain listed as unavailable, and old measurements remain in trends. |
+| Previous run still contributes to trends | Confirm the worker image was rebuilt and the first cycle logged `_cleanup`. The current series keeps all its stages until the next run; a new launch removes all four known simulator groups. Refresh measured charts manually. |
 | No terminal output immediately after startup | The cycle summary waits for the prediction and Qwen attempt to finish. Check the saved forecast query or webpage while waiting; inspect logs if it does not progress. |
 
 The server output confirmed that `henvironment-ollama.service` is enabled and
