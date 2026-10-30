@@ -200,14 +200,14 @@ async function run() {
 
     predictionState = {
         ...predictionState, status: "error", cooldown_seconds: 8,
-        message: "The last prediction could not be completed. Wait 8 seconds before predicting again.", can_predict: false,
+        message: "The last prediction failed. Wait 8 seconds before predicting again.", can_predict: false,
     };
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
     intervalCallback();
     await settle();
     await settle();
     assert.equal(predictButton.disabled, true);
-    assert.match(predictionStatus.textContent, /last prediction could not be completed/);
+    assert.match(predictionStatus.textContent, /last prediction failed/);
     assert.match(predictionStatus.textContent, /8 seconds/);
 
     predictionState = {
@@ -268,7 +268,7 @@ async function run() {
     await settle();
     await settle();
     assert.equal(withClass(results, "forecast-card").length, 0);
-    assert.equal(results.textContent, "No predictions or guidance available yet.");
+    assert.equal(results.textContent, "No results yet.");
     assert.doesNotMatch(results.textContent, /stale|Simulation stage completed|Device/);
 
     const savedGuidance = {
@@ -287,7 +287,7 @@ async function run() {
         assert.match(results.textContent, /Previous advice: check ventilation/);
         assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target/);
         if (status === "unavailable") assert.equal(withClass(results, "forecast-value").length, 0);
-        assert.match(results.textContent, status === "pending" ? /Updating guidance/ : status === "error" ? /update failed/ : /Fresh readings are needed/);
+        assert.match(results.textContent, status === "pending" ? /Updating…/ : status === "error" ? /Could not update/ : /New readings are needed/);
         assert.equal(refreshDelay, 3000);
     }
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -296,7 +296,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /Preparing guidance/);
+    assert.match(results.textContent, /Loading…/);
     assert.equal(refreshDelay, 3000);
     for (const reason of ["QWEN_TIMEOUT", "QWEN_UNAVAILABLE"]) {
         payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -305,8 +305,8 @@ async function run() {
         intervalCallback();
         await settle();
         await settle();
-        assert.match(results.textContent, /Guidance is unavailable/);
-        assert.match(results.textContent, /Try again with new readings/);
+        assert.match(results.textContent, /Could not load the advice/);
+        assert.match(results.textContent, /Try again after a new reading arrives/);
         assert.doesNotMatch(results.textContent, /Qwen|Ollama|forecast worker|logs/i);
         assert.equal(withClass(results, "forecast-value").length, 1);
         assert.equal(refreshDelay, 3000);
@@ -340,7 +340,7 @@ async function run() {
     await settle();
     await settle();
     assert.doesNotMatch(results.textContent, /New completed guidance/);
-    assert.match(results.textContent, /No predictions or guidance/);
+    assert.match(results.textContent, /No results yet/);
 
     predictionState = {
         configured: false, status: "error", request_id: null, device_id: null,

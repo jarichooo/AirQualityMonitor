@@ -122,14 +122,14 @@ class PredictionDomainTest(unittest.TestCase):
                              error="Prediction failed.\n  Check worker logs.")
         payload = prediction.get_prediction_state(FakeConnection(queued=queued))
         self.assertFalse(payload["can_predict"])
-        self.assertIn("The last prediction could not be completed.", payload["message"])
+        self.assertIn("The last prediction failed.", payload["message"])
         self.assertNotIn("worker logs", payload["message"])
         self.assertIn("new sensor reading", payload["message"].lower())
 
         queued = request_row(status="error", row_id=124, error="Qwen could not finish.")
         payload = prediction.get_prediction_state(FakeConnection(queued=queued))
         self.assertTrue(payload["can_predict"])
-        self.assertIn("The last prediction could not be completed.", payload["message"])
+        self.assertIn("The last prediction failed.", payload["message"])
         self.assertNotIn("Qwen", payload["message"])
         self.assertIn("Ready to predict", payload["message"])
 

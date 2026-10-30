@@ -57,7 +57,7 @@ def _base_payload(queued):
 def _worker_error(queued):
     if not queued or queued[3] != "error":
         return None
-    return "The last prediction could not be completed."
+    return "The last prediction failed."
 
 
 def _availability(now, latest, queued):
