@@ -435,7 +435,9 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
 
 
 def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen,
-             simulation=None, previous_simulations=()):
+             simulation=None, previous_simulations=(), reset_simulation=False):
+    if reset_simulation and simulation is None:
+        raise ContractError("reset_simulation requires a simulation profile")
     cycle_now = now or utc_now()
     results = {}
     with closing(connection_factory()) as conn:
@@ -448,13 +450,16 @@ def run_once(connection_factory=database_connection, model=predictor, now=None, 
             invalidate_forecast(conn, str(exc))
             return {"_worker": f"unavailable: {exc}"}
         if simulation is not None:
-            from ai_model.simulation import device_id as simulation_device_id, write_history
+            from ai_model.simulation import clear_history, device_id as simulation_device_id, write_history
 
+            simulation_device_id(simulation)
             if not isinstance(previous_simulations, tuple):
                 raise ContractError("previous_simulations must be a tuple")
             if simulation in previous_simulations or len(previous_simulations) != len(set(previous_simulations)):
                 raise ContractError("previous_simulations must contain unique other profiles")
             previous_device_ids = [simulation_device_id(profile) for profile in previous_simulations]
+            if reset_simulation:
+                results["_cleanup"] = clear_history(conn)
             seeded = write_history(conn, simulation, cycle_now)
             results["_simulation"] = {
                 **seeded, "latest_at": seeded["latest_at"].isoformat(), "profile": simulation,
@@ -508,6 +513,8 @@ def run_series(once=False, run_cycle=run_once, clock=time.monotonic, sleeper=tim
             started = clock()
             try:
                 cycle_args = {"simulation": phase}
+                if phase_index == 1 and cycle == 1:
+                    cycle_args["reset_simulation"] = True
                 if cycle == 1:
                     cycle_args["previous_simulations"] = tuple(
                         other for other in SERIES_PHASES if other != phase
@@ -567,20 +574,22 @@ def main(argv=None):
                 return 0
         if args.simulate == "series":
             return run_series(args.once)
+        first_cycle = True
         while True:
             started = time.monotonic()
             try:
-                results = run_once(simulation=args.simulate) if args.simulate else run_once()
+                results = run_once(simulation=args.simulate, reset_simulation=first_cycle) if args.simulate else run_once()
+                first_cycle = False
                 print(json.dumps({"at": utc_now().isoformat(), "devices": results}), flush=True)
                 if args.simulate and results.get("_worker", "").startswith("unavailable:"):
                     return 1
             except (ContractError, predictor.ModelUnavailable, RuntimeError) as exc:
                 print(json.dumps({"status": "unavailable", "reason": str(exc)}), file=sys.stderr, flush=True)
-                if args.once:
+                if args.once or (args.simulate and first_cycle):
                     return 1
             except Exception as exc:
                 print(json.dumps({"status": "error", "reason": str(exc)}), file=sys.stderr, flush=True)
-                if args.once:
+                if args.once or (args.simulate and first_cycle):
                     return 1
             if args.once:
                 return int(_failed_results(results))

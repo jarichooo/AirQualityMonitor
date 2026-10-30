@@ -197,15 +197,62 @@ class ForecastWorkerTest(unittest.TestCase):
         with (
             patch.object(worker, "acquire_worker_lock", return_value=False),
             patch("ai_model.simulation.write_history") as seed,
+            patch("ai_model.simulation.clear_history") as clear,
             patch.object(worker, "invalidate_forecast") as invalidate,
         ):
             result = worker.run_once(
                 lambda: MagicMock(), self.model, self.now,
-                simulation="bad", previous_simulations=("good", "mid"),
+                simulation="bad", previous_simulations=("good", "mid"), reset_simulation=True,
             )
         seed.assert_not_called()
+        clear.assert_not_called()
         invalidate.assert_not_called()
         self.assertTrue(result["_worker"].startswith("unavailable:"))
+
+    def test_new_simulation_cleans_under_lock_before_seeding_and_prediction(self):
+        events = []
+        seeded = dict(device_id="sim-farm-good", inserted=120, latest_at=self.now)
+        with (
+            patch.object(worker, "acquire_worker_lock", side_effect=lambda conn: events.append("lock") or True),
+            patch("ai_model.simulation.clear_history", side_effect=lambda conn: events.append("cleanup") or {"readings_deleted": 42}),
+            patch("ai_model.simulation.write_history", side_effect=lambda *args: events.append("seed") or seeded),
+            patch.object(worker, "load_policy_result", return_value=(self.policy, None)),
+            patch.object(worker, "invalidate_stale_forecasts"),
+            patch.object(worker, "process_device", side_effect=lambda *args: events.append("forecast") or "created"),
+        ):
+            result = worker.run_once(lambda: MagicMock(), self.model, self.now,
+                                     simulation="good", reset_simulation=True)
+        self.assertEqual(events, ["lock", "cleanup", "seed", "forecast"])
+        self.assertEqual(result["_cleanup"], {"readings_deleted": 42})
+
+    def test_cleanup_failure_does_not_seed_or_run_inference(self):
+        with (
+            patch.object(worker, "acquire_worker_lock", return_value=True),
+            patch("ai_model.simulation.clear_history", side_effect=RuntimeError("cleanup failed")),
+            patch("ai_model.simulation.write_history") as seed,
+            patch.object(worker, "process_device") as process,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "cleanup failed"):
+                worker.run_once(lambda: MagicMock(), self.model, self.now,
+                                simulation="good", reset_simulation=True)
+        seed.assert_not_called()
+        process.assert_not_called()
+
+    def test_cleanup_cannot_be_requested_without_a_simulation(self):
+        connect = Mock()
+        with self.assertRaisesRegex(worker.ContractError, "requires a simulation profile"):
+            worker.run_once(connect, reset_simulation=True)
+        connect.assert_not_called()
+
+    def test_invalid_profile_cannot_delete_old_simulation_rows(self):
+        with (
+            patch.object(worker, "acquire_worker_lock", return_value=True),
+            patch("ai_model.simulation.clear_history") as clear,
+        ):
+            with self.assertRaisesRegex(ValueError, "Unknown simulation profile"):
+                worker.run_once(lambda: MagicMock(), self.model, self.now,
+                                simulation="invalid", reset_simulation=True)
+        clear.assert_not_called()
 
     def test_series_stage_invalidates_both_other_forecasts_under_lock(self):
         events = []
@@ -261,6 +308,8 @@ class ForecastWorkerTest(unittest.TestCase):
             [call.kwargs["simulation"] for call in run_cycle.call_args_list],
             ["good"] * 5 + ["mid"] * 5 + ["bad"] * 5,
         )
+        self.assertEqual([index for index, call in enumerate(run_cycle.call_args_list)
+                          if call.kwargs.get("reset_simulation")], [0])
         self.assertEqual(
             [(index, call.kwargs["previous_simulations"])
              for index, call in enumerate(run_cycle.call_args_list)
@@ -282,7 +331,7 @@ class ForecastWorkerTest(unittest.TestCase):
         with patch("builtins.print") as output:
             result = worker.run_series(once=True, run_cycle=run_cycle, clock=lambda: 0, sleeper=sleeper)
         self.assertEqual(result, 0)
-        run_cycle.assert_called_once_with(simulation="good", previous_simulations=("mid", "bad"))
+        run_cycle.assert_called_once_with(simulation="good", previous_simulations=("mid", "bad"), reset_simulation=True)
         sleeper.assert_not_called()
         self.assertEqual(json.loads(output.call_args.args[0])["series"]["cycle"], 1)
 
@@ -326,7 +375,26 @@ class ForecastWorkerTest(unittest.TestCase):
             patch("builtins.print"),
         ):
             self.assertEqual(worker.main(["--simulate", "mid", "--once"]), 0)
-        run_once.assert_called_once_with(simulation="mid")
+        run_once.assert_called_once_with(simulation="mid", reset_simulation=True)
+
+    def test_continuous_simulation_cleans_only_on_its_first_cycle(self):
+        with (
+            patch.object(worker, "run_once", side_effect=[{"sim-farm-good": "created"}, KeyboardInterrupt]) as run_once,
+            patch.object(worker.time, "sleep"), patch("builtins.print"),
+        ):
+            self.assertEqual(worker.main(["--simulate", "good"]), 130)
+        self.assertEqual(run_once.call_args_list, [
+            unittest.mock.call(simulation="good", reset_simulation=True),
+            unittest.mock.call(simulation="good", reset_simulation=False),
+        ])
+
+    def test_continuous_simulation_exits_if_startup_cleanup_fails(self):
+        with (
+            patch.object(worker, "run_once", side_effect=RuntimeError("cleanup failed")) as run_once,
+            patch("builtins.print"),
+        ):
+            self.assertEqual(worker.main(["--simulate", "good"]), 1)
+        run_once.assert_called_once()
 
     def test_save_forecast_executes_before_committing(self):
         connection = MagicMock()

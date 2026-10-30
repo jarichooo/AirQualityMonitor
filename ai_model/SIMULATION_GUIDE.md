@@ -10,6 +10,15 @@ The demonstration follows this flow:
 **Simulated readings -> PostgreSQL -> trained GRU -> saved predictions -> Qwen
 guidance -> dashboard.**
 
+At startup, the farm scripts remove previous readings and forecasts for
+`sim-farm-good`, `sim-farm-mid`, `sim-farm-bad`, and `python-simulator`. Imported
+and physical-device readings, their IDs, and accounts stay unchanged. Cleanup
+runs once per launch, including `--once`; the series keeps its good/mid/critical
+rows until the next launch. The `_cleanup` log reports how many rows were removed.
+Cleanup and the first seeded history commit together; a database failure rolls
+them back. After deleting old demo rows, new IDs start at the highest retained
+ID plus one. Stop earlier simulators before starting another run.
+
 The simulator immediately supplies 120 consecutive one-minute samples ending at
 the current UTC minute. The GRU uses them to forecast two hours beyond the latest
 sample. The worker classifies the predictions using `reasoning ai/thresholds.md`
@@ -156,7 +165,8 @@ Each stage reuses the existing scenario generator and supplies its own fresh
 120-minute input history. This is a sequence of three separately labelled demo
 scenarios, not an accelerated real flock history. Original imported rows and
 earlier stage rows stay unchanged. The command finishes automatically after the
-last stage; Ctrl+C stops it early. Restarting the command starts with good again.
+last stage; Ctrl+C stops it early. Restarting clears the previous demo run and
+starts with good again.
 
 In an already configured native Python environment, the single script is:
 
@@ -242,14 +252,11 @@ The project policy uses general temperature limits without age/week groups;
 MQ-4 is methane and MQ-137 is ammonia.
 
 Each scenario has a separate device ID and receives its own immediate starting
-history. Previously generated readings stay in PostgreSQL. A previous device's
-forecast is marked unavailable when the automatic sequence starts its next stage;
-its input badge becomes neutral instead of implying that it is still current.
-For manually switched standalone scripts, the older forecast instead becomes
-stale once its newest input is more than 180 seconds old. Match the device ID to
-your running scenario.
-All-stored averages include the import and every retained simulation; they are
-not isolated scenario averages. No data deletion is needed when switching.
+history. The automatic sequence keeps all three stages' readings for its current
+run and marks the previous forecast unavailable at stage changes. Starting a
+standalone script clears all earlier simulation readings and forecasts first.
+All-stored averages include the import and the current simulation run; they are
+not isolated scenario averages. No manual deletion is needed before a new run.
 
 ## 5. Verify and record what you demonstrated
 
@@ -332,9 +339,10 @@ demo. This is independent of stopping the simulator.
 
 ## 7. Remove simulation readings after the demo
 
-The simulator appends labelled rows to the same readings table. It does not
-overwrite the imported CSV rows, but the combined trends include those demo rows
-until you remove them. To return the charts to the retained dataset:
+Each farm-script launch automatically removes earlier simulation rows. The
+current run remains after it stops, so its rows still contribute to the trends
+until the next launch or manual cleanup. Imported CSV rows stay unchanged.
+To return the charts to the retained dataset immediately after a demo:
 
 1. Stop the simulation with Ctrl+C. Pause physical devices and stop the regular
    database writers:

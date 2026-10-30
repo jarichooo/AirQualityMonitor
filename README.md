@@ -185,8 +185,10 @@ exits. The forecast panel colors Normal green, Warning amber, and Critical red,
 using saved classifications rather than forcing the scenario's category.
 For individual scenarios, `ai_model/simulate_good.py`,
 `simulate_mid.py` and `simulate_bad.py` seed fresh, labelled input histories and
-run that same real inference pipeline. They preserve the imported dataset and
-require no MQTT ingestion. See [ai_model/README.md](ai_model/README.md#three-farm-demonstrations-without-a-device)
+run that same real inference pipeline. Each farm-script launch removes earlier
+simulator readings and forecasts once, then preserves that run across its cycles
+and stages. Imported data, physical-device rows, and their IDs stay unchanged.
+The scripts require no MQTT ingestion. See [ai_model/README.md](ai_model/README.md#three-farm-demonstrations-without-a-device)
 for server commands, source labels and model limitations. Run one scenario at a
 time and stop the normal forecast worker first. For a step-by-step presentation,
 follow the [simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).

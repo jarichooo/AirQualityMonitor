@@ -4,6 +4,7 @@ import math
 import sys
 from datetime import datetime, timedelta, timezone
 
+from psycopg2 import sql
 from psycopg2.extras import execute_values
 
 from ai_model.predictor import FEATURE_COLUMNS, LOOKBACK_SAMPLES
@@ -72,6 +73,35 @@ def generate_readings(profile, now):
             row[column] = round(center + amplitude * math.sin(phase), 3)
         readings.append(row)
     return readings
+
+
+def clear_history(conn):
+    """Remove earlier demo runs; caller holds the worker lock and commits with seeding."""
+    devices = [device_id(profile) for profile in PROFILES] + ["python-simulator"]
+    with conn.cursor() as cursor:
+        cursor.execute("SET LOCAL lock_timeout = '5s'")
+        cursor.execute("LOCK TABLE public.air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
+        cursor.execute("LOCK TABLE public.air_quality_logs IN ACCESS EXCLUSIVE MODE")
+        cursor.execute("DELETE FROM public.air_quality_forecasts WHERE device_id = ANY(%s)", (devices,))
+        forecasts_deleted = cursor.rowcount
+        cursor.execute("DELETE FROM public.air_quality_logs WHERE device_id = ANY(%s)", (devices,))
+        readings_deleted = cursor.rowcount
+        if readings_deleted:
+            cursor.execute(
+                "SELECT namespace.nspname, sequence.relname, "
+                "(SELECT COALESCE(MAX(id), 0) + 1 FROM public.air_quality_logs) "
+                "FROM pg_class AS sequence JOIN pg_namespace AS namespace "
+                "ON namespace.oid = sequence.relnamespace "
+                "WHERE sequence.oid = pg_get_serial_sequence('public.air_quality_logs', 'id')::regclass"
+            )
+            sequence = cursor.fetchone()
+            if sequence is None:
+                raise RuntimeError("The readings ID sequence is missing")
+            schema, name, next_id = sequence
+            cursor.execute(sql.SQL("ALTER SEQUENCE {} RESTART WITH {}").format(
+                sql.Identifier(schema, name), sql.Literal(int(next_id)),
+            ))
+    return {"readings_deleted": readings_deleted, "forecasts_deleted": forecasts_deleted}
 
 
 def write_history(conn, profile, now):
