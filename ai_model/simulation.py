@@ -2,6 +2,8 @@
 
 import math
 import sys
+import time
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
 from psycopg2 import sql
@@ -43,6 +45,9 @@ PROFILES = {
     },
 }
 
+MANUAL_SEEDER_LOCK = 739_783_247_071_623_202
+MANUAL_LIVE_MINUTES = 5
+
 
 def device_id(profile):
     if profile not in PROFILES:
@@ -75,6 +80,26 @@ def generate_readings(profile, now):
     return readings
 
 
+def _insert_rows(conn, rows):
+    columns = ("recorded_at", "device_id", *FEATURE_COLUMNS)
+    values = [tuple(row[column] for column in columns) for row in rows]
+    with conn.cursor() as cursor:
+        execute_values(
+            cursor,
+            f"""INSERT INTO public.air_quality_logs ({', '.join(columns)})
+                SELECT {', '.join(f'candidate.{column}' for column in columns)}
+                FROM (VALUES %s) AS candidate ({', '.join(columns)})
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM public.air_quality_logs existing
+                    WHERE existing.device_id = candidate.device_id
+                      AND existing.recorded_at = candidate.recorded_at
+                )""",
+            values,
+            page_size=len(rows),
+        )
+        return cursor.rowcount
+
+
 def clear_history(conn):
     """Remove earlier demo runs; caller holds the worker lock and commits with seeding."""
     devices = [device_id(profile) for profile in PROFILES] + ["python-simulator"]
@@ -82,6 +107,11 @@ def clear_history(conn):
         cursor.execute("SET LOCAL lock_timeout = '5s'")
         cursor.execute("LOCK TABLE public.air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
         cursor.execute("LOCK TABLE public.air_quality_logs IN ACCESS EXCLUSIVE MODE")
+        cursor.execute("SELECT to_regclass('public.air_quality_prediction_requests')")
+        if cursor.fetchone()[0] is not None:
+            cursor.execute(
+                "DELETE FROM public.air_quality_prediction_requests WHERE device_id = ANY(%s)", (devices,)
+            )
         cursor.execute("DELETE FROM public.air_quality_forecasts WHERE device_id = ANY(%s)", (devices,))
         forecasts_deleted = cursor.rowcount
         cursor.execute("DELETE FROM public.air_quality_logs WHERE device_id = ANY(%s)", (devices,))
@@ -107,24 +137,8 @@ def clear_history(conn):
 def write_history(conn, profile, now):
     """Insert missing demo minutes; caller holds the worker's advisory lock."""
     rows = generate_readings(profile, now)
-    columns = ("recorded_at", "device_id", *FEATURE_COLUMNS)
-    values = [tuple(row[column] for column in columns) for row in rows]
     try:
-        with conn.cursor() as cursor:
-            execute_values(
-                cursor,
-                f"""INSERT INTO public.air_quality_logs ({', '.join(columns)})
-                    SELECT {', '.join(f'candidate.{column}' for column in columns)}
-                    FROM (VALUES %s) AS candidate ({', '.join(columns)})
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM public.air_quality_logs existing
-                        WHERE existing.device_id = candidate.device_id
-                          AND existing.recorded_at = candidate.recorded_at
-                    )""",
-                values,
-                page_size=LOOKBACK_SAMPLES,
-            )
-            inserted = cursor.rowcount
+        inserted = _insert_rows(conn, rows)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -134,6 +148,62 @@ def write_history(conn, profile, now):
         "inserted": inserted,
         "latest_at": rows[-1]["recorded_at"],
     }
+
+
+def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper=time.sleep, report=print):
+    """Seed model history, then append five real wall-clock minute readings."""
+    from ai_model.forecast_worker import WORKER_LOCK_ID, acquire_worker_lock, database_connection
+
+    device_id(profile)
+    connection_factory = connection_factory or database_connection
+    clock = clock or (lambda: datetime.now(timezone.utc))
+    with closing(connection_factory()) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", (MANUAL_SEEDER_LOCK,))
+            if not cursor.fetchone()[0]:
+                raise RuntimeError("Another manual simulation seeder is already running")
+
+        if not acquire_worker_lock(conn):
+            raise RuntimeError("A prediction is running; wait for it to finish and try again")
+        started_at = _utc_minute(clock())
+        rows = generate_readings(profile, started_at)
+        try:
+            cleanup = clear_history(conn)
+            inserted = _insert_rows(conn, rows)
+            if inserted != LOOKBACK_SAMPLES:
+                raise RuntimeError(f"Expected to seed {LOOKBACK_SAMPLES} readings, inserted {inserted}")
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (WORKER_LOCK_ID,))
+            conn.commit()
+
+        report({"profile": profile, "device_id": device_id(profile), "seeded": inserted, **cleanup})
+        for minute in range(1, MANUAL_LIVE_MINUTES + 1):
+            expected_at = started_at + timedelta(minutes=minute)
+            remaining = (expected_at - clock()).total_seconds()
+            if remaining > 0:
+                sleeper(remaining)
+            observed_at = clock()
+            if _utc_minute(observed_at) != expected_at:
+                raise RuntimeError(
+                    f"Missed the {expected_at.isoformat()} reading; stopping instead of backfilling fake data"
+                )
+            row = generate_readings(profile, expected_at)[-1]
+            try:
+                inserted = _insert_rows(conn, [row])
+                if inserted != 1:
+                    raise RuntimeError(f"The {expected_at.isoformat()} reading already exists")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            report({"device_id": device_id(profile), "recorded_at": expected_at.isoformat(), "inserted": 1})
+
+    return {"device_id": device_id(profile), "total_inserted": LOOKBACK_SAMPLES + MANUAL_LIVE_MINUTES}
 
 
 def main(profile, argv=None):

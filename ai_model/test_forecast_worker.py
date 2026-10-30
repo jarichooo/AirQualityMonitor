@@ -245,6 +245,66 @@ class ForecastWorkerTest(unittest.TestCase):
             worker.run_once(connect, reset_simulation=True)
         connect.assert_not_called()
 
+    def test_manual_worker_does_not_predict_without_a_button_request(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = None
+        with patch.object(worker, "acquire_worker_lock", return_value=True), patch.object(worker, "process_device") as process:
+            self.assertEqual(worker.run_manual_once(lambda: connection, self.model, self.now), {})
+        process.assert_not_called()
+        self.assertEqual(cursor.execute.call_count, 1)
+
+    def test_manual_worker_refuses_to_process_during_another_prediction(self):
+        connection = MagicMock()
+        with patch.object(worker, "acquire_worker_lock", return_value=False), patch.object(worker, "process_device") as process:
+            self.assertEqual(worker.run_manual_once(lambda: connection, self.model, self.now), {})
+        connection.cursor.assert_not_called()
+        process.assert_not_called()
+
+    def test_manual_worker_claims_only_requested_device_and_recovers_interrupted_jobs(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"request_id": "request-1", "device_id": "sim-farm-good"}
+        with patch.object(worker, "acquire_worker_lock", return_value=True), patch.object(worker, "process_device", return_value="created") as process:
+            result = worker.run_manual_once(lambda: connection, self.model, self.now)
+        process.assert_called_once_with(connection, "sim-farm-good", self.model, self.now, qwen=worker.call_qwen)
+        self.assertEqual(result, {"sim-farm-good": "created"})
+        calls = cursor.execute.call_args_list
+        self.assertIn("status IN ('queued', 'running') FOR UPDATE", calls[0].args[0])
+        self.assertIn("status = 'running'", calls[1].args[0])
+        self.assertEqual(calls[-1].args[1], ("completed", None, "request-1"))
+
+    def test_manual_worker_reports_qwen_failure_without_clearing_numeric_forecast(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"request_id": "request-1", "device_id": "sim-farm-good"}
+        with (patch.object(worker, "acquire_worker_lock", return_value=True),
+              patch.object(worker, "process_device", return_value="explanation_error"),
+              patch.object(worker, "invalidate_forecast") as invalidate):
+            worker.run_manual_once(lambda: connection, self.model, self.now)
+        invalidate.assert_not_called()
+        params = cursor.execute.call_args.args[1]
+        self.assertEqual(params[0], "error")
+        self.assertIn("Qwen", params[1])
+
+    def test_manual_worker_invalid_history_finishes_job_as_error(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = {"request_id": "request-1", "device_id": "sim-farm-good"}
+        with (patch.object(worker, "acquire_worker_lock", return_value=True),
+              patch.object(worker, "process_device", side_effect=worker.ContractError("Latest reading is stale")),
+              patch.object(worker, "invalidate_forecast") as invalidate):
+            worker.run_manual_once(lambda: connection, self.model, self.now)
+        invalidate.assert_called_once_with(connection, "Latest reading is stale", "sim-farm-good")
+        self.assertEqual(cursor.execute.call_args.args[1], ("error", "Latest reading is stale", "request-1"))
+
+    def test_manual_cli_uses_queue_without_running_automatic_forecasts(self):
+        with (patch.object(worker, "run_manual_once", return_value={}) as manual,
+              patch.object(worker, "run_once") as automatic):
+            self.assertEqual(worker.main(["--manual", "--once"]), 0)
+        manual.assert_called_once()
+        automatic.assert_not_called()
+
     def test_invalid_profile_cannot_delete_old_simulation_rows(self):
         with (
             patch.object(worker, "acquire_worker_lock", return_value=True),

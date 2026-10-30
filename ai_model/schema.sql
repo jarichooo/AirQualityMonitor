@@ -34,4 +34,16 @@ WHERE last_guidance IS NULL AND status = 'available'
 CREATE INDEX IF NOT EXISTS air_quality_logs_device_recorded_id_idx
     ON public.air_quality_logs (device_id, recorded_at DESC, id DESC);
 
+CREATE TABLE IF NOT EXISTS public.air_quality_prediction_requests (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    request_id UUID NOT NULL,
+    device_id TEXT NOT NULL CHECK (btrim(device_id) <> ''),
+    input_row_id BIGINT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'error')),
+    requested_at TIMESTAMPTZ NOT NULL,
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    error TEXT
+);
+
 COMMIT;

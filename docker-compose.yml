@@ -59,6 +59,7 @@ services:
     build:
       context: ./ai_model
     profiles: ["forecast"]
+    command: ["--manual"]
     network_mode: host
     environment:
       DB_HOST: 127.0.0.1
