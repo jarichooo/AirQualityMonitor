@@ -34,9 +34,11 @@
         }
         addText(article, "h3", "Reasoning AI guidance");
         const guidanceFallback = forecast.explanation_status === "pending"
-            ? "Guidance is being prepared."
+            ? "Qwen is generating guidance… This panel updates automatically."
             : forecast.explanation_status === "error" && forecast.status === "available"
-                ? "Guidance could not be generated."
+                ? forecast.reason === "QWEN_TIMEOUT"
+                    ? "Qwen took too long to respond. Check the Ollama service and simulation logs."
+                    : "Qwen could not generate guidance. Check the Ollama service and simulation logs."
                 : "No saved guidance yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);
@@ -74,11 +76,14 @@
 
     let loading = false;
     let renderedFingerprint = null;
+    let refreshTimer;
     const refreshNotice = addText(panel, "p", "");
     refreshNotice.setAttribute("role", "status");
     const refresh = async () => {
         if (loading || document.hidden) return;
+        window.clearTimeout(refreshTimer);
         loading = true;
+        let refreshDelay = 60000;
         panel.setAttribute("aria-busy", "true");
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 10000);
@@ -95,6 +100,9 @@
             }
             if (!response.ok) throw new Error(`Forecast refresh failed: ${response.status}`);
             const payload = await response.json();
+            if (payload.forecasts?.some((forecast) => forecast.status === "available" && forecast.explanation_status === "pending")) {
+                refreshDelay = 3000;
+            }
             refreshNotice.textContent = "";
             const fingerprint = JSON.stringify(payload);
             if (fingerprint !== renderedFingerprint) {
@@ -103,14 +111,15 @@
             }
         } catch (error) {
             refreshNotice.textContent = "Could not refresh forecasts. Showing the last loaded results.";
+            refreshDelay = 15000;
         } finally {
             window.clearTimeout(timeout);
             loading = false;
             panel.setAttribute("aria-busy", "false");
+            refreshTimer = window.setTimeout(refresh, refreshDelay);
         }
     };
 
     refresh();
-    window.setInterval(refresh, 60000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 })();

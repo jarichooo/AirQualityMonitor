@@ -200,8 +200,13 @@ For each stage, show:
    Apply `ai_model/schema.sql` after pulling this update (section 1); its new
    `last_guidance` column preserves existing sensor readings and accounts.
 
-The forecast panel refreshes every 60 seconds while the tab is visible. The
-measured charts require Refresh. Qwen's default request timeout is 90 seconds;
+The visible forecast panel checks every 3 seconds while Qwen guidance is pending,
+then returns to every 60 seconds. The measured charts require Refresh. Predictions
+are ready before the Qwen response; the first response can take up to its
+120-second timeout on a cold CPU model. Pending text is replaced automatically
+when that response is saved. Errors show a service/log check instead of pretending
+guidance exists; detailed failures are in `sudo docker logs --tail=50 farm_simulation`.
+Qwen failures leave the numbers and any previous guidance available;
 slow generation can make a worker cycle take longer than a minute. The terminal
 cycle summary appears after that cycle's reasoning attempt finishes.
 

@@ -85,7 +85,7 @@ class ForecastWorkerTest(unittest.TestCase):
             patch.object(worker, "fetch_history", return_value=self.rows),
             patch.object(worker, "fetch_current_forecast", return_value=None),
             patch.object(worker, "save_forecast", side_effect=lambda *_: events.append("numeric_committed")),
-            patch.object(worker, "update_explanation", side_effect=lambda *args: events.append(args[3])) as update,
+            patch.object(worker, "update_explanation", side_effect=lambda *args, **kwargs: events.append(args[3])) as update,
         ):
             result = worker.process_device(
                 self.conn, "esp32-1", self.model, self.now, (self.policy, None),
@@ -94,6 +94,7 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(result, "explanation_error")
         self.assertEqual(events, ["numeric_committed", "error"])
         self.assertIsNone(update.call_args.kwargs.get("explanation"))
+        self.assertEqual(update.call_args.kwargs["reason"], "QWEN_UNAVAILABLE")
 
     def test_malformed_ollama_url_keeps_numeric_forecast(self):
         with (
@@ -441,9 +442,10 @@ class ForecastWorkerTest(unittest.TestCase):
         query, params = cursor.execute.call_args.args
         self.assertIn("last_guidance = jsonb_build_object", query)
         self.assertIn("forecast_id = %s::uuid", query)
-        self.assertEqual(params, ["available", "New advice", "New advice", "esp32-1", "forecast-id"])
-        worker.update_explanation(connection, "esp32-1", "forecast-id", "error")
+        self.assertEqual(params, ["available", "New advice", None, "New advice", "esp32-1", "forecast-id"])
+        worker.update_explanation(connection, "esp32-1", "forecast-id", "error", reason="QWEN_TIMEOUT")
         self.assertNotIn("last_guidance =", cursor.execute.call_args.args[0])
+        self.assertEqual(cursor.execute.call_args.args[1][2], "QWEN_TIMEOUT")
         worker.set_policy_pending(connection, "esp32-1", "forecast-id", {}, "changed-policy")
         self.assertIn("CASE WHEN policy_sha256 = %s THEN last_guidance ELSE NULL END", cursor.execute.call_args.args[0])
         worker.invalidate_forecast(connection, "Simulation stage completed", "esp32-1")
@@ -461,11 +463,40 @@ class ForecastWorkerTest(unittest.TestCase):
                 "trusted policy", self.now + timedelta(hours=2),
             )
         self.assertEqual(message, "Forecast warning. Check ventilation.")
+        request = opener.open.call_args.args[0]
+        payload = json.loads(request.data)
+        self.assertEqual(payload["options"]["num_ctx"], 4096)
+        self.assertEqual(payload["keep_alive"], "15m")
+        self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
 
         opener.open.return_value = io.BytesIO(json.dumps({"done": False, "response": ""}).encode())
         with patch.object(worker.urllib.request, "build_opener", return_value=opener):
             with self.assertRaises(worker.QwenUnavailable):
                 worker.call_qwen({}, {}, "trusted policy", self.now)
+
+        opener.open.return_value = io.BytesIO(json.dumps({
+            "done": True, "done_reason": "length", "response": '{"message":"unfinished"}',
+        }).encode())
+        with patch.object(worker.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaisesRegex(worker.QwenUnavailable, "token limit"):
+                worker.call_qwen({}, {}, "trusted policy", self.now)
+
+    def test_qwen_socket_timeout_is_saved_as_sanitized_reason(self):
+        for failure in (TimeoutError("internal connection details"),
+                        worker.urllib.error.URLError(TimeoutError("wrapped connection details"))):
+            opener = Mock()
+            opener.open.side_effect = failure
+            with (
+                self.subTest(failure=type(failure).__name__),
+                patch.object(worker.urllib.request, "build_opener", return_value=opener),
+                patch.object(worker, "fetch_history", return_value=self.rows),
+                patch.object(worker, "fetch_current_forecast", return_value=None),
+                patch.object(worker, "save_forecast"),
+                patch.object(worker, "update_explanation") as update,
+            ):
+                self.assertEqual(worker.process_device(self.conn, "esp32-1", self.model, self.now,
+                                                      (self.policy, None)), "explanation_error")
+                self.assertEqual(update.call_args.kwargs, {"reason": "QWEN_TIMEOUT"})
 
     def test_same_source_model_and_policy_is_deduplicated(self):
         current = {

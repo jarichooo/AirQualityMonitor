@@ -327,12 +327,19 @@ Direct `python ai_model/simulate_good.py` also works. Append `--once` for one
 seed/prediction cycle. Do not run the old five-second `simulate_esp32.py` under
 these device IDs; it does not satisfy the trained model's one-minute contract.
 
-Open `/dashboard`: the existing **2-hour forecast** box shows simulated source,
-input cutoff, future target, all eight model values, threshold categories and a
-separate **Reasoning AI guidance** section. Numerical values are committed first;
-they can appear while Qwen is still working. Ollama requests have a 90-second
+Open `/dashboard`: the panel starts with **Predicted values in 2 hours**, showing
+all eight model values and threshold categories, followed by **Reasoning AI
+guidance**. The redundant outer heading and device metadata are hidden.
+Numerical values are committed first;
+they can appear while Qwen is still working. The panel checks for pending guidance
+every 3 seconds, returning to 60 seconds once generation finishes. Ollama requests have a 120-second
 default timeout for CPU generation, configurable with `OLLAMA_TIMEOUT` for native
-runs. Guidance failure is logged and retried while numerical results stay visible.
+runs. Guidance failure is logged and saved as `QWEN_TIMEOUT` or `QWEN_UNAVAILABLE`
+in the existing forecast `reason` field, then retried on later worker updates.
+Numerical results and the previous completed guidance stay visible. Requests use
+an explicit 4096-token context and keep the model loaded for 15 minutes, using
+[Ollama's generation options](https://docs.ollama.com/api/generate). This avoids
+reloading it between normal demonstration cycles; it does not eliminate first-load latency.
 
 The trends now cover the **whole stored date range**, including October data.
 Hourly averages represent all stored readings; the individual graph shows the

@@ -107,13 +107,14 @@ class ForecastTestCase(unittest.TestCase):
         self.assertIsNone(malicious["explanation"])
 
         reasoning_error = serialize_forecast(
-            self.row(now, explanation_status="error", explanation="old guidance"),
+            self.row(now, explanation_status="error", explanation="old guidance", reason="QWEN_TIMEOUT"),
             application.SENSORS, now,
         )
         self.assertEqual(reasoning_error["status"], "available")
         self.assertTrue(reasoning_error["predictions"])
         self.assertEqual(reasoning_error["explanation_status"], "error")
         self.assertIsNone(reasoning_error["explanation"])
+        self.assertEqual(reasoning_error["reason"], "QWEN_TIMEOUT")
 
         malformed_policy = serialize_forecast(
             self.row(now, predicted_values={"temperature_c": 34.5},
@@ -164,6 +165,8 @@ class ForecastTestCase(unittest.TestCase):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'id="forecast-panel"', page.data)
+        self.assertIn(b'aria-label="2-hour forecast"', page.data)
+        self.assertNotIn(b'id="forecast-title"', page.data)
         self.assertNotIn(b"About these analytics", page.data)
         self.assertNotIn(b"Predicted values &middot; separate from measured readings", page.data)
 
