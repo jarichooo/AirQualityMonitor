@@ -1,7 +1,6 @@
 """Insert clearly labelled, minute-aligned demo readings for the forecast worker."""
 
 import math
-import sys
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -46,7 +45,9 @@ PROFILES = {
 }
 
 MANUAL_SEEDER_LOCK = 739_783_247_071_623_202
-MANUAL_LIVE_MINUTES = 5
+SERIES_DEVICE_ID = "sim-farm-series"
+SERIES_PHASES = ("good", "mid", "bad")
+SERIES_MINUTES_PER_PHASE = 5
 
 
 def device_id(profile):
@@ -80,6 +81,13 @@ def generate_readings(profile, now):
     return readings
 
 
+def _series_readings(profile, now):
+    readings = generate_readings(profile, now)
+    for reading in readings:
+        reading["device_id"] = SERIES_DEVICE_ID
+    return readings
+
+
 def _insert_rows(conn, rows):
     columns = ("recorded_at", "device_id", *FEATURE_COLUMNS)
     values = [tuple(row[column] for column in columns) for row in rows]
@@ -102,7 +110,7 @@ def _insert_rows(conn, rows):
 
 def clear_history(conn):
     """Remove earlier demo runs; caller holds the worker lock and commits with seeding."""
-    devices = [device_id(profile) for profile in PROFILES] + ["python-simulator"]
+    devices = [device_id(profile) for profile in PROFILES] + [SERIES_DEVICE_ID, "python-simulator"]
     with conn.cursor() as cursor:
         cursor.execute("SET LOCAL lock_timeout = '5s'")
         cursor.execute("LOCK TABLE public.air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
@@ -150,11 +158,10 @@ def write_history(conn, profile, now):
     }
 
 
-def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper=time.sleep, report=print):
-    """Seed model history, then append five real wall-clock minute readings."""
+def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, report=print):
+    """Seed good history, then append five good, warning, and critical readings."""
     from ai_model.forecast_worker import WORKER_LOCK_ID, acquire_worker_lock, database_connection
 
-    device_id(profile)
     connection_factory = connection_factory or database_connection
     clock = clock or (lambda: datetime.now(timezone.utc))
     with closing(connection_factory()) as conn:
@@ -166,7 +173,7 @@ def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper
         if not acquire_worker_lock(conn):
             raise RuntimeError("A prediction is running; wait for it to finish and try again")
         started_at = _utc_minute(clock())
-        rows = generate_readings(profile, started_at)
+        rows = _series_readings("good", started_at)
         try:
             cleanup = clear_history(conn)
             inserted = _insert_rows(conn, rows)
@@ -181,8 +188,14 @@ def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper
                 cursor.execute("SELECT pg_advisory_unlock(%s)", (WORKER_LOCK_ID,))
             conn.commit()
 
-        report({"profile": profile, "device_id": device_id(profile), "seeded": inserted, **cleanup})
-        for minute in range(1, MANUAL_LIVE_MINUTES + 1):
+        report({
+            "stage": "good", "status": "started", "device_id": SERIES_DEVICE_ID,
+            "seeded": inserted, **cleanup,
+        })
+        current_stage = "good"
+        total_live_minutes = len(SERIES_PHASES) * SERIES_MINUTES_PER_PHASE
+        for minute in range(1, total_live_minutes + 1):
+            stage = SERIES_PHASES[(minute - 1) // SERIES_MINUTES_PER_PHASE]
             expected_at = started_at + timedelta(minutes=minute)
             remaining = (expected_at - clock()).total_seconds()
             if remaining > 0:
@@ -192,7 +205,7 @@ def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper
                 raise RuntimeError(
                     f"Missed the {expected_at.isoformat()} reading; stopping instead of backfilling fake data"
                 )
-            row = generate_readings(profile, expected_at)[-1]
+            row = _series_readings(stage, expected_at)[-1]
             try:
                 inserted = _insert_rows(conn, [row])
                 if inserted != 1:
@@ -201,14 +214,13 @@ def run_manual_seed(profile="good", connection_factory=None, clock=None, sleeper
             except Exception:
                 conn.rollback()
                 raise
-            report({"device_id": device_id(profile), "recorded_at": expected_at.isoformat(), "inserted": 1})
+            if stage != current_stage:
+                report({"stage": stage, "status": "started", "device_id": SERIES_DEVICE_ID})
+                current_stage = stage
+            report({
+                "stage": stage, "device_id": SERIES_DEVICE_ID,
+                "recorded_at": expected_at.isoformat(), "inserted": 1,
+            })
 
-    return {"device_id": device_id(profile), "total_inserted": LOOKBACK_SAMPLES + MANUAL_LIVE_MINUTES}
-
-
-def main(profile, argv=None):
-    """Run simulation and forecasting together through the normal worker loop."""
-    from ai_model.forecast_worker import main as worker_main
-
-    return worker_main(["--simulate", profile, *(sys.argv[1:] if argv is None else argv)])
+    return {"device_id": SERIES_DEVICE_ID, "total_inserted": LOOKBACK_SAMPLES + total_live_minutes}
 

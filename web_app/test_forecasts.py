@@ -214,6 +214,10 @@ class ForecastTestCase(unittest.TestCase):
 
     def test_simulated_forecasts_are_labelled_without_changing_model_values(self):
         now = datetime.now(timezone.utc)
+        series = serialize_forecast(self.row(now, device_id="sim-farm-series"), application.SENSORS, now)
+        self.assertEqual(series["data_class"], "SIMULATED")
+        self.assertEqual(series["scenario"], "Series")
+        self.assertEqual(series["predictions"][0]["value"], 34.25)
         forecast = serialize_forecast(self.row(now, device_id="sim-farm-good"), application.SENSORS, now)
         self.assertEqual(forecast["data_class"], "SIMULATED")
         self.assertEqual(forecast["scenario"], "Good")

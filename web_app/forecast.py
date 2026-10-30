@@ -53,7 +53,7 @@ def _last_guidance(row, now):
 
 def _unavailable(row, reason, explanation_status, explanation):
     device = row[1].strip() if isinstance(row[1], str) else None
-    scenario = {"sim-farm-good": "Good", "sim-farm-mid": "Warning", "sim-farm-bad": "Critical"}.get(device)
+    scenario = {"sim-farm-series": "Series", "sim-farm-good": "Good", "sim-farm-mid": "Warning", "sim-farm-bad": "Critical"}.get(device)
     return {
         "forecast_id": str(row[0]) if row[0] is not None else None,
         "device_id": device,

@@ -1,11 +1,11 @@
 # Simulation guide
 
-Use this guide after the server has been set up and updated.
+Use this for the final dashboard demonstration. The simulator starts with good
+conditions, then changes to warning conditions, then critical conditions. You
+use **Predict now** whenever you want to create a two-hour forecast.
 
-## Automatic series: Good → Warning → Critical
-
-Stop any previous simulation with **Ctrl+C**, then paste this block into the
-server's SSH terminal:
+Stop any previous simulation with **Ctrl+C**, then paste this into the server's
+SSH terminal:
 
 ```bash
 (
@@ -20,100 +20,41 @@ server's SSH terminal:
 
   read -rsp 'PostgreSQL password: ' DB_PASS; echo
   export DB_PASS
-  sudo --preserve-env=DB_PASS docker compose --profile forecast run \
-    --rm --no-deps --name farm_simulation \
-    forecast_worker --simulate series
-)
-```
-
-Keep the terminal open. The series runs **Good → Warning → Critical**, with
-**five updates per stage**, then stops. Allow about 15 minutes or longer if Qwen
-is slow. Press **Ctrl+C** to stop early; paste the same block to run again.
-
-Open `http://<server-IP>:5000/dashboard` and sign in. **Predictions and Qwen
-guidance run automatically during this series. Do not click Predict now.**
-The prediction panel updates automatically; use **Refresh** for measured readings
-and charts. Forecast colors follow the model's predicted values, so they may
-differ from the input stage.
-
-Starting a run removes previous simulation readings and forecasts. Original
-readings and accounts stay intact. Do not run the series and manual demo together.
-
-## Manual prediction: seed readings, then click Predict now
-
-### 1. Start
-
-Connect to the server through SSH. Stop any previous simulation with **Ctrl+C**
-and wait for it to finish. Keep physical sensor collection paused during the demo.
-
-Paste this whole block into the server terminal:
-
-```bash
-(
-  set -e
-  cd ~/AirQualityMonitor
-  sudo docker compose stop ingestion
-  sudo docker compose up -d --wait postgres_db
-  sudo docker compose up -d --no-deps web_dashboard
-  sudo systemctl start henvironment-ollama.service
-  curl --retry 15 --retry-connrefused --retry-delay 2 -fsS \
-    http://127.0.0.1:11435/api/tags >/dev/null
-
-  read -rsp 'PostgreSQL password: ' DB_PASS; echo
-  export DB_PASS
   sudo --preserve-env=DB_PASS docker compose --profile forecast up \
     -d --no-deps forecast_worker
   sudo --preserve-env=DB_PASS docker compose --profile forecast run \
     --rm --no-deps --name farm_simulation --entrypoint python \
-    forecast_worker -m ai_model.simulate_manual --profile good
+    forecast_worker -m ai_model.simulate
 )
 ```
 
-Enter the passwords when prompted. Typed passwords are hidden.
-Keep this terminal open. Qwen and the prediction worker run in the background;
-you only need one terminal.
+Keep the terminal open. It immediately inserts **120 good-condition readings**,
+then inserts one reading per minute for **15 minutes**: five good, five warning,
+and five critical. It then stops. The simulator does not run the predictive
+model or Qwen by itself.
 
-The script inserts **120 readings immediately**, then **one new reading each
-minute for five minutes**: **125 readings total**. It does not run predictions.
-For warning or critical inputs, change `--profile good` to `--profile mid` or
-`--profile bad` before starting another run.
+Open `http://<server-IP>:5000/dashboard`, sign in, and click **Predict now**
+after the terminal reports `seeded: 120`. The predicted values appear first;
+Qwen guidance follows when ready. You can click again after a new reading has
+arrived, at least 60 seconds after the previous request, and after the current
+prediction finishes. The button disables itself while it cannot run.
 
-**Starting a run removes earlier simulation readings and forecasts.**
-The original dataset, real sensor readings, and user accounts stay intact.
+The stage describes the inserted readings. The forecast can change more
+gradually because the model uses the most recent 120 readings; its colours are
+based on its own predicted values.
 
-### 2. View the results
+Starting the simulation removes only earlier simulator readings, forecasts, and
+queued simulator requests. Imported readings, physical sensor readings, accounts,
+and their existing IDs stay intact. Do not run two simulations together.
 
-Open `http://<server-IP>:5000/dashboard` and sign in.
-
-- Once the terminal shows `seeded: 120`, click **Predict now** on the dashboard.
-- **Predicted values in 2 hours** shows the model's numbers first.
-- **Reasoning AI guidance** below shows Qwen's explanation. Its first response
-  can take around two minutes; it appears automatically when ready.
-- Green means Normal, yellow means Warning, and red means Critical.
-- Click **Refresh** to update the measured readings and charts.
-
-You can request another prediction when a new reading arrives, at least
-60 seconds after the previous request, and the previous prediction has finished.
-The button disables itself while waiting. The server enforces these rules even
-if the page is reloaded or someone clicks from another browser.
-
-You do not need to wait two hours. The model predicts two hours ahead now.
-
-### 3. Stop or run again
-
-The seeder stops automatically after the five new readings. Press **Ctrl+C** to
-stop it early. Qwen, the prediction worker, and the dashboard stay running.
-
-To run again, paste the same startup block. Do not run two simulations at once.
-Results from the current run remain stored until the next run starts.
-Wait for any active prediction to finish before restarting. After readings stop,
-you have about three minutes to request a prediction before the data is too old.
+To stop early, press **Ctrl+C**. The dashboard, forecast worker, and Qwen service
+continue in the background. After the readings stop, request a prediction within
+about three minutes before they become too old.
 
 ## Remove simulation data without starting another run
 
-Stop the simulation with **Ctrl+C** first, then paste this block into the server
-terminal. It removes only simulation readings and forecasts. The original dataset,
-real sensor readings, and accounts stay intact; retained IDs do not change.
+Stop the simulation first, then paste this block. It deletes simulation data
+only and does not start a new simulation:
 
 ```bash
 (
@@ -133,15 +74,10 @@ with closing(database_connection()) as conn:
     if not acquire_worker_lock(conn):
         raise SystemExit("Stop other simulations or forecast workers first.")
     with conn:
-        removed = clear_history(conn)
-    print(removed)
+        print(clear_history(conn))
 PY
 )
 ```
 
-The command prints deleted counts and does not start a simulation. Refresh the
-webpage afterward. Collection stays stopped until you enable it again.
-
-If a command fails or Qwen reports an error, save the terminal message and ask
-the person maintaining the server. Technical setup and cleanup instructions are
-in [SERVER_COMMANDS.md](../SERVER_COMMANDS.md).
+Refresh the dashboard afterward. Technical server instructions are in
+[SERVER_COMMANDS.md](../SERVER_COMMANDS.md).

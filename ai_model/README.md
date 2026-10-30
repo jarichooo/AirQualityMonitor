@@ -208,13 +208,14 @@ Sign in and open `/dashboard`. `/api/forecasts` uses the same login. Until the
 forecast schema exists it returns a clear not-configured state. Sensor panels
 remain independent of forecasting.
 
-## Manual prediction demonstration
+## Final manual simulation demonstration
 
-`simulate_manual.py` inserts 120 minute-aligned demo readings, then one new row
-at each of the next five UTC minute boundaries. It never runs the predictive
-model or Qwen. Use `--profile good`, `mid`, or `bad` (default `good`). Each launch
-clears earlier simulator rows and their forecasts/requests while preserving
-imported and physical-device data. Two manual seeders cannot run together.
+`simulate.py` is the one demonstration script. It seeds 120 minute-aligned,
+good-condition rows for `sim-farm-series`, then adds one row per minute for 15
+minutes: five good, five warning, and five critical. It never runs the predictor
+or Qwen by itself. Each launch clears known simulation rows, forecasts, and
+requests while preserving imported and physical-device data. Two seeders cannot
+run together.
 
 The dashboard's **Predict now** button queues a request. The Compose
 `forecast_worker` service runs `--manual` and only processes these requests.
@@ -239,11 +240,10 @@ After pulling this feature, stop old one-off simulators and prepare the server:
 )
 ```
 
-Then follow the manual prediction startup block in [the client guide](SIMULATION_GUIDE.md).
-It starts the manual worker with the database password and runs the seeder in
-the same SSH terminal. Docker uses
-`--entrypoint python forecast_worker -m ai_model.simulate_manual --profile good`;
-native Python uses `python -m ai_model.simulate_manual --profile good`.
+Then follow [the client guide](SIMULATION_GUIDE.md). It starts the manual worker
+with the database password and runs the final simulator in the same SSH terminal.
+Docker uses `--entrypoint python forecast_worker -m ai_model.simulate`; native
+Python uses `python -m ai_model.simulate` or `python ai_model/simulate.py`.
 The new queue table is additive; do not reset the database. Interrupted manual
 prediction requests are retried when the manual worker restarts and reacquires
 its exclusive worker lock. New requests remain queued while that worker is stopped.
@@ -251,138 +251,21 @@ For prediction/Qwen errors, inspect
 `sudo docker compose --profile forecast logs --tail=50 forecast_worker` and
 `sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`.
 
-The older `--simulate good|mid|bad|series` commands below still combine simulated
-readings with automatic prediction. Do not run them alongside the manual demo.
-To run automatic live forecasting with native Python, omit `--manual`.
-
-## Automatic good -> warning -> critical sequence
-
-For one complete demonstration, use `simulate_series.py`. It runs five updates
-each for the existing good, mid, and bad scenarios, in that order, then exits.
-Each update uses the real GRU and Qwen pipeline. Updates normally run about a
-minute apart; slow inference can extend the roughly 15-minute demonstration.
-The stages do not skip ahead based on wall-clock time. At launch, previous demo
-readings and forecasts are removed for `sim-farm-good`, `sim-farm-mid`,
-`sim-farm-bad`, and `python-simulator`. Imported/physical readings and their IDs
-remain unchanged. Cleanup runs once before seeding, including with `--once`,
-and never between stages. New IDs follow the highest retained ID; the first
-cycle logs `_cleanup` counts. Cleanup and the first seed share one transaction.
-
-After pulling/rebuilding the worker and dashboard, with PostgreSQL and the Qwen
-background service running and other workers stopped:
-
-```bash
-cd ~/AirQualityMonitor
-read -rsp 'PostgreSQL password: ' DB_PASS; echo
-export DB_PASS
-sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps --name farm_simulation forecast_worker --simulate series
-```
-
-In the configured native Python environment, use
-`python -m ai_model.simulate_series` or `python ai_model/simulate_series.py`.
-`--once` runs only the first good-stage update. The existing standalone scenarios
-below are still available for continuous single-condition demonstrations.
-
-The forecast panel uses green Normal, amber Warning, and red Critical labels.
-Input-scenario colors and predicted-value colors are separate: model results are
-not forced to match a scenario name. Stale/unavailable forecasts remain neutral.
-At an automatic stage transition the previous stage's forecast is marked
-unavailable immediately, while its measured history is kept. Model/input/lock/
-policy failures stop the series early; Qwen failures keep saved numbers and are
-reported in each cycle and the final `guidance_errors` count.
-See [the demonstration guide](SIMULATION_GUIDE.md) for the stage order, checks,
-background service and cleanup instructions.
-
-## Three farm demonstrations without a device
-
-These scripts write labelled simulated inputs directly to PostgreSQL and run the
-real predictor and Qwen flow. They do not need MQTT or a physical ESP32:
-
-| Script | Input conditions | Stored device ID |
-| --- | --- | --- |
-| `simulate_good.py` | Normal for every channel | `sim-farm-good` |
-| `simulate_mid.py` | Warning for every channel | `sim-farm-mid` |
-| `simulate_bad.py` | Critical for every channel | `sim-farm-bad` |
-
-The generated ranges follow the existing general `thresholds.md` policy, without
-week-specific temperatures. MQ-4 is methane and MQ-137 is ammonia, correcting the
-swapped gas labels in the source chart. Each script inserts a 120-minute starting
-history ending at the current UTC minute, then adds missing demo minutes on each
-worker cycle. You do not wait two hours to start the demonstration. All samples
-have exact minute timestamps and valid particulate ordering.
-
-Imported dataset and physical-device rows are never deleted or modified. Each
-script clears the four known simulator device IDs once at startup, then adds
-missing demo minutes on subsequent cycles under the worker lock. Stop earlier
-simulators before starting another run; cleanup exits on a busy worker lock or
-database failure. Earlier simulation forecasts are removed with their readings.
-
-To remove demo readings afterward, stop all writers and use the Data page's
-**Delete readings** controls. Select an inclusive start time in UTC and keep
-the default simulated-only scope to preserve imported/physical readings. Retained
-IDs stay unchanged; after a matching deletion the next ID follows the highest
-remaining ID. See [cleanup steps](../SERVER_COMMANDS.md#remove-readings-from-a-timestamp).
-
-The scenario describes **input conditions**, not a forced model result. The GRU
-owns the future numbers and can predict another category. The CPU sigmoid uses a
-numerically stable equivalent to handle extreme demo concentrations without
-overflow; the supplied example still matches within the verification tolerance.
-Extreme scenarios are not a validation of the model's field accuracy.
-
-After committing/pushing and pulling these changes, rebuild on the server:
-
-```bash
-cd ~/AirQualityMonitor
-sudo docker compose --profile forecast stop forecast_worker
-sudo docker compose --profile forecast build forecast_worker
-sudo docker compose up -d --build --no-deps web_dashboard
-```
-
-Keep the project's Qwen endpoint available. With the background service installed,
-check `sudo systemctl --no-pager status henvironment-ollama.service`; no second
-terminal is needed. Without that service, use another terminal:
-
-```bash
-cd ~/AirQualityMonitor
-python3 setup_reasoning_ai.py --serve
-```
-
-Back in the simulation terminal, enter the real PostgreSQL password without
-echoing it. Preserving `DB_PASS` through sudo matters for Compose interpolation:
-
-```bash
-cd ~/AirQualityMonitor
-read -rsp 'PostgreSQL password: ' DB_PASS; echo
-export DB_PASS
-
-# Choose ONE command. Ctrl+C stops it; then choose another scenario.
-sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate good
-sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate mid
-sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps forecast_worker --simulate bad
-```
-
-In an already-configured native Python 3.12 environment with the same database
-environment variables, the three script entrypoints are:
-
-```bash
-python -m ai_model.simulate_good
-python -m ai_model.simulate_mid
-python -m ai_model.simulate_bad
-```
-
-Direct `python ai_model/simulate_good.py` also works. Append `--once` for one
-seed/prediction cycle. Do not run the old five-second `simulate_esp32.py` under
-these device IDs; it does not satisfy the trained model's one-minute contract.
+The final script only supplies input data. Use **Predict now** after the initial
+120 rows are seeded and after later minute rows arrive. The server accepts one
+request at a time, requires a fresh row, and applies a 60-second cooldown. The
+forecast panel colours are based on the model result, not the current input stage:
+the 120-row window means it can change gradually at each stage.
 
 Open `/dashboard`: the panel starts with **Predicted values in 2 hours**, showing
-all eight model values and threshold categories, followed by **Reasoning AI
-guidance**. The redundant outer heading and device metadata are hidden.
+all eight model values and threshold categories, followed by Qwen's guidance.
 Numerical values are committed first;
-they can appear while Qwen is still working. The panel checks for pending guidance
-every 3 seconds, returning to 60 seconds once generation finishes. Ollama requests have a 120-second
+they can appear while Qwen is still working. The panel checks saved forecasts and
+request status every 3 seconds while manual prediction is configured. Ollama requests have a 120-second
 default timeout for CPU generation, configurable with `OLLAMA_TIMEOUT` for native
 runs. Guidance failure is logged and saved as `QWEN_TIMEOUT` or `QWEN_UNAVAILABLE`
-in the existing forecast `reason` field, then retried on later worker updates.
+in the existing forecast `reason` field. Request another prediction with a fresh
+reading to try again.
 Numerical results and the previous completed guidance stay visible. Requests use
 an explicit 4096-token context and keep the model loaded for 15 minutes, using
 [Ollama's generation options](https://docs.ollama.com/api/generate). This avoids
@@ -392,7 +275,7 @@ The trends now cover the **whole stored date range**, including October data.
 Hourly averages represent all stored readings; the individual graph shows the
 latest recorded hour even when that hour is historical. The Data page retains
 pagination/export for the complete original records. Refresh the page to reload
-the measured charts; forecasts refresh every minute automatically. A disconnected
+the measured charts; saved forecast results refresh automatically. A disconnected
 Live ESP32 panel is expected during a database-only demonstration.
 
 To check that the imported rows remain intact, compare their per-device counts
@@ -420,9 +303,9 @@ Additional `sim-farm-*` groups are separate simulated inputs, not replacements.
   same policy, predictions and classifications; it does not choose the numeric
   values or warning categories. Malformed policy leaves valid forecast numbers
   available with classification/guidance unavailable.
-- Ollama errors leave numeric forecasts available. Failed guidance is retried on
-  a later cycle while the input remains fresh. The worker bounds each Ollama
-  request, runs cycles serially, and does not queue overlapping minute jobs.
+- Ollama errors leave numeric forecasts available. A later button request with
+  a fresh reading can generate new guidance. The worker bounds each Ollama
+  request and processes one prediction request at a time.
 - The supplied model produces 120 future rows, but the existing stored/dashboard
   contract uses only the final +120-minute row. Full trajectory display and
   confidence intervals are not implemented. Qwen prose still needs acceptance
@@ -432,7 +315,7 @@ Additional `sim-farm-*` groups are separate simulated inputs, not replacements.
 Do not train on raw MQ ADC values and then treat them as ppm features. Keep the
 same units, measurement method and calibration assumptions in training and
 inference. Check real inference latency and memory on the server with both models
-loaded; slower-than-minute work will delay the next cycle.
+loaded; longer requests keep the prediction button busy until they finish.
 
 ## Checks
 

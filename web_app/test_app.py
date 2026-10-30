@@ -159,6 +159,7 @@ class AppTestCase(unittest.TestCase):
                 datetime(2026, 10, 30, 12, 34, 56, tzinfo=timezone.utc),
                 list(application.SIMULATED_DEVICE_IDS),
             ))
+            self.assertIn("sim-farm-series", delete_call.args[1][1])
             self.assertEqual(calls[6].args, (
                 "DELETE FROM air_quality_forecasts WHERE device_id = ANY(%s)",
                 (["sim-farm-good"],),

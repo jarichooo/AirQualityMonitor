@@ -393,23 +393,19 @@ sudo docker compose restart web_dashboard    # Restart one existing container
 The services are `postgres_db`, `mqtt_broker`, `ingestion`, and `web_dashboard`.
 Compose already sets `restart: unless-stopped` for each service.
 
-## Good, warning and critical farm demos
+## Good, warning and critical farm demo
 
-For a demonstration without the sensor device, use `ai_model/simulate_series.py`
-for an automatic good -> warning -> critical sequence. It runs five updates per
-stage, then exits. The Docker worker command is `--simulate series`.
-The individual `simulate_good.py`, `simulate_mid.py`, and `simulate_bad.py` scripts
-remain available for continuous single-condition runs.
-They add 120 fresh, minute-aligned simulated inputs, run the trained model, and
-save its two-hour forecast and Qwen guidance in the existing dashboard box.
-They preserve the original dataset; the trends cover all stored dates.
+For a demonstration without the sensor device, run the final
+`ai_model/simulate.py` script. It seeds 120 good-condition rows, then adds five
+good, five warning, and five critical rows at one-minute intervals before exiting.
+It supplies readings only: click **Predict now** on the dashboard to run the
+trained model and Qwen. The service allows one request at a time, requires a new
+reading, and uses a 60-second cooldown.
 
 Follow the [step-by-step simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
-Stop the normal forecast worker first, keep Qwen available through the
-[background service](#keep-project-qwen-running-in-the-background) or a manual
-`--serve` terminal, and run only one scenario at a time.
-The older `simulate_esp32.py` below tests MQTT ingestion;
-it does not provide the model's required one-minute history.
+The script removes only previous simulator rows, forecasts, and queued simulation
+requests; it keeps imported and physical-device data. The older `simulate_esp32.py`
+below tests MQTT ingestion and does not provide the model's required history.
 
 ## Dashboard accounts
 

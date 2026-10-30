@@ -153,7 +153,7 @@ async function run() {
     assert.match(results.textContent, /<img src=x onerror=alert\(1\)>/);
     assert.doesNotMatch(results.textContent, /Device sim-farm|Simulated input|Input through|Forecast target|Forecasts are model estimates/);
     for (const card of withClass(results, "forecast-card")) {
-        assert.ok(card.textContent.indexOf("Predicted values in 2 hours") < card.textContent.indexOf("Reasoning AI guidance"));
+        assert.ok(card.textContent.indexOf("Predicted values in 2 hours") < card.textContent.indexOf("Review the forecast."));
     }
 
     predictionState = {
@@ -287,7 +287,7 @@ async function run() {
         assert.match(results.textContent, /Previous advice: check ventilation/);
         assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target/);
         if (status === "unavailable") assert.equal(withClass(results, "forecast-value").length, 0);
-        assert.match(results.textContent, status === "pending" ? /Updating guidance/ : status === "error" ? /update failed/ : /Historical guidance/);
+        assert.match(results.textContent, status === "pending" ? /Updating guidance/ : status === "error" ? /update failed/ : /Fresh readings are needed/);
         assert.equal(refreshDelay, 3000);
     }
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -296,7 +296,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /Qwen is generating guidance/);
+    assert.match(results.textContent, /This panel updates automatically/);
     assert.equal(refreshDelay, 3000);
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation_status: "error", explanation: null, reason: "QWEN_TIMEOUT",
@@ -304,7 +304,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /Qwen took too long to respond/);
+    assert.match(results.textContent, /It took too long to respond/);
     assert.match(results.textContent, /Ollama service and forecast worker logs/);
     assert.equal(withClass(results, "forecast-value").length, 1);
     assert.equal(refreshDelay, 3000);
