@@ -35,6 +35,8 @@ SENSOR_COLUMNS = {
 NONNEGATIVE_COLUMNS = SENSOR_COLUMNS - {"temperature_c", "humidity_perc"}
 FRESHNESS_SECONDS = 180
 POLL_SECONDS = 60
+SERIES_PHASES = ("good", "mid", "bad")
+SERIES_CYCLES_PER_PHASE = 5
 
 
 class ContractError(ValueError):
@@ -415,7 +417,8 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
     return "created" if not same_numeric else "explanation_retried"
 
 
-def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen, simulation=None):
+def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen,
+             simulation=None, previous_simulations=()):
     cycle_now = now or utc_now()
     results = {}
     with closing(connection_factory()) as conn:
@@ -428,12 +431,21 @@ def run_once(connection_factory=database_connection, model=predictor, now=None, 
             invalidate_forecast(conn, str(exc))
             return {"_worker": f"unavailable: {exc}"}
         if simulation is not None:
-            from ai_model.simulation import write_history
+            from ai_model.simulation import device_id as simulation_device_id, write_history
 
+            if not isinstance(previous_simulations, tuple):
+                raise ContractError("previous_simulations must be a tuple")
+            if simulation in previous_simulations or len(previous_simulations) != len(set(previous_simulations)):
+                raise ContractError("previous_simulations must contain unique other profiles")
+            previous_device_ids = [simulation_device_id(profile) for profile in previous_simulations]
             seeded = write_history(conn, simulation, cycle_now)
             results["_simulation"] = {
                 **seeded, "latest_at": seeded["latest_at"].isoformat(), "profile": simulation,
             }
+            for previous_device_id in previous_device_ids:
+                invalidate_forecast(conn, "Simulation stage completed", previous_device_id)
+        elif previous_simulations:
+            raise ContractError("previous_simulations requires a simulation profile")
         policy_result = load_policy_result()
         invalidate_stale_forecasts(conn, cycle_now)
         devices = [seeded["device_id"]] if simulation is not None else fetch_active_devices(conn, cycle_now)
@@ -462,11 +474,68 @@ def initialize_database(connection_factory=database_connection):
         conn.commit()
 
 
+def _failed_results(results):
+    return any(isinstance(result, str) and result.startswith(("unavailable:", "error:"))
+               for result in results.values())
+
+
+def _failed_series_results(results):
+    return _failed_results(results) or "policy_error" in results.values()
+
+
+def run_series(once=False, run_cycle=run_once, clock=time.monotonic, sleeper=time.sleep):
+    """Run five minute-spaced cycles for each demo profile, in severity order."""
+    guidance_errors = 0
+    for phase_index, phase in enumerate(SERIES_PHASES, start=1):
+        for cycle in range(1, SERIES_CYCLES_PER_PHASE + 1):
+            started = clock()
+            try:
+                cycle_args = {"simulation": phase}
+                if cycle == 1:
+                    cycle_args["previous_simulations"] = tuple(
+                        other for other in SERIES_PHASES if other != phase
+                    )
+                results = run_cycle(**cycle_args)
+            except (ContractError, predictor.ModelUnavailable, RuntimeError) as exc:
+                print(json.dumps({"status": "unavailable", "phase": phase, "cycle": cycle,
+                                  "reason": str(exc)}), file=sys.stderr, flush=True)
+                return 1
+            except Exception as exc:
+                print(json.dumps({"status": "error", "phase": phase, "cycle": cycle,
+                                  "reason": str(exc)}), file=sys.stderr, flush=True)
+                return 1
+            print(json.dumps({
+                "at": utc_now().isoformat(),
+                "series": {
+                    "phase": phase,
+                    "phase_index": phase_index,
+                    "phase_total": len(SERIES_PHASES),
+                    "cycle": cycle,
+                    "cycles_per_phase": SERIES_CYCLES_PER_PHASE,
+                },
+                "devices": results,
+            }), flush=True)
+            if _failed_series_results(results):
+                return 1
+            guidance_errors += sum(result == "explanation_error" for result in results.values())
+            if once:
+                return 0
+            final_cycle = phase == SERIES_PHASES[-1] and cycle == SERIES_CYCLES_PER_PHASE
+            if not final_cycle:
+                sleeper(max(0, POLL_SECONDS - (clock() - started)))
+    print(json.dumps({"status": "complete", "simulation": "series",
+                      "phases": SERIES_PHASES, "cycles": len(SERIES_PHASES) * SERIES_CYCLES_PER_PHASE,
+                      "guidance_errors": guidance_errors}),
+          flush=True)
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--once", action="store_true", help="process available devices once and exit")
+    parser.add_argument("--once", action="store_true",
+                        help="process once and exit; with --simulate series, run only its first good cycle")
     parser.add_argument("--init-db", action="store_true", help="create the forecast table and query index")
-    parser.add_argument("--simulate", choices=("good", "mid", "bad"),
+    parser.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
                         help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)
     try:
@@ -479,6 +548,8 @@ def main(argv=None):
             else:
                 print(json.dumps({"status": "initialized"}))
                 return 0
+        if args.simulate == "series":
+            return run_series(args.once)
         while True:
             started = time.monotonic()
             try:
@@ -495,8 +566,7 @@ def main(argv=None):
                 if args.once:
                     return 1
             if args.once:
-                return int(any(isinstance(result, str) and result.startswith(("unavailable:", "error:"))
-                               for result in results.values()))
+                return int(_failed_results(results))
             time.sleep(max(0, POLL_SECONDS - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 130

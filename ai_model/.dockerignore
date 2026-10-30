@@ -11,6 +11,7 @@
 !simulate_good.py
 !simulate_mid.py
 !simulate_bad.py
+!simulate_series.py
 !schema.sql
 !microclimate_forecaster.joblib
 !reasoning ai/

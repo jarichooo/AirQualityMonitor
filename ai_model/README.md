@@ -1,5 +1,8 @@
 # Two-hour environmental forecasts
 
+For the server demonstration procedure, including switching scenarios and stopping
+or restarting a session, follow [SIMULATION_GUIDE.md](SIMULATION_GUIDE.md).
+
 The worker reads committed PostgreSQL sensor history every 60 seconds, separately
 for each device. A trained predictor returns the sensor values expected **120
 minutes after the newest input timestamp**. It saves those values before asking
@@ -119,7 +122,11 @@ After enabling it, its restart policy handles worker restarts; Ollama still need
 its own running host process. Restart/recreate the worker if the database password
 or built model changes.
 
-In another server terminal, start the existing project Ollama helper:
+For the Ubuntu server, install the
+[project Qwen background service](../SERVER_COMMANDS.md#keep-project-qwen-running-in-the-background)
+once to start it at boot. The simulation then needs only one SSH terminal.
+For a temporary foreground session instead, start the existing helper in another
+server terminal:
 
 ```bash
 python3 setup_reasoning_ai.py --serve
@@ -168,7 +175,8 @@ reset or reseed readings. Do not rerun the root `schema.sql` to enable forecasti
 The index creation can briefly block writes on a large existing sensor table;
 apply this setup step outside active collection when practical.
 
-Start the project's Ollama server in another terminal using the existing helper:
+If the project's Ollama endpoint is not already provided by the Ubuntu background
+service, start it in another terminal using the existing helper:
 
 ```bash
 python3 setup_reasoning_ai.py --serve
@@ -200,6 +208,40 @@ Sign in and open `/dashboard`. `/api/forecasts` uses the same login. Until the
 forecast schema exists it returns a clear not-configured state. Sensor panels
 remain independent of forecasting.
 
+## Automatic good -> warning -> critical sequence
+
+For one complete demonstration, use `simulate_series.py`. It runs five updates
+each for the existing good, mid, and bad scenarios, in that order, then exits.
+Each update uses the real GRU and Qwen pipeline. Updates normally run about a
+minute apart; slow inference can extend the roughly 15-minute demonstration.
+The stages do not skip ahead based on wall-clock time. Existing readings and
+their IDs remain unchanged; each stage keeps its existing `sim-farm-*` device ID.
+
+After pulling/rebuilding the worker and dashboard, with PostgreSQL and the Qwen
+background service running and other workers stopped:
+
+```bash
+cd ~/AirQualityMonitor
+read -rsp 'PostgreSQL password: ' DB_PASS; echo
+export DB_PASS
+sudo --preserve-env=DB_PASS docker compose --profile forecast run --rm --no-deps --name farm_simulation forecast_worker --simulate series
+```
+
+In the configured native Python environment, use
+`python -m ai_model.simulate_series` or `python ai_model/simulate_series.py`.
+`--once` runs only the first good-stage update. The existing standalone scenarios
+below are still available for continuous single-condition demonstrations.
+
+The forecast panel uses green Normal, amber Warning, and red Critical labels.
+Input-scenario colors and predicted-value colors are separate: model results are
+not forced to match a scenario name. Stale/unavailable forecasts remain neutral.
+At an automatic stage transition the previous stage's forecast is marked
+unavailable immediately, while its measured history is kept. Model/input/lock/
+policy failures stop the series early; Qwen failures keep saved numbers and are
+reported in each cycle and the final `guidance_errors` count.
+See [the demonstration guide](SIMULATION_GUIDE.md) for the stage order, checks,
+background service and cleanup instructions.
+
 ## Three farm demonstrations without a device
 
 These scripts write labelled simulated inputs directly to PostgreSQL and run the
@@ -224,6 +266,12 @@ scenario at a time; a competing worker makes the simulator exit clearly instead
 of silently creating no data. After switching scenarios, the previous device's
 forecast becomes stale normally; it is never relabelled as the new scenario.
 
+To remove demo readings afterward, stop all writers and use the Data page's
+**Delete readings** controls. Select an inclusive start time in UTC and keep
+the default simulated-only scope to preserve imported/physical readings. Retained
+IDs stay unchanged; after a matching deletion the next ID follows the highest
+remaining ID. See [cleanup steps](SIMULATION_GUIDE.md#7-remove-simulation-readings-after-the-demo).
+
 The scenario describes **input conditions**, not a forced model result. The GRU
 owns the future numbers and can predict another category. The CPU sigmoid uses a
 numerically stable equivalent to handle extreme demo concentrations without
@@ -239,7 +287,9 @@ sudo docker compose --profile forecast build forecast_worker
 sudo docker compose up -d --build --no-deps web_dashboard
 ```
 
-Keep the project's Qwen server running in another terminal:
+Keep the project's Qwen endpoint available. With the background service installed,
+check `sudo systemctl --no-pager status henvironment-ollama.service`; no second
+terminal is needed. Without that service, use another terminal:
 
 ```bash
 cd ~/AirQualityMonitor
@@ -287,15 +337,17 @@ pagination/export for the complete original records. Refresh the page to reload
 the measured charts; forecasts refresh every minute automatically. A disconnected
 Live ESP32 panel is expected during a database-only demonstration.
 
-To check that the imported rows remain intact, if they were imported with the
-earlier `dataset-import` ID:
+To check that the imported rows remain intact, compare their per-device counts
+and timestamps before and after the demonstration:
 
 ```bash
 sudo docker exec postgres_db psql -U admin -d air_quality -c "SELECT device_id, COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM air_quality_logs GROUP BY device_id ORDER BY device_id;"
 ```
 
-The original `dataset-import` group should still contain 32,320 rows. Additional
-`sim-farm-*` groups are separate simulated inputs, not replacements.
+For the current restored `henvironment-data.csv`, the `original-import` group
+should contain 9,860 rows from October 20-26, 2026 UTC. An older import under
+`dataset-import` may instead contain 32,320 rows from the earlier augmented CSV.
+Additional `sim-farm-*` groups are separate simulated inputs, not replacements.
 
 ## Results and failure behavior
 
