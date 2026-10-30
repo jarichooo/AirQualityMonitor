@@ -281,7 +281,9 @@ class AppTestCase(unittest.TestCase):
                 "SET LOCAL lock_timeout = '5s'", "SELECT pg_try_advisory_xact_lock(%s)"
             ])
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
-            self.assertIn(b"worker is running", self.client.get("/data").data)
+            page = self.client.get("/data").data
+            self.assertIn(b"prediction or simulation is active", page)
+            self.assertNotIn(b"worker", page)
 
         with patch.object(application, "get_db_connection") as connect:
             conn = connect.return_value

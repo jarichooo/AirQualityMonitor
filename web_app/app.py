@@ -578,7 +578,7 @@ def delete_readings():
                                     )
                                 )
         if busy:
-            flash("Readings were not deleted because the forecast or simulation worker is running. Stop it and try again.", "error")
+            flash("Readings were not deleted because a prediction or simulation is active. Wait for it to finish or stop the simulation, then try again.", "error")
         elif delete_mode == "all":
             flash("All sensor readings and saved forecasts were deleted. The next reading ID is 1.", "success")
         elif deleted_count:

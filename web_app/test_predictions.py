@@ -122,22 +122,25 @@ class PredictionDomainTest(unittest.TestCase):
                              error="Prediction failed.\n  Check worker logs.")
         payload = prediction.get_prediction_state(FakeConnection(queued=queued))
         self.assertFalse(payload["can_predict"])
-        self.assertIn("Prediction failed. Check worker logs.", payload["message"])
+        self.assertIn("The last prediction could not be completed.", payload["message"])
+        self.assertNotIn("worker logs", payload["message"])
         self.assertIn("new sensor reading", payload["message"].lower())
 
         queued = request_row(status="error", row_id=124, error="Qwen could not finish.")
         payload = prediction.get_prediction_state(FakeConnection(queued=queued))
         self.assertTrue(payload["can_predict"])
-        self.assertIn("Qwen could not finish.", payload["message"])
+        self.assertIn("The last prediction could not be completed.", payload["message"])
+        self.assertNotIn("Qwen", payload["message"])
         self.assertIn("Ready to predict", payload["message"])
 
-    def test_worker_error_is_length_limited_and_has_a_safe_fallback(self):
-        for error in (None, "x" * 500):
+    def test_stored_technical_errors_are_not_shown_in_the_prediction_message(self):
+        for error in (None, "x" * 500, "Qwen failed. Check Ollama and forecast worker logs.", "Cannot load model.joblib with NumPy"):
             with self.subTest(error=error):
                 queued = request_row(status="error", row_id=125, error=error)
                 payload = prediction.get_prediction_state(FakeConnection(queued=queued))
                 self.assertLessEqual(len(payload["message"]), 320)
                 self.assertTrue(payload["message"])
+                self.assertNotRegex(payload["message"], r"Qwen|Ollama|worker|joblib|NumPy")
 
     def test_missing_stale_and_future_readings_are_rejected(self):
         readings = (None, (1, "sensor-1", NOW - timedelta(seconds=181)),

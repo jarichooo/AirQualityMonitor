@@ -36,11 +36,9 @@
             article.append(list);
         }
         const guidanceFallback = forecast.explanation_status === "pending"
-            ? "This panel updates automatically."
+            ? "Preparing guidance…"
             : forecast.explanation_status === "error" && forecast.status === "available"
-                ? forecast.reason === "QWEN_TIMEOUT"
-                    ? "It took too long to respond. Check the Ollama service and forecast worker logs."
-                    : "Could not generate output text. Check the Ollama service and forecast worker logs."
+                ? "Guidance is unavailable. Try again with new readings."
                 : "No saved guidance yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);

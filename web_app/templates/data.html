@@ -161,14 +161,14 @@
                     <option value="simulated" selected>Simulation readings only</option>
                     <option value="all">Every device and imported dataset</option>
                 </select>
-                <small>Includes the current simulation series and readings from older simulators.</small>
+                <small>Includes readings from the Good, Warning, and Critical simulations and older demos.</small>
             </label>
         </div>
 
         <p class="delete-scope-summary" id="delete-scope-summary" aria-live="polite"></p>
         <div class="delete-readings-warning">
             <strong>Before deleting</strong>
-            <p>Stop the simulator, forecast worker, and ingestion before cleanup. This operation ignores the filters on the table behind this dialog.</p>
+            <p>Pause data collection, stop simulations, and wait for predictions to finish before cleanup. This operation ignores the filters on the table behind this dialog.</p>
             <p>Retained row IDs stay unchanged. The next reading continues after the highest retained ID.</p>
         </div>
 
@@ -182,4 +182,4 @@
 </dialog>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='2') }}" defer></script>{% endblock %}

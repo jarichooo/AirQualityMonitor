@@ -200,14 +200,14 @@ async function run() {
 
     predictionState = {
         ...predictionState, status: "error", cooldown_seconds: 8,
-        message: "Qwen could not finish. Wait 8 seconds before predicting again.", can_predict: false,
+        message: "The last prediction could not be completed. Wait 8 seconds before predicting again.", can_predict: false,
     };
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
     intervalCallback();
     await settle();
     await settle();
     assert.equal(predictButton.disabled, true);
-    assert.match(predictionStatus.textContent, /Qwen could not finish/);
+    assert.match(predictionStatus.textContent, /last prediction could not be completed/);
     assert.match(predictionStatus.textContent, /8 seconds/);
 
     predictionState = {
@@ -296,18 +296,21 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /This panel updates automatically/);
+    assert.match(results.textContent, /Preparing guidance/);
     assert.equal(refreshDelay, 3000);
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
-        explanation_status: "error", explanation: null, reason: "QWEN_TIMEOUT",
-    })] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.match(results.textContent, /It took too long to respond/);
-    assert.match(results.textContent, /Ollama service and forecast worker logs/);
-    assert.equal(withClass(results, "forecast-value").length, 1);
-    assert.equal(refreshDelay, 3000);
+    for (const reason of ["QWEN_TIMEOUT", "QWEN_UNAVAILABLE"]) {
+        payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+            explanation_status: "error", explanation: null, reason,
+        })] });
+        intervalCallback();
+        await settle();
+        await settle();
+        assert.match(results.textContent, /Guidance is unavailable/);
+        assert.match(results.textContent, /Try again with new readings/);
+        assert.doesNotMatch(results.textContent, /Qwen|Ollama|forecast worker|logs/i);
+        assert.equal(withClass(results, "forecast-value").length, 1);
+        assert.equal(refreshDelay, 3000);
+    }
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation_status: "pending", explanation: null, last_guidance: savedGuidance,
