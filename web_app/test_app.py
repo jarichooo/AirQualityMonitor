@@ -159,6 +159,7 @@ class AppTestCase(unittest.TestCase):
                 datetime(2026, 10, 30, 12, 34, 56, tzinfo=timezone.utc),
                 list(application.SIMULATED_DEVICE_IDS),
             ))
+            self.assertIn("sim-farm-series", delete_call.args[1][1])
             self.assertEqual(calls[6].args, (
                 "DELETE FROM air_quality_forecasts WHERE device_id = ANY(%s)",
                 (["sim-farm-good"],),
@@ -280,7 +281,9 @@ class AppTestCase(unittest.TestCase):
                 "SET LOCAL lock_timeout = '5s'", "SELECT pg_try_advisory_xact_lock(%s)"
             ])
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
-            self.assertIn(b"worker is running", self.client.get("/data").data)
+            page = self.client.get("/data").data
+            self.assertIn(b"prediction or simulation is active", page)
+            self.assertNotIn(b"worker", page)
 
         with patch.object(application, "get_db_connection") as connect:
             conn = connect.return_value

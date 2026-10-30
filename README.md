@@ -198,32 +198,23 @@ stop it before collecting real readings.
 
 ## Predictive AI and farm demonstrations
 
-For a button-controlled demo, `ai_model/simulate_manual.py` seeds 120 readings
-and adds five more at one-minute intervals. Click **Predict now** on the dashboard
-to run the GRU and Qwen. The server blocks concurrent requests, repeated source
-readings, and requests less than 60 seconds apart. Follow the short
-[simulation guide](ai_model/SIMULATION_GUIDE.md). The forecast worker's Compose
-service now waits for manual requests by default; legacy automatic simulation
-commands remain available below.
+For the dashboard demo, choose `ai_model/simulate_good.py`, `simulate_mid.py`, or
+`simulate_bad.py`. Each seeds 120 readings for one condition, then keeps adding
+one reading per minute until you press **Ctrl+C**. Click **Predict now** on the dashboard to run the GRU and Qwen. The
+server blocks concurrent requests, repeated source readings, and requests less
+than 60 seconds apart. Follow the short [simulation guide](ai_model/SIMULATION_GUIDE.md).
+The forecast worker's Compose service waits for manual requests by default.
 
 The supplied GRU Joblib model uses 120 consecutive one-minute inputs to predict
 the next 120 minutes. The worker saves the final two-hour-ahead values, applies
 `ai_model/reasoning ai/thresholds.md`, and asks Qwen to explain them. The existing
 2-hour forecast panel displays numerical values and guidance separately.
 
-For a complete demonstration without the ESP32, `ai_model/simulate_series.py`
-runs good -> warning -> critical automatically, five updates per stage, then
-exits. The forecast panel colors Normal green, Warning amber, and Critical red,
-using saved classifications rather than forcing the scenario's category.
-For individual scenarios, `ai_model/simulate_good.py`,
-`simulate_mid.py` and `simulate_bad.py` seed fresh, labelled input histories and
-run that same real inference pipeline. Each farm-script launch removes earlier
-simulator readings and forecasts once, then preserves that run across its cycles
-and stages. Imported data, physical-device rows, and their IDs stay unchanged.
-The scripts require no MQTT ingestion. See [ai_model/README.md](ai_model/README.md#three-farm-demonstrations-without-a-device)
-for server commands, source labels and model limitations. Run one scenario at a
-time and stop the normal forecast worker first. For a step-by-step presentation,
-follow the [simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
+The simulators require no MQTT ingestion. Each launch deletes all sensor readings,
+forecasts, and prediction requests, then seeds the chosen condition with reading
+IDs starting at 1. User accounts are preserved. Forecast colours use saved model
+classifications rather than forcing the chosen input condition. For the
+step-by-step presentation, follow the [simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
 
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
 Dashboard, Data, and export require authentication; existing sessions remain valid

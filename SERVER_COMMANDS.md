@@ -393,23 +393,19 @@ sudo docker compose restart web_dashboard    # Restart one existing container
 The services are `postgres_db`, `mqtt_broker`, `ingestion`, and `web_dashboard`.
 Compose already sets `restart: unless-stopped` for each service.
 
-## Good, warning and critical farm demos
+## Good, warning and critical farm demo
 
-For a demonstration without the sensor device, use `ai_model/simulate_series.py`
-for an automatic good -> warning -> critical sequence. It runs five updates per
-stage, then exits. The Docker worker command is `--simulate series`.
-The individual `simulate_good.py`, `simulate_mid.py`, and `simulate_bad.py` scripts
-remain available for continuous single-condition runs.
-They add 120 fresh, minute-aligned simulated inputs, run the trained model, and
-save its two-hour forecast and Qwen guidance in the existing dashboard box.
-They preserve the original dataset; the trends cover all stored dates.
+For a demonstration without the sensor device, choose `ai_model/simulate_good.py`,
+`ai_model/simulate_mid.py`, or `ai_model/simulate_bad.py`. Each seeds 120 rows for
+its condition, then keeps adding one row per minute until you press **Ctrl+C**.
+It supplies readings only: click **Predict now** on the dashboard to run the
+trained model and Qwen. The service allows one request at a time, requires a new
+reading, and uses a 60-second cooldown.
 
 Follow the [step-by-step simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
-Stop the normal forecast worker first, keep Qwen available through the
-[background service](#keep-project-qwen-running-in-the-background) or a manual
-`--serve` terminal, and run only one scenario at a time.
-The older `simulate_esp32.py` below tests MQTT ingestion;
-it does not provide the model's required one-minute history.
+Each script deletes all existing sensor readings, forecasts, and prediction
+requests before seeding its condition. User accounts stay intact. The older `simulate_esp32.py`
+below tests MQTT ingestion and does not provide the model's required history.
 
 ## Dashboard accounts
 

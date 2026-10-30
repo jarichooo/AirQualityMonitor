@@ -344,14 +344,6 @@ class ForecastWorkerTest(unittest.TestCase):
         ):
             self.assertEqual(worker.main(["--simulate", "good"]), 1)
 
-    def test_three_script_entrypoints_select_the_expected_worker_profile(self):
-        from ai_model import simulation
-
-        for profile in ("good", "mid", "bad"):
-            with patch.object(worker, "main", return_value=0) as main:
-                self.assertEqual(simulation.main(profile, ["--once"]), 0)
-                main.assert_called_once_with(["--simulate", profile, "--once"])
-
     def test_single_cycle_unavailable_status_is_an_unsuccessful_check(self):
         with (
             patch.object(worker, "run_once", return_value={"_worker": "unavailable: MODEL_VERSION is not configured"}),

@@ -1,4 +1,4 @@
-"""Run the normal-condition farm simulator."""
+"""Seed good conditions; use Predict now to run the AI."""
 
 import sys
 from pathlib import Path
@@ -11,4 +11,3 @@ from ai_model.simulation import main
 
 if __name__ == "__main__":
     raise SystemExit(main("good"))
-

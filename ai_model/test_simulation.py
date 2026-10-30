@@ -70,7 +70,9 @@ class SimulationTest(unittest.TestCase):
         self.assertIn("to_regclass", calls[3].args[0])
         for execution in calls[4:7]:
             self.assertIn("WHERE device_id = ANY(%s)", execution.args[0])
-            self.assertEqual(execution.args[1], (["sim-farm-good", "sim-farm-mid", "sim-farm-bad", "python-simulator"],))
+            self.assertEqual(execution.args[1], ([
+                "sim-farm-good", "sim-farm-mid", "sim-farm-bad", "sim-farm-series", "python-simulator",
+            ],))
         self.assertIn("MAX(id)", calls[7].args[0])
         self.assertEqual(result, {"readings_deleted": 8, "forecasts_deleted": 8})
         connection.commit.assert_not_called()
@@ -93,58 +95,125 @@ class SimulationTest(unittest.TestCase):
             simulation.clear_history(connection)
         connection.commit.assert_not_called()
 
-    def test_manual_seed_writes_120_then_five_wall_clock_minutes_without_inference(self):
+    def test_full_reset_deletes_all_readings_forecasts_and_requests_but_not_accounts(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 8
+        cursor.fetchone.side_effect = [("air_quality_prediction_requests",), ("public", "air_quality_logs_id_seq", 1)]
+        result = simulation.clear_history(connection, all_readings=True)
+        deletes = [call for call in cursor.execute.call_args_list if str(call.args[0]).startswith("DELETE")]
+        self.assertEqual([call.args for call in deletes], [
+            ("DELETE FROM public.air_quality_prediction_requests", None),
+            ("DELETE FROM public.air_quality_forecasts", None),
+            ("DELETE FROM public.air_quality_logs", None),
+        ])
+        self.assertIn("Literal(1)", repr(cursor.execute.call_args.args[0]))
+        self.assertEqual(result, {"readings_deleted": 8, "forecasts_deleted": 8})
+        connection.commit.assert_not_called()
+
+    def test_full_reset_restarts_ids_even_if_the_readings_table_is_already_empty(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.rowcount = 0
+        cursor.fetchone.side_effect = [(None,), ("public", "air_quality_logs_id_seq", 1)]
+        simulation.clear_history(connection, all_readings=True)
+        self.assertIn("Literal(1)", repr(cursor.execute.call_args.args[0]))
+
+    def test_each_simulation_seeds_and_appends_only_its_condition_without_inference(self):
+        for profile, category in {"good": "normal", "mid": "warning", "bad": "critical"}.items():
+            with self.subTest(profile=profile):
+                connection = MagicMock()
+                cursor = connection.cursor.return_value.__enter__.return_value
+                cursor.fetchone.return_value = (True,)
+                current = [self.now]
+                sleeps, batches, reports = [], [], []
+
+                def sleeper(seconds):
+                    if len(sleeps) == 8:
+                        raise KeyboardInterrupt
+                    sleeps.append(seconds)
+                    current[0] += timedelta(seconds=seconds)
+
+                def insert_rows(_connection, rows):
+                    batches.append(rows)
+                    return len(rows)
+
+                with patch("ai_model.forecast_worker.acquire_worker_lock", return_value=True), \
+                        patch.object(simulation, "clear_history", return_value={}) as clear, \
+                        patch.object(simulation, "_insert_rows", side_effect=insert_rows), \
+                        patch("ai_model.predictor.predict") as predict, \
+                        patch("ai_model.forecast_worker.call_qwen") as qwen:
+                    with self.assertRaises(KeyboardInterrupt):
+                        simulation.run_simulation(
+                            profile, lambda: connection, clock=lambda: current[0],
+                            sleeper=sleeper, report=reports.append,
+                        )
+
+                clear.assert_called_once_with(connection, all_readings=True)
+                predict.assert_not_called()
+                qwen.assert_not_called()
+                lock_calls = [call for call in cursor.execute.call_args_list if "advisory" in call.args[0]]
+                self.assertEqual(lock_calls[0].args[1], (simulation.MANUAL_SEEDER_LOCK,))
+                self.assertEqual(lock_calls[-1].args[1], (739_783_247_071_623_201,))
+                self.assertEqual([len(rows) for rows in batches], [120] + [1] * 8)
+                rows = [row for batch in batches for row in batch]
+                self.assertEqual({row["device_id"] for row in rows}, {f"sim-farm-{profile}"})
+                policy = load_policy()
+                for row in rows:
+                    self.assertEqual(set(policy.classify({key: row[key] for key in FEATURE_COLUMNS}).values()), {category})
+                self.assertTrue(all(
+                    later["recorded_at"] - earlier["recorded_at"] == timedelta(minutes=1)
+                    for earlier, later in zip(rows, rows[1:])
+                ))
+                self.assertEqual(reports[0]["seeded"], 120)
+                self.assertEqual(sleeps, [22.999877] + [60.0] * 7)
+                self.assertEqual(connection.commit.call_count, 10)
+                connection.close.assert_called_once_with()
+
+    def test_terminal_interrupt_rolls_back_an_unfinished_reset_and_seed(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (True,)
-        current = [self.now]
-        sleeps = []
-        inserted_batches = []
-
-        def clock():
-            return current[0]
-
-        def sleeper(seconds):
-            sleeps.append(seconds)
-            current[0] += timedelta(seconds=seconds)
-
-        def insert_rows(_connection, rows):
-            inserted_batches.append(rows)
-            return len(rows)
-
         with patch("ai_model.forecast_worker.acquire_worker_lock", return_value=True), \
-                patch.object(simulation, "clear_history", return_value={
-                    "readings_deleted": 4, "forecasts_deleted": 1,
-                }) as clear, patch.object(simulation, "_insert_rows", side_effect=insert_rows), \
-                patch("ai_model.predictor.predict") as predict:
-            result = simulation.run_manual_seed(
-                "mid", lambda: connection, clock=clock, sleeper=sleeper, report=lambda _: None,
-            )
+                patch.object(simulation, "clear_history"), \
+                patch.object(simulation, "_insert_rows", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                simulation.run_simulation("good", lambda: connection, clock=lambda: self.now)
+        connection.rollback.assert_called_once_with()
+        connection.close.assert_called_once_with()
 
-        clear.assert_called_once_with(connection)
-        predict.assert_not_called()
-        lock_calls = [call for call in cursor.execute.call_args_list if "advisory" in call.args[0]]
-        self.assertEqual(lock_calls[0].args[1], (simulation.MANUAL_SEEDER_LOCK,))
-        self.assertEqual(lock_calls[-1].args[1], (739_783_247_071_623_201,))
-        self.assertEqual([len(rows) for rows in inserted_batches], [120, 1, 1, 1, 1, 1])
-        self.assertEqual(
-            [batch[0]["recorded_at"] for batch in inserted_batches[1:]],
-            [self.now.replace(second=0, microsecond=0) + timedelta(minutes=minute) for minute in range(1, 6)],
-        )
-        self.assertEqual(sleeps, [22.999877, 60.0, 60.0, 60.0, 60.0])
-        self.assertEqual(result, {"device_id": "sim-farm-mid", "total_inserted": 125})
+    def test_launcher_handles_ctrl_c_as_a_terminal_stop(self):
+        with patch.object(simulation, "run_simulation", side_effect=KeyboardInterrupt):
+            self.assertEqual(simulation.main("good", []), 130)
 
-    def test_manual_seed_does_not_clear_data_when_prediction_lock_is_busy(self):
+    def test_invalid_condition_is_rejected_before_connecting_or_clearing(self):
+        connect = MagicMock()
+        with self.assertRaisesRegex(ValueError, "Unknown simulation profile"):
+            simulation.run_simulation("unknown", connect)
+        connect.assert_not_called()
+
+    def test_final_simulation_rejects_a_second_seeder_before_cleanup(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (False,)
+        with patch("ai_model.forecast_worker.acquire_worker_lock") as worker_lock, \
+                patch.object(simulation, "clear_history") as clear:
+            with self.assertRaisesRegex(RuntimeError, "already running"):
+                simulation.run_simulation("good", lambda: connection, clock=lambda: self.now)
+        worker_lock.assert_not_called()
+        clear.assert_not_called()
+
+    def test_final_simulation_does_not_clear_data_when_prediction_lock_is_busy(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (True,)
         with patch("ai_model.forecast_worker.acquire_worker_lock", return_value=False), \
                 patch.object(simulation, "clear_history") as clear:
             with self.assertRaisesRegex(RuntimeError, "prediction is running"):
-                simulation.run_manual_seed("good", lambda: connection, clock=lambda: self.now)
+                simulation.run_simulation("good", lambda: connection, clock=lambda: self.now)
         clear.assert_not_called()
 
-    def test_manual_seed_rolls_back_cleanup_when_initial_seed_fails(self):
+    def test_final_simulation_rolls_back_cleanup_when_initial_seed_fails(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (True,)
@@ -152,10 +221,29 @@ class SimulationTest(unittest.TestCase):
                 patch.object(simulation, "clear_history"), \
                 patch.object(simulation, "_insert_rows", side_effect=RuntimeError("insert failed")):
             with self.assertRaisesRegex(RuntimeError, "insert failed"):
-                simulation.run_manual_seed("good", lambda: connection, clock=lambda: self.now)
+                simulation.run_simulation("good", lambda: connection, clock=lambda: self.now)
         connection.rollback.assert_called_once_with()
 
-    def test_manual_seed_stops_when_a_minute_was_missed(self):
+    def test_final_simulation_rolls_back_a_failed_live_insert_after_committing_the_seed(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (True,)
+        current = [self.now]
+
+        def sleeper(seconds):
+            current[0] += timedelta(seconds=seconds)
+
+        with patch("ai_model.forecast_worker.acquire_worker_lock", return_value=True), \
+                patch.object(simulation, "clear_history", return_value={}), \
+                patch.object(simulation, "_insert_rows", side_effect=[LOOKBACK_SAMPLES, RuntimeError("live failed")]):
+            with self.assertRaisesRegex(RuntimeError, "live failed"):
+                simulation.run_simulation(
+                    "good", lambda: connection, clock=lambda: current[0], sleeper=sleeper, report=lambda _: None,
+                )
+        self.assertEqual(connection.commit.call_count, 2)
+        connection.rollback.assert_called_once_with()
+
+    def test_final_simulation_stops_when_a_minute_was_missed(self):
         connection = MagicMock()
         cursor = connection.cursor.return_value.__enter__.return_value
         cursor.fetchone.return_value = (True,)
@@ -168,8 +256,8 @@ class SimulationTest(unittest.TestCase):
                 patch.object(simulation, "clear_history", return_value={}), \
                 patch.object(simulation, "_insert_rows", side_effect=lambda _conn, rows: len(rows)):
             with self.assertRaisesRegex(RuntimeError, "stopping instead of backfilling"):
-                simulation.run_manual_seed(
-                    "bad", lambda: connection, clock=lambda: current[0], sleeper=sleeper, report=lambda _: None,
+                simulation.run_simulation(
+                    "good", lambda: connection, clock=lambda: current[0], sleeper=sleeper, report=lambda _: None,
                 )
 
 

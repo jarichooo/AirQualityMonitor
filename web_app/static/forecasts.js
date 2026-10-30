@@ -36,20 +36,18 @@
             article.append(list);
         }
         const guidanceFallback = forecast.explanation_status === "pending"
-            ? "This panel updates automatically."
+            ? "Loading…"
             : forecast.explanation_status === "error" && forecast.status === "available"
-                ? forecast.reason === "QWEN_TIMEOUT"
-                    ? "It took too long to respond. Check the Ollama service and forecast worker logs."
-                    : "Could not generate output text. Check the Ollama service and forecast worker logs."
-                : "No saved guidance yet.";
+                ? "Could not load the advice. Try again after a new reading arrives."
+                : "No advice yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);
         } else if (forecast.last_guidance) {
             const update = forecast.status !== "available"
-                ? "Fresh readings are needed."
+                ? "New readings are needed."
                 : forecast.explanation_status === "pending"
-                    ? "Updating guidance for the latest readings…"
-                    : "Guidance update failed; showing the last completed guidance.";
+                    ? "Updating… Showing the previous advice."
+                    : "Could not update. Showing the previous advice.";
             addText(article, "p", update);
             addText(article, "p", forecast.last_guidance.text);
         } else {
@@ -68,7 +66,7 @@
             (forecast.status === "available" && forecast.predictions?.length) || forecast.explanation || forecast.last_guidance?.text
         );
         if (!forecasts.length) {
-            addText(results, "p", "No predictions or guidance available yet.");
+            addText(results, "p", "No results yet.");
             return;
         }
         forecasts

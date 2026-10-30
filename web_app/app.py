@@ -73,7 +73,7 @@ LIVE_SENSORS = (
 )
 # Match the forecast worker so cleanup cannot race with simulation or inference.
 DELETE_WORKER_LOCK_ID = 739_783_247_071_623_201
-SIMULATED_DEVICE_IDS = ("sim-farm-good", "sim-farm-mid", "sim-farm-bad", "python-simulator")
+SIMULATED_DEVICE_IDS = ("sim-farm-series", "sim-farm-good", "sim-farm-mid", "sim-farm-bad", "python-simulator")
 
 
 def parse_delete_cutoff(value):
@@ -578,7 +578,7 @@ def delete_readings():
                                     )
                                 )
         if busy:
-            flash("Readings were not deleted because the forecast or simulation worker is running. Stop it and try again.", "error")
+            flash("Readings were not deleted because a prediction or simulation is active. Wait for it to finish or stop the simulation, then try again.", "error")
         elif delete_mode == "all":
             flash("All sensor readings and saved forecasts were deleted. The next reading ID is 1.", "success")
         elif deleted_count:

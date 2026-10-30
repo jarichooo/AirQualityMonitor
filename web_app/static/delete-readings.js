@@ -75,7 +75,7 @@
         const confirmed = window.confirm(
             `Delete readings from ${sourceText} for ${timeText}?\n\n` +
             "This ignores the current table filters and cannot be undone. Retained row IDs will not change, and the next reading will follow the highest retained ID.\n\n" +
-            "Stop the simulator, forecast worker, and ingestion before continuing."
+            "Pause data collection, stop simulations, and wait for predictions to finish before continuing."
         );
         if (!confirmed) return;
 

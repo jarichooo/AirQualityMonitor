@@ -57,8 +57,7 @@ def _base_payload(queued):
 def _worker_error(queued):
     if not queued or queued[3] != "error":
         return None
-    message = " ".join((queued[7] or "").split())[:240]
-    return message or "Prediction failed. Check the forecast worker logs."
+    return "The last prediction failed."
 
 
 def _availability(now, latest, queued):
