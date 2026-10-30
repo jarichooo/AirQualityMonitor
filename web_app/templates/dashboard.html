@@ -55,13 +55,15 @@
         <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
         <div class="trend-chart-wrap">
             {% if recorded_trend.points %}
-            <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="recorded-trend-description">
+            <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="recorded-trend-description">
                 <title id="recorded-trend-description">{{ selected.label }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                 {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
                 <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
                 {% endfor %}
                 {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
                 <path class="trend-axis" d="M60 25V210H760"/>
+                <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
+                <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
                 {% for segment in recorded_trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
                 {% for point in recorded_trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
             </svg>
@@ -76,11 +78,13 @@
             <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; All stored readings &middot; UTC &middot; All reporting devices</p></div></div>
             <div class="trend-chart-wrap">
                 {% if trend.points %}
-                <svg class="sensor-trend" viewBox="0 0 800 250" role="img" aria-labelledby="trend-description">
+                <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="trend-description">
                     <title id="trend-description">{{ selected.label }} hourly averages across all stored readings. Missing hours are gaps. Values in {{ selected.unit }}.</title>
                     <path class="trend-axis" d="M60 25V210H760"/>
                     <text x="52" y="35" text-anchor="end">{{ trend.high }}</text><text x="52" y="210" text-anchor="end">{{ trend.low }}</text>
                     <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">{{ end.strftime('%m-%d %H:%M') }} UTC</text>
+                    <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
+                    <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
                     {% for segment in trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
                     {% for point in trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
                 </svg>
@@ -102,6 +106,11 @@
                     <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
                     <p id="prediction-status" role="status" aria-live="polite"></p>
                 </div>
+                <ul class="forecast-legend" aria-label="Prediction conditions">
+                    <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
+                    <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
+                    <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+                </ul>
                 <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
             </section>
         </div>
