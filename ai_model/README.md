@@ -239,7 +239,7 @@ After pulling this feature, stop old one-off simulators and prepare the server:
 )
 ```
 
-Then follow the single startup block in [the client guide](SIMULATION_GUIDE.md).
+Then follow the manual prediction startup block in [the client guide](SIMULATION_GUIDE.md).
 It starts the manual worker with the database password and runs the seeder in
 the same SSH terminal. Docker uses
 `--entrypoint python forecast_worker -m ai_model.simulate_manual --profile good`;
