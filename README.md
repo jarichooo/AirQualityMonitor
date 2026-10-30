@@ -175,8 +175,8 @@ stop it before collecting real readings.
 ## Predictive AI and farm demonstrations
 
 For the dashboard demo, choose `ai_model/simulate_good.py`, `simulate_mid.py`, or
-`simulate_bad.py`. Each seeds 120 readings for one condition and adds five more
-at one-minute intervals. Click **Predict now** on the dashboard to run the GRU and Qwen. The
+`simulate_bad.py`. Each seeds 120 readings for one condition, then keeps adding
+one reading per minute until you press **Ctrl+C**. Click **Predict now** on the dashboard to run the GRU and Qwen. The
 server blocks concurrent requests, repeated source readings, and requests less
 than 60 seconds apart. Follow the short [simulation guide](ai_model/SIMULATION_GUIDE.md).
 The forecast worker's Compose service waits for manual requests by default.

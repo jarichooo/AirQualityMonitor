@@ -397,7 +397,7 @@ Compose already sets `restart: unless-stopped` for each service.
 
 For a demonstration without the sensor device, choose `ai_model/simulate_good.py`,
 `ai_model/simulate_mid.py`, or `ai_model/simulate_bad.py`. Each seeds 120 rows for
-its condition, then adds five rows at one-minute intervals before exiting.
+its condition, then keeps adding one row per minute until you press **Ctrl+C**.
 It supplies readings only: click **Predict now** on the dashboard to run the
 trained model and Qwen. The service allows one request at a time, requires a new
 reading, and uses a 60-second cooldown.

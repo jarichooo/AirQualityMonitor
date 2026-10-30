@@ -129,6 +129,8 @@ class SimulationTest(unittest.TestCase):
                 sleeps, batches, reports = [], [], []
 
                 def sleeper(seconds):
+                    if len(sleeps) == 8:
+                        raise KeyboardInterrupt
                     sleeps.append(seconds)
                     current[0] += timedelta(seconds=seconds)
 
@@ -141,10 +143,11 @@ class SimulationTest(unittest.TestCase):
                         patch.object(simulation, "_insert_rows", side_effect=insert_rows), \
                         patch("ai_model.predictor.predict") as predict, \
                         patch("ai_model.forecast_worker.call_qwen") as qwen:
-                    result = simulation.run_simulation(
-                        profile, lambda: connection, clock=lambda: current[0],
-                        sleeper=sleeper, report=reports.append,
-                    )
+                    with self.assertRaises(KeyboardInterrupt):
+                        simulation.run_simulation(
+                            profile, lambda: connection, clock=lambda: current[0],
+                            sleeper=sleeper, report=reports.append,
+                        )
 
                 clear.assert_called_once_with(connection, all_readings=True)
                 predict.assert_not_called()
@@ -152,7 +155,7 @@ class SimulationTest(unittest.TestCase):
                 lock_calls = [call for call in cursor.execute.call_args_list if "advisory" in call.args[0]]
                 self.assertEqual(lock_calls[0].args[1], (simulation.MANUAL_SEEDER_LOCK,))
                 self.assertEqual(lock_calls[-1].args[1], (739_783_247_071_623_201,))
-                self.assertEqual([len(rows) for rows in batches], [120] + [1] * 5)
+                self.assertEqual([len(rows) for rows in batches], [120] + [1] * 8)
                 rows = [row for batch in batches for row in batch]
                 self.assertEqual({row["device_id"] for row in rows}, {f"sim-farm-{profile}"})
                 policy = load_policy()
@@ -163,8 +166,25 @@ class SimulationTest(unittest.TestCase):
                     for earlier, later in zip(rows, rows[1:])
                 ))
                 self.assertEqual(reports[0]["seeded"], 120)
-                self.assertEqual(sleeps, [22.999877] + [60.0] * 4)
-                self.assertEqual(result, {"device_id": f"sim-farm-{profile}", "total_inserted": 125})
+                self.assertEqual(sleeps, [22.999877] + [60.0] * 7)
+                self.assertEqual(connection.commit.call_count, 10)
+                connection.close.assert_called_once_with()
+
+    def test_terminal_interrupt_rolls_back_an_unfinished_reset_and_seed(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value = (True,)
+        with patch("ai_model.forecast_worker.acquire_worker_lock", return_value=True), \
+                patch.object(simulation, "clear_history"), \
+                patch.object(simulation, "_insert_rows", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                simulation.run_simulation("good", lambda: connection, clock=lambda: self.now)
+        connection.rollback.assert_called_once_with()
+        connection.close.assert_called_once_with()
+
+    def test_launcher_handles_ctrl_c_as_a_terminal_stop(self):
+        with patch.object(simulation, "run_simulation", side_effect=KeyboardInterrupt):
+            self.assertEqual(simulation.main("good", []), 130)
 
     def test_invalid_condition_is_rejected_before_connecting_or_clearing(self):
         connect = MagicMock()

@@ -47,7 +47,6 @@ PROFILES = {
 }
 
 MANUAL_SEEDER_LOCK = 739_783_247_071_623_202
-LIVE_MINUTES = 5
 
 
 def device_id(profile):
@@ -154,7 +153,7 @@ def write_history(conn, profile, now):
 
 
 def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sleep, report=print):
-    """Seed one condition, then append five minute readings of the same condition."""
+    """Seed one condition, then append a reading each minute until interrupted."""
     from ai_model.forecast_worker import WORKER_LOCK_ID, acquire_worker_lock, database_connection
 
     current_device = device_id(profile)
@@ -176,7 +175,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
             if inserted != LOOKBACK_SAMPLES:
                 raise RuntimeError(f"Expected to seed {LOOKBACK_SAMPLES} readings, inserted {inserted}")
             conn.commit()
-        except Exception:
+        except BaseException:
             conn.rollback()
             raise
         finally:
@@ -188,8 +187,9 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
             "profile": profile, "status": "started", "device_id": current_device,
             "seeded": inserted, **cleanup,
         })
-        for minute in range(1, LIVE_MINUTES + 1):
-            expected_at = started_at + timedelta(minutes=minute)
+        expected_at = started_at
+        while True:
+            expected_at += timedelta(minutes=1)
             remaining = (expected_at - clock()).total_seconds()
             if remaining > 0:
                 sleeper(remaining)
@@ -204,7 +204,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
                 if inserted != 1:
                     raise RuntimeError(f"The {expected_at.isoformat()} reading already exists")
                 conn.commit()
-            except Exception:
+            except BaseException:
                 conn.rollback()
                 raise
             report({
@@ -212,18 +212,15 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
                 "recorded_at": expected_at.isoformat(), "inserted": 1,
             })
 
-    return {"device_id": current_device, "total_inserted": LOOKBACK_SAMPLES + LIVE_MINUTES}
-
 
 def main(profile, argv=None):
     parser = argparse.ArgumentParser(description=f"Replace all sensor readings with {profile} conditions for manual predictions.")
     parser.parse_args(argv)
     try:
-        result = run_simulation(profile, report=lambda message: print(json.dumps(message), flush=True))
+        run_simulation(profile, report=lambda message: print(json.dumps(message), flush=True))
     except KeyboardInterrupt:
         return 130
     except (OSError, RuntimeError, ValueError, DatabaseError) as exc:
         parser.exit(1, f"Simulation failed: {exc}\n")
-    print(json.dumps(result), flush=True)
     return 0
 

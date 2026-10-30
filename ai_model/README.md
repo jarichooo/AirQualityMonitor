@@ -211,8 +211,8 @@ remain independent of forecasting.
 ## Separate condition simulations
 
 Choose `simulate_good.py`, `simulate_mid.py`, or `simulate_bad.py`. Each seeds 120
-minute-aligned rows for its own condition, then adds one row per minute for five
-minutes, for 125 rows total. Each uses its own `sim-farm-good`, `sim-farm-mid`, or
+minute-aligned rows for its own condition, then keeps adding one row per minute
+until **Ctrl+C** stops it. Each uses its own `sim-farm-good`, `sim-farm-mid`, or
 `sim-farm-bad` device ID. The scripts never run the predictor or Qwen themselves.
 Each launch deletes all sensor readings, forecasts, and prediction requests,
 including any imported or physical-device readings, and restarts reading IDs at 1.
@@ -287,9 +287,9 @@ To inspect the current condition's reading count and timestamps:
 sudo docker exec postgres_db psql -U admin -d air_quality -c "SELECT device_id, COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM air_quality_logs GROUP BY device_id ORDER BY device_id;"
 ```
 
-After the five new readings, the chosen `sim-farm-good`, `sim-farm-mid`, or
-`sim-farm-bad` group should contain 125 rows. Other groups are removed when the
-next simulation starts. Keep MQTT ingestion stopped during the demonstration.
+The chosen `sim-farm-good`, `sim-farm-mid`, or `sim-farm-bad` group starts with
+120 rows and grows by one each minute until stopped. Existing groups are removed
+when the next simulation starts. Keep MQTT ingestion stopped during the demonstration.
 
 ## Results and failure behavior
 

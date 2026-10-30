@@ -40,8 +40,8 @@ module name to `ai_model.simulate_mid` or `ai_model.simulate_bad`, then paste th
 whole block again after stopping the previous run.
 
 Keep the terminal open. Each script inserts **120 readings for its condition**,
-then **one reading per minute for five minutes**: **125 readings total**. It then
-stops. The scripts do not run the predictive model or Qwen by themselves.
+then keeps adding **one reading per minute until you press Ctrl+C**. There is no
+five-minute limit. The scripts do not run the predictive model or Qwen themselves.
 
 Open `http://<server-IP>:5000/dashboard`, sign in, and click **Predict now**
 after the terminal reports `seeded: 120`. The predicted values appear first;
@@ -56,7 +56,7 @@ Each new condition replaces the previous data and restarts reading IDs at 1.
 If seeding fails, the reset rolls back. Stop other simulations and wait for any
 active prediction to finish before starting another condition.
 
-To stop early, press **Ctrl+C**. The dashboard, forecast worker, and Qwen service
+To stop the simulation, press **Ctrl+C**. The dashboard, forecast worker, and Qwen service
 continue in the background. After the readings stop, request a prediction within
 about three minutes before they become too old.
 
