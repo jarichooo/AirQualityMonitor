@@ -55,6 +55,39 @@ Press **Ctrl+C** and wait for the command to exit. Leave Qwen and the dashboard 
 To run again, paste the same startup block. Do not run two simulations at once.
 Results from the current run remain stored until the next run starts.
 
+## 4. Remove simulation data without starting another run
+
+Stop the simulation with **Ctrl+C** first, then paste this block into the server
+terminal. It removes only simulation readings and forecasts. The original dataset,
+real sensor readings, and accounts stay intact; retained IDs do not change.
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  sudo docker compose --profile forecast stop ingestion forecast_worker
+  sudo docker compose up -d --wait postgres_db
+  read -rsp 'PostgreSQL password: ' DB_PASS; echo
+  export DB_PASS
+  sudo --preserve-env=DB_PASS docker compose --profile forecast run \
+    --rm --no-deps -T --entrypoint python forecast_worker - <<'PY'
+from contextlib import closing
+from ai_model.forecast_worker import database_connection, acquire_worker_lock
+from ai_model.simulation import clear_history
+
+with closing(database_connection()) as conn:
+    if not acquire_worker_lock(conn):
+        raise SystemExit("Stop other simulations or forecast workers first.")
+    with conn:
+        removed = clear_history(conn)
+    print(removed)
+PY
+)
+```
+
+The command prints deleted counts and does not start a simulation. Refresh the
+webpage afterward. Collection stays stopped until you enable it again.
+
 If a command fails or Qwen reports an error, save the terminal message and ask
 the person maintaining the server. Technical setup and cleanup instructions are
 in [SERVER_COMMANDS.md](../SERVER_COMMANDS.md).
