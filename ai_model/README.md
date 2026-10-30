@@ -274,7 +274,7 @@ To remove demo readings afterward, stop all writers and use the Data page's
 **Delete readings** controls. Select an inclusive start time in UTC and keep
 the default simulated-only scope to preserve imported/physical readings. Retained
 IDs stay unchanged; after a matching deletion the next ID follows the highest
-remaining ID. See [cleanup steps](SIMULATION_GUIDE.md#7-remove-simulation-readings-after-the-demo).
+remaining ID. See [cleanup steps](../SERVER_COMMANDS.md#remove-readings-from-a-timestamp).
 
 The scenario describes **input conditions**, not a forced model result. The GRU
 owns the future numbers and can predict another category. The CPU sigmoid uses a
