@@ -175,17 +175,15 @@ For each stage, show:
 1. **Stored readings and trends:** click Refresh to include the new demo rows.
    The hourly trends cover all stored dates, including the imported dataset.
    The individual-reading graph shows the latest recorded hour.
-2. **2-hour forecast:** find the current stage's device ID and simulated-source label.
-   Show the input cutoff, forecast target, eight predicted values and categories.
-   The target is two hours after the input cutoff; timestamps are displayed in UTC.
-   Condition labels use **green for Normal, amber/yellow for Warning, and red for
-   Critical**. Unavailable forecasts use a neutral style. The written labels remain
-   visible so color is not the only indication.
+2. **2-hour forecast:** show the predicted values first. The target is two hours
+   after the input cutoff. Values use **green for Normal, amber/yellow for Warning,
+   and red for Critical**, with written category labels. Device details, timestamps,
+   completed-stage messages, and empty cards are hidden from this panel.
 3. **Reasoning AI guidance:** show Qwen's explanation below the predicted values.
    Numbers are saved before guidance, so the first response can initially be pending.
    After Qwen completes a response, that guidance stays visible across page reloads
-   while the next response is being prepared, or if Qwen's update fails. Its original
-   input and target times identify it as previous guidance. When readings stop,
+   while the next response is being prepared, or if Qwen's update fails. A short
+   status identifies it as previous guidance. When readings stop,
    it remains labelled historical; it is not a fresh forecast. New completed
    guidance replaces it automatically. Changing the model or thresholds, deleting
    its device's readings, or completing a simulation stage clears retained guidance.
@@ -197,8 +195,8 @@ measured charts require Refresh. Qwen's default request timeout is 90 seconds;
 slow generation can make a worker cycle take longer than a minute. The terminal
 cycle summary appears after that cycle's reasoning attempt finishes.
 
-The input-scenario label and forecast labels describe different things. A good
-input scenario does not force the model to predict Normal. Each predicted channel
+The terminal's input scenario and the displayed forecast categories describe different
+things. A good input scenario does not force the model to predict Normal. Each predicted channel
 keeps the category computed from its actual forecast value and the policy.
 
 The Live ESP32 panel can remain disconnected throughout this demonstration.
