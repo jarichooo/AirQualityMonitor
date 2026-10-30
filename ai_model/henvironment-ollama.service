@@ -1,0 +1,15 @@
+[Unit]
+Description=Henvironment project Ollama and Qwen
+After=network.target
+
+[Service]
+User=airqualitymonitor
+WorkingDirectory=/home/airqualitymonitor/AirQualityMonitor
+Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+ExecStart=/usr/bin/python3 /home/airqualitymonitor/AirQualityMonitor/setup_reasoning_ai.py --serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

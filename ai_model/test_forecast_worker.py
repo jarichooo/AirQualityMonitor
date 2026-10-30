@@ -197,10 +197,37 @@ class ForecastWorkerTest(unittest.TestCase):
         with (
             patch.object(worker, "acquire_worker_lock", return_value=False),
             patch("ai_model.simulation.write_history") as seed,
+            patch.object(worker, "invalidate_forecast") as invalidate,
         ):
-            result = worker.run_once(lambda: MagicMock(), self.model, self.now, simulation="bad")
+            result = worker.run_once(
+                lambda: MagicMock(), self.model, self.now,
+                simulation="bad", previous_simulations=("good", "mid"),
+            )
         seed.assert_not_called()
+        invalidate.assert_not_called()
         self.assertTrue(result["_worker"].startswith("unavailable:"))
+
+    def test_series_stage_invalidates_both_other_forecasts_under_lock(self):
+        events = []
+        seeded = dict(device_id="sim-farm-good", inserted=120, latest_at=self.now)
+        with (
+            patch.object(worker, "acquire_worker_lock", side_effect=lambda conn: events.append("lock") or True),
+            patch("ai_model.simulation.write_history", side_effect=lambda *args: events.append("seed") or seeded),
+            patch.object(worker, "invalidate_forecast", side_effect=lambda *args: events.append("previous")) as invalidate,
+            patch.object(worker, "load_policy_result", return_value=(self.policy, None)),
+            patch.object(worker, "invalidate_stale_forecasts"),
+            patch.object(worker, "process_device", side_effect=lambda *args: events.append("forecast") or "created"),
+        ):
+            result = worker.run_once(
+                lambda: MagicMock(), self.model, self.now,
+                simulation="good", previous_simulations=("mid", "bad"),
+            )
+        self.assertEqual(events, ["lock", "seed", "previous", "previous", "forecast"])
+        invalidate.assert_has_calls([
+            unittest.mock.call(unittest.mock.ANY, "Simulation stage completed", "sim-farm-mid"),
+            unittest.mock.call(unittest.mock.ANY, "Simulation stage completed", "sim-farm-bad"),
+        ])
+        self.assertEqual(result["sim-farm-good"], "created")
 
     def test_continuous_simulator_fails_clearly_when_another_worker_is_running(self):
         with (
@@ -223,6 +250,83 @@ class ForecastWorkerTest(unittest.TestCase):
             patch("builtins.print"),
         ):
             self.assertEqual(worker.main(["--once"]), 1)
+
+    def test_series_runs_five_cycles_per_phase_in_order_and_completes(self):
+        run_cycle = Mock(return_value={"sim-farm": "created"})
+        sleeper = Mock()
+        with patch("builtins.print") as output:
+            result = worker.run_series(run_cycle=run_cycle, clock=lambda: 0, sleeper=sleeper)
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            [call.kwargs["simulation"] for call in run_cycle.call_args_list],
+            ["good"] * 5 + ["mid"] * 5 + ["bad"] * 5,
+        )
+        self.assertEqual(
+            [(index, call.kwargs["previous_simulations"])
+             for index, call in enumerate(run_cycle.call_args_list)
+             if "previous_simulations" in call.kwargs],
+            [(0, ("mid", "bad")), (5, ("good", "bad")), (10, ("good", "mid"))],
+        )
+        self.assertEqual([call.args[0] for call in sleeper.call_args_list], [worker.POLL_SECONDS] * 14)
+        progress = [json.loads(call.args[0]) for call in output.call_args_list]
+        self.assertEqual(progress[0]["series"], {
+            "phase": "good", "phase_index": 1, "phase_total": 3,
+            "cycle": 1, "cycles_per_phase": 5,
+        })
+        self.assertEqual(progress[-1]["status"], "complete")
+        self.assertEqual(progress[-1]["guidance_errors"], 0)
+
+    def test_series_once_runs_only_the_first_good_cycle(self):
+        run_cycle = Mock(return_value={"sim-farm-good": "created"})
+        sleeper = Mock()
+        with patch("builtins.print") as output:
+            result = worker.run_series(once=True, run_cycle=run_cycle, clock=lambda: 0, sleeper=sleeper)
+        self.assertEqual(result, 0)
+        run_cycle.assert_called_once_with(simulation="good", previous_simulations=("mid", "bad"))
+        sleeper.assert_not_called()
+        self.assertEqual(json.loads(output.call_args.args[0])["series"]["cycle"], 1)
+
+    def test_series_stops_on_worker_failure_without_reporting_completion(self):
+        run_cycle = Mock(side_effect=[
+            {"sim-farm-good": "created"},
+            {"_worker": "unavailable: another forecast worker is running"},
+        ])
+        with patch("builtins.print") as output:
+            result = worker.run_series(run_cycle=run_cycle, clock=lambda: 0, sleeper=Mock())
+        self.assertEqual(result, 1)
+        self.assertEqual(run_cycle.call_count, 2)
+        self.assertNotIn("complete", [json.loads(call.args[0]).get("status") for call in output.call_args_list])
+
+    def test_series_stops_when_forecast_processing_returns_an_error(self):
+        for failure in ("error: prediction failed", "policy_error"):
+            with self.subTest(failure=failure), patch("builtins.print"):
+                result = worker.run_series(
+                    run_cycle=Mock(return_value={"sim-farm-good": failure}),
+                    clock=lambda: 0,
+                    sleeper=Mock(),
+                )
+            self.assertEqual(result, 1)
+
+    def test_series_keeps_numeric_forecast_when_only_qwen_explanation_fails(self):
+        run_cycle = Mock(return_value={"sim-farm-good": "explanation_error"})
+        with patch("builtins.print"):
+            result = worker.run_series(once=True, run_cycle=run_cycle, clock=lambda: 0, sleeper=Mock())
+        self.assertEqual(result, 0)
+
+    def test_series_completion_reports_qwen_explanation_failures(self):
+        run_cycle = Mock(return_value={"sim-farm": "explanation_error"})
+        with patch("builtins.print") as output:
+            result = worker.run_series(run_cycle=run_cycle, clock=lambda: 0, sleeper=Mock())
+        self.assertEqual(result, 0)
+        self.assertEqual(json.loads(output.call_args.args[0])["guidance_errors"], 15)
+
+    def test_individual_simulation_mode_still_runs_its_selected_profile(self):
+        with (
+            patch.object(worker, "run_once", return_value={"sim-farm-mid": "created"}) as run_once,
+            patch("builtins.print"),
+        ):
+            self.assertEqual(worker.main(["--simulate", "mid", "--once"]), 0)
+        run_once.assert_called_once_with(simulation="mid")
 
     def test_save_forecast_executes_before_committing(self):
         connection = MagicMock()
