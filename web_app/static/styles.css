@@ -176,6 +176,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .forecast-actions .button { flex: 0 0 auto; }
 .forecast-actions .button:disabled { cursor: not-allowed; opacity: .6; transform: none; }
 .forecast-actions p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.forecast-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 0; padding: 10px 18px; border-bottom: 1px solid var(--border); list-style: none; font-size: 11px; font-weight: 600; }
+.forecast-legend li { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.forecast-legend-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: currentColor; }
+.forecast-legend .is-warning .forecast-legend-dot { background: #f5c542; border: 1px solid #765600; }
 .ai-body { padding: 15px 18px 17px; }
 .ai-body p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .ai-panel article + article { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
@@ -183,10 +187,11 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .ai-panel dl { margin: 14px 0; font-size: 12px; }
 .ai-panel dt { margin-top: 10px; color: var(--muted); }
 .ai-panel dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
-.forecast-value.is-normal { color: #206443; }
-.forecast-value.is-warning { color: #765600; }
-.forecast-value.is-critical { color: #a12f29; }
+.forecast-value.is-normal, .forecast-legend .is-normal { color: #206443; }
+.forecast-value.is-warning, .forecast-legend .is-warning { color: #765600; }
+.forecast-value.is-critical, .forecast-legend .is-critical { color: #a12f29; }
 .forecast-value.is-unavailable { color: var(--muted); }
+.sensor-trend .trend-axis-title { fill: var(--text); font-size: 12px; font-weight: 600; }
 .assessment-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .assessment-panel { min-height: 0; flex: 1 1 auto; }
 .assessment-body { min-height: 0; flex: 1 1 auto; overflow: auto; }
