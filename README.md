@@ -109,12 +109,15 @@ A fresh PostgreSQL directory runs `schema.sql` automatically. The website and
 ingestion wait for PostgreSQL readiness. Stored data remains in `db_data/`.
 Do not delete that directory to apply schema changes.
 
-To clear collected readings, an admin can click **Delete all readings** on the
-Data page and accept the confirmation popup. This clears the entire sensor
-table, including rows hidden by filters, and resets the next reading ID to 1.
-Accounts are kept. Export anything you need first, and pause the ESP32 and stop
-simulators if you want the table to remain empty. No container teardown or
-`db_data/` deletion is needed.
+An admin can use **Delete readings** on the Data page to delete from an inclusive
+UTC timestamp onward. The default scope is the four known simulation device IDs,
+so imported and physical-device rows are kept; selecting all devices also deletes
+their matching rows. Retained IDs are never renumbered. After a matching deletion,
+the next generated ID follows the highest retained ID (or starts at 1 if empty).
+The separate delete-all mode clears every reading and restarts at 1. Both modes
+ignore the table's display filters and keep accounts. Back up first and stop
+simulators, forecasting and collection before cleaning up. See the
+[simulation cleanup procedure](ai_model/SIMULATION_GUIDE.md#7-remove-simulation-readings-after-the-demo).
 
 Without a configured session secret, Flask generates an ephemeral secret and
 sessions become invalid after a restart. Database credentials still default to
@@ -176,12 +179,17 @@ the next 120 minutes. The worker saves the final two-hour-ahead values, applies
 `ai_model/reasoning ai/thresholds.md`, and asks Qwen to explain them. The existing
 2-hour forecast panel displays numerical values and guidance separately.
 
-For a demonstration without the ESP32, `ai_model/simulate_good.py`,
+For a complete demonstration without the ESP32, `ai_model/simulate_series.py`
+runs good -> warning -> critical automatically, five updates per stage, then
+exits. The forecast panel colors Normal green, Warning amber, and Critical red,
+using saved classifications rather than forcing the scenario's category.
+For individual scenarios, `ai_model/simulate_good.py`,
 `simulate_mid.py` and `simulate_bad.py` seed fresh, labelled input histories and
 run that same real inference pipeline. They preserve the imported dataset and
 require no MQTT ingestion. See [ai_model/README.md](ai_model/README.md#three-farm-demonstrations-without-a-device)
 for server commands, source labels and model limitations. Run one scenario at a
-time and stop the normal forecast worker first.
+time and stop the normal forecast worker first. For a step-by-step presentation,
+follow the [simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
 
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.
 Dashboard, Data, and export require authentication; existing sessions remain valid

@@ -256,10 +256,37 @@ ls -lh "$backup_file"
 The dump includes readings and account password hashes. Keep it private. These
 commands do not back up `.env`; preserve the server's existing `.env` separately.
 
+## Remove readings from a timestamp
+
+An admin can use **Data > Delete readings** to select an inclusive start timestamp
+in **UTC**. Choose the simulated-readings scope to remove only rows from
+`sim-farm-good`, `sim-farm-mid`, `sim-farm-bad`, and `python-simulator`. Imported
+dataset and physical-device rows remain untouched under that scope. The all-device
+scope removes every matching row from the chosen timestamp onward, regardless of
+the Data page's display filters.
+
+Back up first using the maintenance procedure above. Stop the simulator with
+Ctrl+C, pause devices, and stop ingestion and the regular forecast worker before
+deleting. A worker holding the forecasting lock causes the operation to be refused;
+stopping it also prevents a later cycle from immediately adding demo readings again.
+
+The simulator seeds 119 minutes before its current minute, so use the earliest
+simulation reading's timestamp rather than the time you launched the script.
+Existing IDs remain unchanged. After deleting matching rows, the next generated ID
+is `MAX(remaining id) + 1`, or 1 if no readings remain. For example, a remaining
+maximum of 32,321 gives the next insert ID 32,322. Gaps inside the retained records
+are not filled. A no-match deletion does not change the sequence.
+
+Forecasts for affected devices are removed in the same transaction. Accounts and
+unaffected devices' forecasts remain. The ID sequence restart is transactional:
+if cleanup fails, the deletion and restart roll back together. See PostgreSQL's
+[ALTER SEQUENCE documentation](https://www.postgresql.org/docs/15/sql-altersequence.html).
+
 ## Clear readings only (TRUNCATE)
 
-An admin can also use **Data > Delete all readings** and accept the confirmation
-popup. It performs the same truncate/reset operation below. Pause devices and
+An admin can also use **Data > Delete readings**, choose the delete-all mode, and
+accept the confirmation popup. It performs the same truncate/reset operation below.
+Pause devices and
 simulators first if the table must stay empty; accounts remain unchanged.
 
 This permanently deletes sensor rows and resets their IDs, while keeping the
@@ -368,16 +395,20 @@ Compose already sets `restart: unless-stopped` for each service.
 
 ## Good, warning and critical farm demos
 
-For a demonstration without the sensor device, use the three scripts in
-`ai_model/`: `simulate_good.py`, `simulate_mid.py`, and `simulate_bad.py`.
+For a demonstration without the sensor device, use `ai_model/simulate_series.py`
+for an automatic good -> warning -> critical sequence. It runs five updates per
+stage, then exits. The Docker worker command is `--simulate series`.
+The individual `simulate_good.py`, `simulate_mid.py`, and `simulate_bad.py` scripts
+remain available for continuous single-condition runs.
 They add 120 fresh, minute-aligned simulated inputs, run the trained model, and
 save its two-hour forecast and Qwen guidance in the existing dashboard box.
 They preserve the original dataset; the trends cover all stored dates.
 
-Follow [the complete demo commands](ai_model/README.md#three-farm-demonstrations-without-a-device).
-Stop the normal forecast worker first, start Qwen with
-`python3 setup_reasoning_ai.py --serve` in another terminal, and run only one
-scenario at a time. The older `simulate_esp32.py` below tests MQTT ingestion;
+Follow the [step-by-step simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
+Stop the normal forecast worker first, keep Qwen available through the
+[background service](#keep-project-qwen-running-in-the-background) or a manual
+`--serve` terminal, and run only one scenario at a time.
+The older `simulate_esp32.py` below tests MQTT ingestion;
 it does not provide the model's required one-minute history.
 
 ## Dashboard accounts
@@ -559,9 +590,70 @@ OLLAMA_HOST=127.0.0.1:11435 ollama list
 OLLAMA_HOST=127.0.0.1:11435 ollama run qwen2.5:3b
 ```
 
-This project server is not started automatically on reboot. It supports the current
-installation/testing phase; later application integration needs a service setup.
-An Ollama service on port 11434 does not automatically serve these project files.
+The foreground command stops when its process is stopped. For automatic startup
+and a simulation that needs only one terminal, use the service below. An Ollama
+service on port 11434 does not automatically serve these project files.
+
+### Keep project Qwen running in the background
+
+The supplied `ai_model/henvironment-ollama.service` targets the current Ubuntu
+installation: user `airqualitymonitor` and repository
+`/home/airqualitymonitor/AirQualityMonitor`. Edit those paths/account in the unit
+before installing if this installation differs. It runs the existing Python
+helper, which sets the project model store, loopback port 11435 and local-only
+model operation. It does not start a simulation, ingestion, or the forecast worker,
+and does not change database records.
+
+After committing/pushing and pulling the unit file, stop any foreground
+`python3 setup_reasoning_ai.py --serve` with Ctrl+C. Then run on Ubuntu:
+
+```bash
+(
+  set -eu
+  cd ~/AirQualityMonitor
+  python3 setup_reasoning_ai.py
+  sudo install -m 644 ai_model/henvironment-ollama.service /etc/systemd/system/henvironment-ollama.service
+  sudo systemd-analyze verify /etc/systemd/system/henvironment-ollama.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable henvironment-ollama.service
+  sudo systemctl restart henvironment-ollama.service
+  sudo systemctl --no-pager status henvironment-ollama.service
+  curl --retry 15 --retry-connrefused --retry-delay 2 -fsS http://127.0.0.1:11435/api/tags | python3 -m json.tool
+)
+```
+
+The initial Python check must succeed; if it reports a missing engine/model,
+install it using the earlier instructions first. The tags response should list
+`qwen2.5:3b`. This endpoint check verifies discovery, not successful generation;
+the simulation will perform actual guidance requests. If port 11435 is already
+occupied, identify and stop the earlier project server before retrying this
+service. The normal Ollama service on 11434 can remain as it is.
+
+The service starts at boot and runs independently of SSH. It restarts after a
+process failure, subject to systemd's normal restart limits. You now need only
+the simulation command in your SSH terminal; do not also run `--serve` manually.
+Qwen may still need time to load on the first guidance request. This follows the
+[Ollama Linux service guidance](https://docs.ollama.com/linux) and
+[systemd service configuration](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
+
+To inspect or manage this project service:
+
+```bash
+sudo systemctl --no-pager status henvironment-ollama.service
+sudo journalctl -u henvironment-ollama.service -n 50 --no-pager
+sudo systemctl restart henvironment-ollama.service
+```
+
+Stopping a simulation with Ctrl+C leaves Qwen running. To stop it and disable
+automatic startup deliberately:
+
+```bash
+sudo systemctl disable --now henvironment-ollama.service
+```
+
+After changing the service unit, reinstall it and repeat `daemon-reload` and
+`restart`; after changing only the Python helper, restart the service. No Docker
+rebuild or database migration is needed to install this host service.
 
 Review the project's general thresholds when needed:
 
