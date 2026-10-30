@@ -35,13 +35,13 @@
             });
             article.append(list);
         }
-        addText(article, "h3", "Reasoning AI guidance");
+        addText(article, "h3", "______________________________________");
         const guidanceFallback = forecast.explanation_status === "pending"
-            ? "Qwen is generating guidance… This panel updates automatically."
+            ? "This panel updates automatically."
             : forecast.explanation_status === "error" && forecast.status === "available"
                 ? forecast.reason === "QWEN_TIMEOUT"
-                    ? "Qwen took too long to respond. Check the Ollama service and forecast worker logs."
-                    : "Qwen could not generate guidance. Check the Ollama service and forecast worker logs."
+                    ? "It took too long to respond. Check the Ollama service and forecast worker logs."
+                    : "Could not generate output text. Check the Ollama service and forecast worker logs."
                 : "No saved guidance yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);
