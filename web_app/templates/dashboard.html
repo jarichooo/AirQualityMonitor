@@ -98,15 +98,11 @@
         </section>
         <div class="dashboard-side-column">
             <section class="dashboard-panel ai-panel" aria-labelledby="forecast-title" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" aria-busy="true">
-                <div class="dashboard-panel-heading"><div><h2 id="forecast-title">2-hour forecast</h2><p>Predicted values &middot; separate from measured readings &middot; UTC</p></div></div>
+                <div class="dashboard-panel-heading"><h2 id="forecast-title">2-hour forecast</h2></div>
                 <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
-            </section>
-            <section class="dashboard-panel" aria-labelledby="analytics-notes-title">
-                <div class="dashboard-panel-heading"><h2 id="analytics-notes-title">About these analytics</h2></div>
-                <div class="ai-body"><p>Statistics summarize collected measurements, without AI interpretation. Missing values are excluded from averages. Refresh to load new readings.</p></div>
             </section>
         </div>
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='pause-feedback-2') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='1') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='pause-feedback-2') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='3') }}" defer></script>{% endblock %}

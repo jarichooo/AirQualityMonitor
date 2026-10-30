@@ -3,44 +3,54 @@
     const results = document.getElementById("forecast-results");
     if (!panel || !results) return;
 
-    const addText = (parent, tag, text) => {
+    const addText = (parent, tag, text, className = "") => {
         const element = document.createElement(tag);
         element.textContent = text;
+        if (className) element.className = className;
         parent.append(element);
         return element;
     };
-    const formatTime = (value) => {
-        const date = new Date(value);
-        return value && Number.isFinite(date.valueOf()) ? `${date.toISOString().slice(0, 19).replace("T", " ")} UTC` : "Unavailable";
-    };
     const severityLabel = (value) => ({ normal: "Normal", warning: "Warning", critical: "Critical", unavailable: "Classification unavailable" }[value] || "Unavailable");
+    const severityClass = (value) => ["normal", "warning", "critical"].includes(value) ? value : "unavailable";
 
     const renderForecast = (forecast) => {
         const article = document.createElement("article");
-        addText(article, "h3", `Device ${forecast.device_id}`);
-        if (forecast.data_class === "SIMULATED") {
-            addText(article, "p", `Simulated readings${forecast.scenario ? ` · ${forecast.scenario} input conditions` : ""}. Forecasts are model estimates.`);
-        }
-        addText(article, "p", `Input through ${formatTime(forecast.input_cutoff_at)} · Forecast target ${formatTime(forecast.target_at)}`);
-        if (forecast.status !== "available") {
-            addText(article, "p", forecast.reason || "The forecast is unavailable.");
-        } else {
-            const heading = addText(article, "h4", "Forecast values (predicted, not measured)");
+        article.className = `forecast-card is-${forecast.status === "available" ? "available" : "unavailable"}`;
+        if (forecast.status === "available" && forecast.predictions?.length) {
+            const heading = addText(article, "h3", "Predicted values in 2 hours");
             const list = document.createElement("dl");
             list.setAttribute("aria-labelledby", heading.id = `forecast-values-${forecast.forecast_id || forecast.device_id}`);
             forecast.predictions.forEach((prediction) => {
                 addText(list, "dt", prediction.label);
-                addText(list, "dd", `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`);
+                const value = addText(
+                    list,
+                    "dd",
+                    `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`,
+                    `forecast-value is-${severityClass(prediction.severity)}`,
+                );
+                value.setAttribute("aria-label", `${prediction.label}: ${value.textContent}`);
             });
             article.append(list);
         }
-        addText(article, "h4", "Reasoning AI guidance");
+        addText(article, "h3", "Reasoning AI guidance");
         const guidanceFallback = forecast.explanation_status === "pending"
             ? "Guidance is being prepared."
             : forecast.explanation_status === "error" && forecast.status === "available"
-                ? "The numeric forecast is available, but guidance could not be generated."
-                : "Guidance is unavailable for this forecast.";
-        addText(article, "p", forecast.explanation || guidanceFallback);
+                ? "Guidance could not be generated."
+                : "No saved guidance yet.";
+        if (forecast.explanation) {
+            addText(article, "p", forecast.explanation);
+        } else if (forecast.last_guidance) {
+            const update = forecast.status !== "available"
+                ? "Historical guidance; fresh readings are needed."
+                : forecast.explanation_status === "pending"
+                    ? "Updating guidance for the latest readings…"
+                    : "Guidance update failed; showing the last completed guidance.";
+            addText(article, "p", update);
+            addText(article, "p", forecast.last_guidance.text);
+        } else {
+            addText(article, "p", guidanceFallback);
+        }
         return article;
     };
 
@@ -50,15 +60,22 @@
             addText(results, "p", payload.message || "Forecasting is not configured yet.");
             return;
         }
-        if (!payload.forecasts?.length) {
-            addText(results, "p", payload.message || "No saved forecasts are available yet.");
+        const forecasts = (payload.forecasts || []).filter((forecast) =>
+            (forecast.status === "available" && forecast.predictions?.length) || forecast.explanation || forecast.last_guidance?.text
+        );
+        if (!forecasts.length) {
+            addText(results, "p", "No predictions or guidance available yet.");
             return;
         }
-        payload.forecasts.forEach((forecast) => results.append(renderForecast(forecast)));
+        forecasts
+            .sort((left, right) => Number(right.status === "available") - Number(left.status === "available"))
+            .forEach((forecast) => results.append(renderForecast(forecast)));
     };
 
     let loading = false;
     let renderedFingerprint = null;
+    const refreshNotice = addText(panel, "p", "");
+    refreshNotice.setAttribute("role", "status");
     const refresh = async () => {
         if (loading || document.hidden) return;
         loading = true;
@@ -78,17 +95,14 @@
             }
             if (!response.ok) throw new Error(`Forecast refresh failed: ${response.status}`);
             const payload = await response.json();
+            refreshNotice.textContent = "";
             const fingerprint = JSON.stringify(payload);
             if (fingerprint !== renderedFingerprint) {
                 render(payload);
                 renderedFingerprint = fingerprint;
             }
         } catch (error) {
-            if (renderedFingerprint !== "request-error") {
-                results.replaceChildren();
-                addText(results, "p", "Forecasts are temporarily unavailable. Measured readings are unaffected.");
-                renderedFingerprint = "request-error";
-            }
+            refreshNotice.textContent = "Could not refresh forecasts. Showing the last loaded results.";
         } finally {
             window.clearTimeout(timeout);
             loading = false;

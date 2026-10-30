@@ -36,12 +36,13 @@ class ForecastTestCase(unittest.TestCase):
             "explanation_status": "available",
             "explanation": "Check ventilation before the forecast target.",
             "policy_sha256": "abc123",
+            "last_guidance": None,
         }
         values.update(changes)
         return tuple(values[column] for column in (
             "forecast_id", "device_id", "input_row_id", "input_cutoff_at", "target_at",
             "generated_at", "model_version", "status", "reason", "predicted_values",
-            "severity", "explanation_status", "explanation", "policy_sha256",
+            "severity", "explanation_status", "explanation", "policy_sha256", "last_guidance",
         ))
 
     def test_forecast_api_requires_login_and_returns_saved_output(self):
@@ -163,6 +164,50 @@ class ForecastTestCase(unittest.TestCase):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'id="forecast-panel"', page.data)
+        self.assertNotIn(b"About these analytics", page.data)
+        self.assertNotIn(b"Predicted values &middot; separate from measured readings", page.data)
+
+    def test_previous_guidance_survives_pending_error_and_stale_readings(self):
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(minutes=2)
+        saved = {
+            "text": "Previous advice: check ventilation.",
+            "input_cutoff_at": cutoff.isoformat(),
+            "target_at": (cutoff + timedelta(hours=2)).isoformat(),
+            "model_version": "test-model", "policy_sha256": "abc123",
+        }
+        self.login()
+        for status in ("pending", "error"):
+            with self.subTest(status=status), patch.object(application, "get_db_connection") as connect:
+                cursor = connect.return_value.cursor.return_value.__enter__.return_value
+                cursor.fetchall.return_value = [self.row(now, explanation_status=status,
+                                                        explanation=None, last_guidance=saved)]
+                # Two independent requests verify retention without a browser cache.
+                for _ in range(2):
+                    forecast = self.client.get("/api/forecasts").get_json()["forecasts"][0]
+                    self.assertIsNone(forecast["explanation"])
+                    self.assertEqual(forecast["last_guidance"], {
+                        key: saved[key] for key in ("text", "input_cutoff_at", "target_at")
+                    })
+        stale_time = now + timedelta(hours=3)
+        for changes in ({}, {"status": "unavailable", "reason": "Latest reading is stale"}):
+            result = serialize_forecast(self.row(now, last_guidance=saved, **changes),
+                                        application.SENSORS, stale_time)
+            self.assertEqual(result["status"], "unavailable")
+            self.assertEqual(result["predictions"], [])
+            self.assertIsNone(result["explanation"])
+            self.assertEqual(result["last_guidance"]["text"], saved["text"])
+
+        for changes in ({"model_version": "changed"}, {"policy_sha256": "changed"},
+                        {"input_cutoff_at": "broken"}, {"text": ""},
+                        {"target_at": now.isoformat()}, {"text": "x" * 2001}):
+            result = serialize_forecast(self.row(now, explanation_status="pending", explanation=None,
+                                                last_guidance={**saved, **changes}), application.SENSORS, now)
+            self.assertIsNone(result["last_guidance"])
+        for changes in ({"status": "unavailable", "reason": "Simulation stage completed"},
+                        {"severity": {"temperature_c": "unavailable"}}):
+            result = serialize_forecast(self.row(now, last_guidance=saved, **changes), application.SENSORS, now)
+            self.assertIsNone(result["last_guidance"])
 
     def test_simulated_forecasts_are_labelled_without_changing_model_values(self):
         now = datetime.now(timezone.utc)

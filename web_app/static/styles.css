@@ -179,6 +179,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .ai-panel dl { margin: 14px 0; font-size: 12px; }
 .ai-panel dt { margin-top: 10px; color: var(--muted); }
 .ai-panel dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.forecast-value.is-normal { color: #206443; }
+.forecast-value.is-warning { color: #765600; }
+.forecast-value.is-critical { color: #a12f29; }
+.forecast-value.is-unavailable { color: var(--muted); }
 .assessment-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .assessment-panel { min-height: 0; flex: 1 1 auto; }
 .assessment-body { min-height: 0; flex: 1 1 auto; overflow: auto; }

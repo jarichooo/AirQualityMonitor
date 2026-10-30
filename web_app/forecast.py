@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 FORECAST_COLUMNS = (
     "forecast_id", "device_id", "input_row_id", "input_cutoff_at", "target_at",
     "generated_at", "model_version", "status", "reason", "predicted_values",
-    "severity", "explanation_status", "explanation", "policy_sha256",
+    "severity", "explanation_status", "explanation", "policy_sha256", "last_guidance",
 )
 VALID_SEVERITIES = {"normal", "warning", "critical", "unavailable"}
 VALID_EXPLANATION_STATUSES = {"pending", "available", "unavailable", "error"}
@@ -32,6 +32,25 @@ def _valid_sensor_value(key, value):
     return True
 
 
+def _last_guidance(row, now):
+    saved = row[14]
+    if not isinstance(saved, dict) or not isinstance(saved.get("text"), str):
+        return None
+    text = saved["text"].strip()
+    if (not text or len(text) > 2000 or not isinstance(row[13], str) or not row[13]
+            or saved.get("model_version") != row[6] or saved.get("policy_sha256") != row[13]):
+        return None
+    try:
+        cutoff = _utc_timestamp(datetime.fromisoformat(saved["input_cutoff_at"]))
+        target = _utc_timestamp(datetime.fromisoformat(saved["target_at"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    current_cutoff = _utc_timestamp(row[3])
+    if cutoff is None or target != cutoff + timedelta(hours=2) or current_cutoff is None or cutoff > min(now, current_cutoff):
+        return None
+    return {"text": text, "input_cutoff_at": _iso(cutoff), "target_at": _iso(target)}
+
+
 def _unavailable(row, reason, explanation_status, explanation):
     device = row[1].strip() if isinstance(row[1], str) else None
     scenario = {"sim-farm-good": "Good", "sim-farm-mid": "Warning", "sim-farm-bad": "Critical"}.get(device)
@@ -51,6 +70,7 @@ def _unavailable(row, reason, explanation_status, explanation):
         "explanation_status": explanation_status,
         "explanation": explanation,
         "policy_sha256": row[13] if isinstance(row[13], str) else None,
+        "last_guidance": None,
     }
 
 
@@ -65,17 +85,24 @@ def serialize_forecast(row, sensors, now=None):
 
     reason = row[8].strip() if isinstance(row[8], str) and row[8].strip() else None
     if row[7] != "available":
-        return _unavailable(row, reason or "The forecast is not available.", "unavailable", None)
+        result = _unavailable(row, reason or "The forecast is not available.", "unavailable", None)
+        if reason == "Latest reading is stale":
+            result["last_guidance"] = _last_guidance(row, now)
+        return result
 
     cutoff = _utc_timestamp(row[3])
     target = _utc_timestamp(row[4])
     generated = _utc_timestamp(row[5])
-    if cutoff is None or target is None or cutoff > now or now - cutoff > timedelta(seconds=180):
+    if cutoff is None or target is None or cutoff > now:
         return _unavailable(row, "The saved forecast is stale or has an invalid input time.", "unavailable", None)
-    if target != cutoff + timedelta(hours=2) or target <= now:
+    if target != cutoff + timedelta(hours=2):
         return _unavailable(row, "The saved forecast has an invalid two-hour target time.", "unavailable", None)
     if generated is None or generated < cutoff or generated > now:
         return _unavailable(row, "The saved forecast has an invalid generation time.", "unavailable", None)
+    if now - cutoff > timedelta(seconds=180) or target <= now:
+        result = _unavailable(row, "The saved forecast is stale.", "unavailable", None)
+        result["last_guidance"] = _last_guidance(row, now)
+        return result
 
     values = row[9] if isinstance(row[9], dict) else {}
     severities = row[10] if isinstance(row[10], dict) else {}
@@ -95,6 +122,8 @@ def serialize_forecast(row, sensors, now=None):
     result = _unavailable(row, reason, explanation_status, explanation)
     if any(prediction["severity"] == "unavailable" for prediction in predictions):
         result.update(explanation_status="unavailable", explanation=None)
+    else:
+        result["last_guidance"] = _last_guidance(row, now)
     result.update(status="available", predictions=predictions)
     return result
 
