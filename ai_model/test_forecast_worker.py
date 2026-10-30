@@ -350,6 +350,10 @@ class ForecastWorkerTest(unittest.TestCase):
         }
         worker.save_forecast(connection, record)
         cursor.execute.assert_called_once()
+        query = cursor.execute.call_args.args[0]
+        self.assertIn("THEN current_forecast.last_guidance ELSE NULL END", query)
+        self.assertIn("current_forecast.model_version = EXCLUDED.model_version", query)
+        self.assertIn("current_forecast.policy_sha256 = EXCLUDED.policy_sha256", query)
         connection.commit.assert_called_once()
 
     def test_stale_forecast_is_invalidated_without_deleting_history(self):
@@ -359,7 +363,23 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertIn("status = 'unavailable'", query)
         self.assertIn("input_cutoff_at < %s", query)
         self.assertEqual(params[-1], self.now - timedelta(seconds=worker.FRESHNESS_SECONDS))
+        self.assertNotIn("last_guidance =", query)
         connection.commit.assert_called_once()
+
+    def test_guidance_snapshot_replaced_only_by_success_and_guarded_by_forecast_id(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        worker.update_explanation(connection, "esp32-1", "forecast-id", "available", "New advice")
+        query, params = cursor.execute.call_args.args
+        self.assertIn("last_guidance = jsonb_build_object", query)
+        self.assertIn("forecast_id = %s::uuid", query)
+        self.assertEqual(params, ["available", "New advice", "New advice", "esp32-1", "forecast-id"])
+        worker.update_explanation(connection, "esp32-1", "forecast-id", "error")
+        self.assertNotIn("last_guidance =", cursor.execute.call_args.args[0])
+        worker.set_policy_pending(connection, "esp32-1", "forecast-id", {}, "changed-policy")
+        self.assertIn("CASE WHEN policy_sha256 = %s THEN last_guidance ELSE NULL END", cursor.execute.call_args.args[0])
+        worker.invalidate_forecast(connection, "Simulation stage completed", "esp32-1")
+        self.assertIn("last_guidance = NULL", cursor.execute.call_args.args[0])
 
     def test_qwen_requires_complete_structured_output(self):
         opener = Mock()
