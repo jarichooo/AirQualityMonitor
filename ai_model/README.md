@@ -247,6 +247,9 @@ with the database password and runs the chosen simulator in the same SSH termina
 Docker uses `--entrypoint python forecast_worker -m ai_model.simulate_good`; native
 Python uses `python -m ai_model.simulate_good` or `python ai_model/simulate_good.py`.
 Replace `simulate_good` with `simulate_mid` or `simulate_bad` for the other conditions.
+The three simulator launchers and Compose worker default to the demo database
+password `notsosecretpass`. Set `DB_PASS` to override it; no interactive password
+entry is needed when using the default.
 The queue schema is additive; the scripts handle the reading reset. Interrupted manual
 prediction requests are retried when the manual worker restarts and reacquires
 its exclusive worker lock. New requests remain queued while that worker is stopped.

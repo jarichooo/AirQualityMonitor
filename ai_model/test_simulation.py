@@ -183,8 +183,19 @@ class SimulationTest(unittest.TestCase):
         connection.close.assert_called_once_with()
 
     def test_launcher_handles_ctrl_c_as_a_terminal_stop(self):
-        with patch.object(simulation, "run_simulation", side_effect=KeyboardInterrupt):
+        with patch.dict(simulation.os.environ, {}, clear=True), \
+                patch.object(simulation, "run_simulation", side_effect=KeyboardInterrupt):
             self.assertEqual(simulation.main("good", []), 130)
+
+    def test_launchers_default_to_demo_password_and_honor_an_override(self):
+        for configured in (None, "", "custom-password"):
+            initial = {} if configured is None else {"DB_PASS": configured}
+            with self.subTest(configured=configured), patch.dict(simulation.os.environ, initial, clear=True):
+                def simulate(profile, **kwargs):
+                    self.assertEqual(simulation.os.environ["DB_PASS"], configured or "notsosecretpass")
+                    raise KeyboardInterrupt
+                with patch.object(simulation, "run_simulation", side_effect=simulate):
+                    self.assertEqual(simulation.main("good", []), 130)
 
     def test_invalid_condition_is_rejected_before_connecting_or_clearing(self):
         connect = MagicMock()

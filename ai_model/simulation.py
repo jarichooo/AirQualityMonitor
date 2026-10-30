@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -216,6 +217,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
 def main(profile, argv=None):
     parser = argparse.ArgumentParser(description=f"Replace all sensor readings with {profile} conditions for manual predictions.")
     parser.parse_args(argv)
+    os.environ["DB_PASS"] = os.environ.get("DB_PASS") or "notsosecretpass"
     try:
         run_simulation(profile, report=lambda message: print(json.dumps(message), flush=True))
     except KeyboardInterrupt:

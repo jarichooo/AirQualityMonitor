@@ -25,11 +25,9 @@ SSH terminal:
   curl --retry 15 --retry-connrefused --retry-delay 2 -fsS \
     http://127.0.0.1:11435/api/tags >/dev/null
 
-  read -rsp 'PostgreSQL password: ' DB_PASS; echo
-  export DB_PASS
-  sudo --preserve-env=DB_PASS docker compose --profile forecast up \
+  sudo docker compose --profile forecast up \
     -d --no-deps forecast_worker
-  sudo --preserve-env=DB_PASS docker compose --profile forecast run \
+  sudo docker compose --profile forecast run \
     --rm --no-deps --name farm_simulation --entrypoint python \
     forecast_worker -m ai_model.simulate_good
 )
@@ -38,6 +36,21 @@ SSH terminal:
 This block runs **Good**. To run **Warning** or **Critical**, change only the last
 module name to `ai_model.simulate_mid` or `ai_model.simulate_bad`, then paste the
 whole block again after stopping the previous run.
+
+The scripts and Docker worker use `notsosecretpass` by default, so no database
+password prompt is needed. An existing `DB_PASS` setting overrides this default.
+
+If the services are already running and you installed the native Python setup,
+you can run the script directly:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  source ~/henvironment-simulation-venv/bin/activate
+  python3 ai_model/simulate_good.py
+)
+```
 
 Keep the terminal open. Each script inserts **120 readings for its condition**,
 then keeps adding **one reading per minute until you press Ctrl+C**. There is no
@@ -71,9 +84,7 @@ only and does not start a new simulation:
   cd ~/AirQualityMonitor
   sudo docker compose --profile forecast stop ingestion forecast_worker
   sudo docker compose up -d --wait postgres_db
-  read -rsp 'PostgreSQL password: ' DB_PASS; echo
-  export DB_PASS
-  sudo --preserve-env=DB_PASS docker compose --profile forecast run \
+  sudo docker compose --profile forecast run \
     --rm --no-deps -T --entrypoint python forecast_worker - <<'PY'
 from contextlib import closing
 from ai_model.forecast_worker import database_connection, acquire_worker_lock
