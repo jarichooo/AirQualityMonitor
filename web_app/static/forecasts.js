@@ -46,8 +46,8 @@
             const update = forecast.status !== "available"
                 ? "New readings are needed."
                 : forecast.explanation_status === "pending"
-                    ? "Updating… Showing the previous advice."
-                    : "Could not update. Showing the previous advice.";
+                    ? "Updating… Showing the previous output."
+                    : "Could not update. Showing the previous output.";
             addText(article, "p", update);
             addText(article, "p", forecast.last_guidance.text);
         } else {

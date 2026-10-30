@@ -114,6 +114,7 @@ def serialize_forecast(row, sensors, now=None):
             continue
         if not isinstance(severity, str) or severity not in VALID_SEVERITIES:
             continue
+        label = {"mq4_ppm": "Methane", "mq137_ppm": "Ammonia"}.get(key, label)
         predictions.append({"key": key, "label": label, "unit": unit,
                             "value": float(value), "severity": severity})
     if not predictions:

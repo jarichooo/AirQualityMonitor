@@ -11,6 +11,11 @@ requests, then seeds the selected condition. Accounts are kept.**
 | Warning | `ai_model/simulate_mid.py` |
 | Critical | `ai_model/simulate_bad.py` |
 
+The Python scripts write readings to PostgreSQL. **Predict now** sends a job to
+the background worker, which runs the trained forecast model. Qwen then uses
+the forecast and `ai_model/reasoning ai/thresholds.md` to produce the advice.
+Both models run locally; the simulation does not start predictions automatically.
+
 ## One-time Python setup
 
 Connect through SSH and paste this once. Skip it on later runs:
@@ -84,6 +89,52 @@ If seeding fails, the reset rolls back.
 To stop the simulation, press **Ctrl+C**. The dashboard and prediction services
 continue in the background. After the readings stop, request a prediction within
 about three minutes before they become too old.
+
+## Apply code updates
+
+After the changes have been pushed to the remote repository, wait for the current
+prediction to finish, then run:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  git pull --ff-only origin major_updates
+  sudo docker compose --profile forecast up -d --build --no-deps \
+    web_dashboard forecast_worker
+)
+```
+
+A Git pull alone does not update the running containers. The command above
+rebuilds and restarts them. Refresh the webpage with **Ctrl+Shift+R** afterward.
+If a simulation script changed too, stop it and start it again to load that change.
+
+If Git reports diverging branches or local changes, stop and send the error to
+the maintainer; do not force the update.
+
+## If a prediction fails
+
+"Wait 25 seconds" is the button's cooldown, not the reason for the failure.
+The numbers may have been saved even if the advice failed. Check the actual error:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  sudo docker exec postgres_db psql -U admin -d air_quality \
+    -c "SELECT status, error FROM air_quality_prediction_requests WHERE id = 1;"
+  sudo docker compose --profile forecast logs --since=10m --tail=60 forecast_worker
+)
+```
+
+`done_reason=length` means the advice was cut off at its output token limit.
+Tokens are pieces of text; this limit also applies offline. The current worker
+allows **384 output tokens**, asks for **at most 50 words**, and has a **120-second
+response timeout**. Rebuild the worker after pulling changes to these settings.
+An actual timeout is a different error from reaching the token limit.
+
+After checking the error, wait for a new reading and for the button to become
+available, then click **Predict now** again. Save the log output if it keeps failing.
 
 ## Remove simulation data without starting another run
 
