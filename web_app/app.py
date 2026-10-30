@@ -2,6 +2,7 @@ import csv
 import io
 import math
 import os
+import re
 import secrets
 from contextlib import closing
 from datetime import datetime, time, timedelta, timezone
@@ -9,6 +10,7 @@ from functools import wraps
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash
 
@@ -68,6 +70,16 @@ LIVE_SENSORS = (
     ("mq4_ppm", "Methane estimate (MQ-4)", "ppm"),
     ("mq137_ppm", "Ammonia estimate (MQ-137)", "ppm"),
 )
+# Match the forecast worker so cleanup cannot race with simulation or inference.
+DELETE_WORKER_LOCK_ID = 739_783_247_071_623_201
+SIMULATED_DEVICE_IDS = ("sim-farm-good", "sim-farm-mid", "sim-farm-bad", "python-simulator")
+
+
+def parse_delete_cutoff(value):
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2})?", value or ""):
+        raise ValueError("invalid UTC timestamp")
+    timestamp_format = "%Y-%m-%dT%H:%M:%S" if len(value) == 19 else "%Y-%m-%dT%H:%M"
+    return datetime.strptime(value, timestamp_format).replace(tzinfo=timezone.utc)
 
 
 def fetch_dashboard_data(sensor):
@@ -432,18 +444,92 @@ def delete_readings():
     submitted = request.form.get("csrf_token", "")
     if not token or not secrets.compare_digest(token.encode(), submitted.encode()):
         abort(400)
-    if request.form.get("confirmation") != "delete_all":
+    delete_mode = request.form.get("delete_mode")
+    expected_confirmation = {"all": "delete_all", "from_timestamp": "delete_from_timestamp"}.get(delete_mode)
+    if not expected_confirmation or request.form.get("confirmation") != expected_confirmation:
         abort(400)
+    cutoff = None
+    delete_scope = request.form.get("delete_scope")
+    if delete_mode == "from_timestamp":
+        if delete_scope not in {"simulated", "all"}:
+            abort(400)
+        try:
+            cutoff = parse_delete_cutoff(request.form.get("delete_from"))
+        except ValueError:
+            abort(400)
+    elif delete_scope not in {None, "", "all"}:
+        abort(400)
+
+    busy = False
+    deleted_count = 0
+    next_id = None
     try:
         with closing(get_db_connection()) as conn:
             with conn:
                 with conn.cursor() as cursor:
                     cursor.execute("SET LOCAL lock_timeout = '5s'")
-                    cursor.execute("TRUNCATE TABLE air_quality_logs RESTART IDENTITY")
-        flash("All sensor readings were deleted and the ID sequence was reset to 1. Active devices may already add new readings.", "success")
+                    cursor.execute("SELECT pg_try_advisory_xact_lock(%s)", (DELETE_WORKER_LOCK_ID,))
+                    if not cursor.fetchone()[0]:
+                        busy = True
+                    else:
+                        cursor.execute("SELECT to_regclass('public.air_quality_forecasts')")
+                        forecast_table_exists = cursor.fetchone()[0] is not None
+                        if forecast_table_exists:
+                            cursor.execute("LOCK TABLE air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
+                        cursor.execute("LOCK TABLE air_quality_logs IN ACCESS EXCLUSIVE MODE")
+                        if delete_mode == "all":
+                            if forecast_table_exists:
+                                cursor.execute("TRUNCATE TABLE air_quality_forecasts")
+                            cursor.execute("TRUNCATE TABLE air_quality_logs RESTART IDENTITY")
+                        else:
+                            scope_sql = " AND device_id = ANY(%s)" if delete_scope == "simulated" else ""
+                            params = (cutoff, list(SIMULATED_DEVICE_IDS)) if scope_sql else (cutoff,)
+                            cursor.execute(
+                                "WITH deleted AS ("
+                                f"DELETE FROM air_quality_logs WHERE recorded_at >= %s{scope_sql} RETURNING device_id"
+                                ") SELECT COUNT(*), COALESCE(ARRAY_AGG(DISTINCT device_id) "
+                                "FILTER (WHERE device_id IS NOT NULL), ARRAY[]::varchar[]) FROM deleted",
+                                params,
+                            )
+                            deleted_count, affected_devices = cursor.fetchone()
+                            if deleted_count:
+                                if affected_devices and forecast_table_exists:
+                                    cursor.execute(
+                                        "DELETE FROM air_quality_forecasts WHERE device_id = ANY(%s)",
+                                        (affected_devices,),
+                                    )
+                                cursor.execute(
+                                    "SELECT namespace.nspname, sequence.relname, "
+                                    "(SELECT COALESCE(MAX(id), 0) + 1 FROM public.air_quality_logs) "
+                                    "FROM pg_class AS sequence JOIN pg_namespace AS namespace "
+                                    "ON namespace.oid = sequence.relnamespace "
+                                    "WHERE sequence.oid = pg_get_serial_sequence('public.air_quality_logs', 'id')::regclass"
+                                )
+                                sequence = cursor.fetchone()
+                                if sequence is None:
+                                    raise psycopg2.DatabaseError("The readings ID sequence is missing")
+                                sequence_schema, sequence_name, next_id = sequence
+                                next_id = int(next_id)
+                                cursor.execute(
+                                    sql.SQL("ALTER SEQUENCE {} RESTART WITH {}").format(
+                                        sql.Identifier(sequence_schema, sequence_name), sql.Literal(next_id)
+                                    )
+                                )
+        if busy:
+            flash("Readings were not deleted because the forecast or simulation worker is running. Stop it and try again.", "error")
+        elif delete_mode == "all":
+            flash("All sensor readings and saved forecasts were deleted. The next reading ID is 1.", "success")
+        elif deleted_count:
+            flash(
+                f"Deleted {deleted_count} matching readings from {cutoff.strftime('%Y-%m-%d %H:%M:%S')} UTC. "
+                f"Existing IDs were kept; the next reading ID is {next_id}.",
+                "success",
+            )
+        else:
+            flash("No matching readings were found. No data or ID sequence was changed.", "success")
     except psycopg2.Error:
         app.logger.exception("Unable to delete sensor readings")
-        flash("Unable to delete readings. The reset was not completed; please try again.", "error")
+        flash("Unable to delete readings. No changes were committed; please try again.", "error")
     return redirect(url_for("data_page"), code=303)
 
 

@@ -179,6 +179,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .ai-panel dl { margin: 14px 0; font-size: 12px; }
 .ai-panel dt { margin-top: 10px; color: var(--muted); }
 .ai-panel dd { margin: 2px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.forecast-value.is-normal { color: #206443; }
+.forecast-value.is-warning { color: #765600; }
+.forecast-value.is-critical { color: #a12f29; }
+.forecast-value.is-unavailable { color: var(--muted); }
 .assessment-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .assessment-panel { min-height: 0; flex: 1 1 auto; }
 .assessment-body { min-height: 0; flex: 1 1 auto; overflow: auto; }
@@ -219,6 +223,21 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .button-danger { border-color: #e9b0aa; background: #fff4f2; color: var(--danger); }
 .button-danger:hover { border-color: var(--danger); background: #ffe4e1; }
 .button-danger:disabled { cursor: not-allowed; opacity: .6; }
+.delete-readings-dialog { width: min(560px, calc(100vw - 32px)); padding: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text); box-shadow: 0 24px 70px rgb(3 19 34 / 30%); }
+.delete-readings-dialog::backdrop { background: rgb(3 19 34 / 64%); backdrop-filter: blur(2px); }
+.delete-readings-dialog form { display: grid; gap: 18px; padding: 24px; }
+.delete-readings-heading h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.delete-readings-heading p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+.delete-readings-fields { display: grid; gap: 14px; }
+.delete-readings-fields select { width: 100%; height: 42px; padding: 8px 34px 8px 11px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); }
+.delete-readings-fields select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgb(11 120 208 / 12%); outline: none; }
+.delete-readings-fields select:disabled { cursor: not-allowed; opacity: .65; }
+.delete-readings-fields small { color: var(--muted); font-size: 10px; font-weight: 400; }
+.delete-scope-summary { margin: -2px 0 0; color: var(--text); font-size: 12px; font-weight: 500; }
+.delete-readings-warning { padding: 13px 14px; border: 1px solid #f0c7c4; border-radius: 10px; background: var(--danger-soft); color: #7d2d29; font-size: 11px; }
+.delete-readings-warning strong { display: block; margin-bottom: 3px; font-size: 12px; }
+.delete-readings-warning p { margin: 3px 0 0; }
+.delete-readings-actions { display: flex; justify-content: flex-end; gap: 9px; }
 .data-notice { margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; font-size: 13px; }
 .data-notice-success { color: #206443; background: #eaf7ef; }
 .data-notice-error { color: var(--danger); background: #fff4f2; }
@@ -398,6 +417,10 @@ a.pagination-control:hover { border-color: var(--border); background: #f5f8fb; c
     .pagination-actions { gap: 2px; }
     .pagination-control { min-width: 32px; padding-inline: 7px; font-size: 11px; }
     .pagination-word { min-width: 56px; padding-inline: 4px; }
+    .delete-readings-dialog { width: calc(100vw - 24px); }
+    .delete-readings-dialog form { gap: 15px; padding: 18px; }
+    .delete-readings-actions { flex-direction: column-reverse; }
+    .delete-readings-actions .button { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

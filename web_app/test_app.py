@@ -85,50 +85,227 @@ class AppTestCase(unittest.TestCase):
             self.assertEqual(self.client.post("/data/delete").status_code, 400)
             with self.client.session_transaction() as session:
                 session["delete_readings_token"] = "test-token"
-            for fields in ({"csrf_token": "wrong", "confirmation": "delete_all"},
+            for fields in ({"csrf_token": "wrong", "delete_mode": "all", "confirmation": "delete_all"},
                            {"csrf_token": "test-token"},
-                           {"csrf_token": "test-token", "confirmation": "cancel"},
-                           {"csrf_token": "\u00e9", "confirmation": "delete_all"}):
+                           {"csrf_token": "test-token", "delete_mode": "all", "confirmation": "cancel"},
+                           {"csrf_token": "test-token", "delete_mode": "from_timestamp",
+                            "confirmation": "delete_all", "delete_scope": "simulated",
+                            "delete_from": "2026-10-30T12:00"},
+                           {"csrf_token": "\u00e9", "delete_mode": "all", "confirmation": "delete_all"}):
                 self.assertEqual(self.client.post("/data/delete", data=fields).status_code, 400)
             with self.client.session_transaction() as session:
                 session["role"] = "viewer"
-            self.assertEqual(self.client.post("/data/delete", data={"csrf_token": "test-token", "confirmation": "delete_all"}).status_code, 403)
+            self.assertEqual(self.client.post("/data/delete", data={
+                "csrf_token": "test-token", "delete_mode": "all", "confirmation": "delete_all"
+            }).status_code, 403)
             connect.assert_not_called()
 
-    def test_delete_readings_commits_only_sensor_table_and_reports_failures(self):
+    def test_delete_all_clears_forecasts_and_resets_identity(self):
         self.login()
         with self.client.session_transaction() as session:
             session["delete_readings_token"] = "test-token"
-        fields = {"csrf_token": "test-token", "confirmation": "delete_all"}
+        fields = {"csrf_token": "test-token", "delete_mode": "all", "confirmation": "delete_all"}
         with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(True,), ("air_quality_forecasts",)]
             response = self.client.post("/data/delete", data=fields)
             self.assertEqual(response.status_code, 303)
             self.assertEqual(response.location, "/data")
             conn = connect.return_value
-            commands = [call.args[0] for call in conn.cursor.return_value.__enter__.return_value.execute.call_args_list]
-            self.assertEqual(commands, ["SET LOCAL lock_timeout = '5s'", "TRUNCATE TABLE air_quality_logs RESTART IDENTITY"])
+            commands = [call.args[0] for call in cursor.execute.call_args_list]
+            self.assertEqual(commands, [
+                "SET LOCAL lock_timeout = '5s'",
+                "SELECT pg_try_advisory_xact_lock(%s)",
+                "SELECT to_regclass('public.air_quality_forecasts')",
+                "LOCK TABLE air_quality_forecasts IN ACCESS EXCLUSIVE MODE",
+                "LOCK TABLE air_quality_logs IN ACCESS EXCLUSIVE MODE",
+                "TRUNCATE TABLE air_quality_forecasts",
+                "TRUNCATE TABLE air_quality_logs RESTART IDENTITY",
+            ])
+            self.assertEqual(cursor.execute.call_args_list[1].args[1], (application.DELETE_WORKER_LOCK_ID,))
             conn.__exit__.assert_called_once_with(None, None, None)
             conn.close.assert_called_once()
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
-            self.assertIn(b"ID sequence was reset to 1", self.client.get("/data").data)
+            page = self.client.get("/data").data
+            self.assertIn(b"next reading ID is 1", page)
+            self.assertIn(b"saved forecasts were deleted", page)
+
+    def test_delete_from_timestamp_preserves_ids_and_restarts_after_retained_max(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token",
+            "delete_mode": "from_timestamp",
+            "delete_scope": "simulated",
+            "delete_from": "2026-10-30T12:34:56",
+            "confirmation": "delete_from_timestamp",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [
+                (True,),
+                ("air_quality_forecasts",),
+                (2, ["sim-farm-good"]),
+                ("public", "air_quality_logs_id_seq", 32322),
+            ]
+            response = self.client.post("/data/delete", data=fields)
+            self.assertEqual(response.status_code, 303)
+
+            calls = cursor.execute.call_args_list
+            delete_call = calls[5]
+            self.assertIn("recorded_at >= %s AND device_id = ANY(%s)", delete_call.args[0])
+            self.assertEqual(delete_call.args[1], (
+                datetime(2026, 10, 30, 12, 34, 56, tzinfo=timezone.utc),
+                list(application.SIMULATED_DEVICE_IDS),
+            ))
+            self.assertEqual(calls[6].args, (
+                "DELETE FROM air_quality_forecasts WHERE device_id = ANY(%s)",
+                (["sim-farm-good"],),
+            ))
+            self.assertIn("Identifier('public', 'air_quality_logs_id_seq')", repr(calls[-1].args[0]))
+            self.assertIn("Literal(32322)", repr(calls[-1].args[0]))
+            self.assertFalse(any("UPDATE air_quality_logs" in str(call.args[0]) for call in calls))
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data").data
+            self.assertIn(b"Deleted 2 matching readings", page)
+            self.assertIn(b"Existing IDs were kept", page)
+            self.assertIn(b"next reading ID is 32322", page)
+
+    def test_delete_from_timestamp_all_scope_handles_empty_retained_table_without_forecasts(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token",
+            "delete_mode": "from_timestamp",
+            "delete_scope": "all",
+            "delete_from": "2026-10-30T12:34",
+            "confirmation": "delete_from_timestamp",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [
+                (True,), (None,), (3, ["physical-node"]), ("public", "air_quality_logs_id_seq", 1)
+            ]
+            self.client.post("/data/delete", data=fields)
+            calls = cursor.execute.call_args_list
+            self.assertIn("recorded_at >= %s RETURNING device_id", calls[4].args[0])
+            self.assertEqual(calls[4].args[1], (datetime(2026, 10, 30, 12, 34, tzinfo=timezone.utc),))
+            self.assertFalse(any("DELETE FROM air_quality_forecasts" in str(call.args[0]) for call in calls))
+            self.assertIn("Literal(1)", repr(calls[-1].args[0]))
+
+    def test_delete_from_timestamp_no_match_does_not_rewind_sequence_or_forecasts(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token", "delete_mode": "from_timestamp", "delete_scope": "simulated",
+            "delete_from": "2026-10-30T12:34", "confirmation": "delete_from_timestamp",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(True,), (None,), (0, [])]
+            self.client.post("/data/delete", data=fields)
+            commands = [call.args[0] for call in cursor.execute.call_args_list]
+            self.assertFalse(any(command.startswith(("DELETE FROM air_quality_forecasts", "TRUNCATE"))
+                                 for command in commands))
+            self.assertFalse(any("ALTER SEQUENCE" in command for command in commands))
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            self.assertIn(b"No data or ID sequence was changed", self.client.get("/data").data)
+
+    def test_delete_timestamp_rejects_ambiguous_or_hostile_values(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        base = {
+            "csrf_token": "test-token", "delete_mode": "from_timestamp", "delete_scope": "simulated",
+            "confirmation": "delete_from_timestamp",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            for value in (None, "", "2026-10-30", "2026-10-30T12:34Z", "2026-10-30T12:34+08:00",
+                          "2026-02-30T12:34", "2026-10-30T12:34; DROP TABLE air_quality_logs"):
+                self.assertEqual(self.client.post("/data/delete", data={**base, "delete_from": value}).status_code, 400)
+            self.assertEqual(self.client.post("/data/delete", data={
+                **base, "delete_scope": "simulated' OR TRUE --", "delete_from": "2026-10-30T12:34"
+            }).status_code, 400)
+            self.assertEqual(self.client.post("/data/delete", data={
+                "csrf_token": "test-token", "delete_mode": "all", "delete_scope": "simulated",
+                "confirmation": "delete_all",
+            }).status_code, 400)
+            connect.assert_not_called()
+
+    def test_delete_resolves_renamed_sequence_and_rolls_back_a_restart_failure(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token", "delete_mode": "from_timestamp", "delete_scope": "simulated",
+            "delete_from": "2026-10-30T12:34", "confirmation": "delete_from_timestamp",
+        }
+        for missing_sequence in (False, True):
+            with self.subTest(missing_sequence=missing_sequence), patch.object(application, "get_db_connection") as connect:
+                conn = connect.return_value
+                cursor = conn.cursor.return_value.__enter__.return_value
+                cursor.fetchone.side_effect = [
+                    (True,), (None,), (2, ["sim-farm-good"]),
+                    None if missing_sequence else ("public", 'renamed.sequence"name', 50001),
+                ]
+
+                def fail_restart(statement, *params):
+                    if isinstance(statement, application.sql.Composed):
+                        self.assertIn(application.sql.Identifier("public", 'renamed.sequence"name'), list(statement))
+                        raise application.psycopg2.OperationalError("restart failed")
+
+                cursor.execute.side_effect = fail_restart
+                with self.assertLogs(application.app.logger, level="ERROR"):
+                    self.assertEqual(self.client.post("/data/delete", data=fields).status_code, 303)
+                self.assertTrue(issubclass(conn.__exit__.call_args.args[0], application.psycopg2.Error))
+                conn.close.assert_called_once()
+            with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+                page = self.client.get("/data").data
+                self.assertIn(b"No changes were committed", page)
+                self.assertNotIn(b"Deleted 2 matching readings", page)
+
+    def test_delete_refuses_busy_worker_and_reports_database_rollback(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {"csrf_token": "test-token", "delete_mode": "all", "confirmation": "delete_all"}
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.return_value = (False,)
+            self.client.post("/data/delete", data=fields)
+            self.assertEqual([call.args[0] for call in cursor.execute.call_args_list], [
+                "SET LOCAL lock_timeout = '5s'", "SELECT pg_try_advisory_xact_lock(%s)"
+            ])
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            self.assertIn(b"worker is running", self.client.get("/data").data)
+
         with patch.object(application, "get_db_connection") as connect:
             conn = connect.return_value
-            conn.cursor.return_value.__enter__.return_value.execute.side_effect = [None, application.psycopg2.OperationalError("locked")]
+            cursor = conn.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(True,), (None,)]
+            cursor.execute.side_effect = [None, None, None, application.psycopg2.OperationalError("locked")]
             with self.assertLogs(application.app.logger, level="ERROR"):
                 self.assertEqual(self.client.post("/data/delete", data=fields).status_code, 303)
             self.assertIs(conn.__exit__.call_args.args[0], application.psycopg2.OperationalError)
             conn.close.assert_called_once()
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
             page = self.client.get("/data")
-            self.assertIn(b"reset was not completed", page.data)
-            self.assertNotIn(b"ID sequence was reset to 1", page.data)
+            self.assertIn(b"No changes were committed", page.data)
+            self.assertNotIn(b"next reading ID is 1", page.data)
 
     def test_delete_button_and_token_are_only_available_to_admins(self):
         self.login()
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
             page = self.client.get("/data?q=hidden")
             self.assertIn(b'id="delete-all-readings"', page.data)
-            self.assertIn(b'form="delete-readings-form"', page.data)
+            self.assertIn(b'id="delete-readings-dialog"', page.data)
+            self.assertIn(b'id="delete-readings-form"', page.data)
+            self.assertIn(b'name="delete_mode"', page.data)
+            self.assertIn(b'name="delete_from"', page.data)
+            self.assertIn(b'name="delete_scope"', page.data)
             self.assertIn(b'name="confirmation" value=""', page.data)
             with self.client.session_transaction() as session:
                 self.assertIn(session["delete_readings_token"].encode(), page.data)
@@ -212,6 +389,8 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"2-hour forecast", page.data)
             self.assertIn(b'id="forecast-panel"', page.data)
             self.assertIn(b"forecasts.js", page.data)
+            self.assertNotIn(b"About these analytics", page.data)
+            self.assertNotIn(b"analytics-notes-title", page.data)
             self.assertIn(b"<polyline", page.data)
             self.assertIn(b"Temperature recorded readings", page.data)
             self.assertIn(b"View recorded values", page.data)

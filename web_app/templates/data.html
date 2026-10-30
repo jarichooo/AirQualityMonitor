@@ -8,7 +8,7 @@
             <p>Review, filter, and export environmental sensor readings.</p>
         </div>
         {% if session.get('role') == 'admin' %}
-        <button class="button button-danger" id="delete-all-readings" type="submit" form="delete-readings-form" disabled>Delete all readings</button>
+        <button class="button button-danger" id="delete-all-readings" type="button" aria-haspopup="dialog" aria-controls="delete-readings-dialog" disabled>Delete readings</button>
         {% endif %}
     </div>
 
@@ -131,10 +131,55 @@
     </section>
 </form>
 {% if session.get('role') == 'admin' %}
-<form id="delete-readings-form" method="post" action="{{ url_for('delete_readings') }}">
-    <input type="hidden" name="csrf_token" value="{{ session['delete_readings_token'] }}">
-    <input type="hidden" name="confirmation" value="">
-</form>
+<dialog class="delete-readings-dialog" id="delete-readings-dialog" aria-labelledby="delete-readings-title" aria-describedby="delete-readings-intro">
+    <form id="delete-readings-form" method="post" action="{{ url_for('delete_readings') }}">
+        <div class="delete-readings-heading">
+            <div>
+                <h2 id="delete-readings-title">Delete sensor readings</h2>
+                <p id="delete-readings-intro">Choose the time range and devices to clear.</p>
+            </div>
+        </div>
+
+        <div class="delete-readings-fields">
+            <label class="field" for="delete-mode">
+                <span>Time range</span>
+                <select id="delete-mode" name="delete_mode">
+                    <option value="from_timestamp" selected>From a timestamp onward</option>
+                    <option value="all">Delete every reading (all devices)</option>
+                </select>
+            </label>
+
+            <label class="field" id="delete-from-field" for="delete-from">
+                <span>Inclusive start time (UTC)</span>
+                <input id="delete-from" name="delete_from" type="datetime-local" step="1" required>
+                <small>The simulator seeds the previous 119 minutes. Select its earliest seed time to remove the full run.</small>
+            </label>
+
+            <label class="field" for="delete-scope">
+                <span>Reading source</span>
+                <select id="delete-scope" name="delete_scope">
+                    <option value="simulated" selected>Simulation readings only</option>
+                    <option value="all">Every device and imported dataset</option>
+                </select>
+                <small>Simulation scope matches sim-farm-good, sim-farm-mid, sim-farm-bad, and python-simulator.</small>
+            </label>
+        </div>
+
+        <p class="delete-scope-summary" id="delete-scope-summary" aria-live="polite"></p>
+        <div class="delete-readings-warning">
+            <strong>Before deleting</strong>
+            <p>Stop the simulator, forecast worker, and ingestion before cleanup. This operation ignores the filters on the table behind this dialog.</p>
+            <p>Retained row IDs stay unchanged. The next reading continues after the highest retained ID.</p>
+        </div>
+
+        <input type="hidden" name="csrf_token" value="{{ session['delete_readings_token'] }}">
+        <input type="hidden" name="confirmation" value="">
+        <div class="delete-readings-actions">
+            <button class="button button-secondary" id="cancel-delete-readings" type="button">Cancel</button>
+            <button class="button button-danger" id="confirm-delete-readings" type="submit" disabled>Delete selected readings</button>
+        </div>
+    </form>
+</dialog>
 {% endif %}
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js') }}" defer></script>{% endblock %}
