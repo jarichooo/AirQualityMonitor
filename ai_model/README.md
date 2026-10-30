@@ -208,14 +208,16 @@ Sign in and open `/dashboard`. `/api/forecasts` uses the same login. Until the
 forecast schema exists it returns a clear not-configured state. Sensor panels
 remain independent of forecasting.
 
-## Final manual simulation demonstration
+## Separate condition simulations
 
-`simulate.py` is the one demonstration script. It seeds 120 minute-aligned,
-good-condition rows for `sim-farm-series`, then adds one row per minute for 15
-minutes: five good, five warning, and five critical. It never runs the predictor
-or Qwen by itself. Each launch clears known simulation rows, forecasts, and
-requests while preserving imported and physical-device data. Two seeders cannot
-run together.
+Choose `simulate_good.py`, `simulate_mid.py`, or `simulate_bad.py`. Each seeds 120
+minute-aligned rows for its own condition, then adds one row per minute for five
+minutes, for 125 rows total. Each uses its own `sim-farm-good`, `sim-farm-mid`, or
+`sim-farm-bad` device ID. The scripts never run the predictor or Qwen themselves.
+Each launch deletes all sensor readings, forecasts, and prediction requests,
+including any imported or physical-device readings, and restarts reading IDs at 1.
+User accounts are kept. The reset and initial seed share one transaction, so a
+failed seed restores the previous data. Two seeders cannot run together.
 
 The dashboard's **Predict now** button queues a request. The Compose
 `forecast_worker` service runs `--manual` and only processes these requests.
@@ -241,21 +243,22 @@ After pulling this feature, stop old one-off simulators and prepare the server:
 ```
 
 Then follow [the client guide](SIMULATION_GUIDE.md). It starts the manual worker
-with the database password and runs the final simulator in the same SSH terminal.
-Docker uses `--entrypoint python forecast_worker -m ai_model.simulate`; native
-Python uses `python -m ai_model.simulate` or `python ai_model/simulate.py`.
-The new queue table is additive; do not reset the database. Interrupted manual
+with the database password and runs the chosen simulator in the same SSH terminal.
+Docker uses `--entrypoint python forecast_worker -m ai_model.simulate_good`; native
+Python uses `python -m ai_model.simulate_good` or `python ai_model/simulate_good.py`.
+Replace `simulate_good` with `simulate_mid` or `simulate_bad` for the other conditions.
+The queue schema is additive; the scripts handle the reading reset. Interrupted manual
 prediction requests are retried when the manual worker restarts and reacquires
 its exclusive worker lock. New requests remain queued while that worker is stopped.
 For prediction/Qwen errors, inspect
 `sudo docker compose --profile forecast logs --tail=50 forecast_worker` and
 `sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`.
 
-The final script only supplies input data. Use **Predict now** after the initial
+The scripts only supply input data. Use **Predict now** after the initial
 120 rows are seeded and after later minute rows arrive. The server accepts one
 request at a time, requires a fresh row, and applies a 60-second cooldown. The
-forecast panel colours are based on the model result, not the current input stage:
-the 120-row window means it can change gradually at each stage.
+forecast panel colours are based on the model result and can differ from the
+chosen input condition, even though all 120 history rows match that condition.
 
 Open `/dashboard`: the panel starts with **Predicted values in 2 hours**, showing
 all eight model values and threshold categories, followed by Qwen's guidance.
@@ -278,17 +281,15 @@ pagination/export for the complete original records. Refresh the page to reload
 the measured charts; saved forecast results refresh automatically. A disconnected
 Live ESP32 panel is expected during a database-only demonstration.
 
-To check that the imported rows remain intact, compare their per-device counts
-and timestamps before and after the demonstration:
+To inspect the current condition's reading count and timestamps:
 
 ```bash
 sudo docker exec postgres_db psql -U admin -d air_quality -c "SELECT device_id, COUNT(*), MIN(recorded_at), MAX(recorded_at) FROM air_quality_logs GROUP BY device_id ORDER BY device_id;"
 ```
 
-For the current restored `henvironment-data.csv`, the `original-import` group
-should contain 9,860 rows from October 20-26, 2026 UTC. An older import under
-`dataset-import` may instead contain 32,320 rows from the earlier augmented CSV.
-Additional `sim-farm-*` groups are separate simulated inputs, not replacements.
+After the five new readings, the chosen `sim-farm-good`, `sim-farm-mid`, or
+`sim-farm-bad` group should contain 125 rows. Other groups are removed when the
+next simulation starts. Keep MQTT ingestion stopped during the demonstration.
 
 ## Results and failure behavior
 

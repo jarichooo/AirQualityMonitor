@@ -174,9 +174,9 @@ stop it before collecting real readings.
 
 ## Predictive AI and farm demonstrations
 
-For the dashboard demo, `ai_model/simulate.py` seeds 120 good-condition readings,
-then adds five good, five warning, and five critical readings at one-minute
-intervals. Click **Predict now** on the dashboard to run the GRU and Qwen. The
+For the dashboard demo, choose `ai_model/simulate_good.py`, `simulate_mid.py`, or
+`simulate_bad.py`. Each seeds 120 readings for one condition and adds five more
+at one-minute intervals. Click **Predict now** on the dashboard to run the GRU and Qwen. The
 server blocks concurrent requests, repeated source readings, and requests less
 than 60 seconds apart. Follow the short [simulation guide](ai_model/SIMULATION_GUIDE.md).
 The forecast worker's Compose service waits for manual requests by default.
@@ -186,10 +186,10 @@ the next 120 minutes. The worker saves the final two-hour-ahead values, applies
 `ai_model/reasoning ai/thresholds.md`, and asks Qwen to explain them. The existing
 2-hour forecast panel displays numerical values and guidance separately.
 
-The final simulator requires no MQTT ingestion. Each launch clears only earlier
-simulation rows, forecasts, and queued simulation requests; imported data,
-physical-device rows, and IDs stay unchanged. Forecast colours use saved model
-classifications rather than forcing the current simulation stage. For the
+The simulators require no MQTT ingestion. Each launch deletes all sensor readings,
+forecasts, and prediction requests, then seeds the chosen condition with reading
+IDs starting at 1. User accounts are preserved. Forecast colours use saved model
+classifications rather than forcing the chosen input condition. For the
 step-by-step presentation, follow the [simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
 
 The root URL `/` opens the login page. Successful login redirects to `/dashboard`.

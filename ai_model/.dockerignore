@@ -8,7 +8,9 @@
 !predictor.py
 !predict.py
 !simulation.py
-!simulate.py
+!simulate_good.py
+!simulate_mid.py
+!simulate_bad.py
 !schema.sql
 !microclimate_forecaster.joblib
 !reasoning ai/

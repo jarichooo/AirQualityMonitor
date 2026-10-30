@@ -1,11 +1,13 @@
 """Insert clearly labelled, minute-aligned demo readings for the forecast worker."""
 
+import argparse
+import json
 import math
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
-from psycopg2 import sql
+from psycopg2 import Error as DatabaseError, sql
 from psycopg2.extras import execute_values
 
 from ai_model.predictor import FEATURE_COLUMNS, LOOKBACK_SAMPLES
@@ -45,9 +47,7 @@ PROFILES = {
 }
 
 MANUAL_SEEDER_LOCK = 739_783_247_071_623_202
-SERIES_DEVICE_ID = "sim-farm-series"
-SERIES_PHASES = ("good", "mid", "bad")
-SERIES_MINUTES_PER_PHASE = 5
+LIVE_MINUTES = 5
 
 
 def device_id(profile):
@@ -81,13 +81,6 @@ def generate_readings(profile, now):
     return readings
 
 
-def _series_readings(profile, now):
-    readings = generate_readings(profile, now)
-    for reading in readings:
-        reading["device_id"] = SERIES_DEVICE_ID
-    return readings
-
-
 def _insert_rows(conn, rows):
     columns = ("recorded_at", "device_id", *FEATURE_COLUMNS)
     values = [tuple(row[column] for column in columns) for row in rows]
@@ -108,9 +101,11 @@ def _insert_rows(conn, rows):
         return cursor.rowcount
 
 
-def clear_history(conn):
-    """Remove earlier demo runs; caller holds the worker lock and commits with seeding."""
-    devices = [device_id(profile) for profile in PROFILES] + [SERIES_DEVICE_ID, "python-simulator"]
+def clear_history(conn, *, all_readings=False):
+    """Clear demo history or all readings; caller holds the worker lock and commits."""
+    devices = [device_id(profile) for profile in PROFILES] + ["sim-farm-series", "python-simulator"]
+    scope = "" if all_readings else " WHERE device_id = ANY(%s)"
+    params = None if all_readings else (devices,)
     with conn.cursor() as cursor:
         cursor.execute("SET LOCAL lock_timeout = '5s'")
         cursor.execute("LOCK TABLE public.air_quality_forecasts IN ACCESS EXCLUSIVE MODE")
@@ -118,13 +113,13 @@ def clear_history(conn):
         cursor.execute("SELECT to_regclass('public.air_quality_prediction_requests')")
         if cursor.fetchone()[0] is not None:
             cursor.execute(
-                "DELETE FROM public.air_quality_prediction_requests WHERE device_id = ANY(%s)", (devices,)
+                f"DELETE FROM public.air_quality_prediction_requests{scope}", params
             )
-        cursor.execute("DELETE FROM public.air_quality_forecasts WHERE device_id = ANY(%s)", (devices,))
+        cursor.execute(f"DELETE FROM public.air_quality_forecasts{scope}", params)
         forecasts_deleted = cursor.rowcount
-        cursor.execute("DELETE FROM public.air_quality_logs WHERE device_id = ANY(%s)", (devices,))
+        cursor.execute(f"DELETE FROM public.air_quality_logs{scope}", params)
         readings_deleted = cursor.rowcount
-        if readings_deleted:
+        if readings_deleted or all_readings:
             cursor.execute(
                 "SELECT namespace.nspname, sequence.relname, "
                 "(SELECT COALESCE(MAX(id), 0) + 1 FROM public.air_quality_logs) "
@@ -158,10 +153,11 @@ def write_history(conn, profile, now):
     }
 
 
-def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, report=print):
-    """Seed good history, then append five good, warning, and critical readings."""
+def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sleep, report=print):
+    """Seed one condition, then append five minute readings of the same condition."""
     from ai_model.forecast_worker import WORKER_LOCK_ID, acquire_worker_lock, database_connection
 
+    current_device = device_id(profile)
     connection_factory = connection_factory or database_connection
     clock = clock or (lambda: datetime.now(timezone.utc))
     with closing(connection_factory()) as conn:
@@ -173,9 +169,9 @@ def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, repo
         if not acquire_worker_lock(conn):
             raise RuntimeError("A prediction is running; wait for it to finish and try again")
         started_at = _utc_minute(clock())
-        rows = _series_readings("good", started_at)
+        rows = generate_readings(profile, started_at)
         try:
-            cleanup = clear_history(conn)
+            cleanup = clear_history(conn, all_readings=True)
             inserted = _insert_rows(conn, rows)
             if inserted != LOOKBACK_SAMPLES:
                 raise RuntimeError(f"Expected to seed {LOOKBACK_SAMPLES} readings, inserted {inserted}")
@@ -189,13 +185,10 @@ def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, repo
             conn.commit()
 
         report({
-            "stage": "good", "status": "started", "device_id": SERIES_DEVICE_ID,
+            "profile": profile, "status": "started", "device_id": current_device,
             "seeded": inserted, **cleanup,
         })
-        current_stage = "good"
-        total_live_minutes = len(SERIES_PHASES) * SERIES_MINUTES_PER_PHASE
-        for minute in range(1, total_live_minutes + 1):
-            stage = SERIES_PHASES[(minute - 1) // SERIES_MINUTES_PER_PHASE]
+        for minute in range(1, LIVE_MINUTES + 1):
             expected_at = started_at + timedelta(minutes=minute)
             remaining = (expected_at - clock()).total_seconds()
             if remaining > 0:
@@ -205,7 +198,7 @@ def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, repo
                 raise RuntimeError(
                     f"Missed the {expected_at.isoformat()} reading; stopping instead of backfilling fake data"
                 )
-            row = _series_readings(stage, expected_at)[-1]
+            row = generate_readings(profile, expected_at)[-1]
             try:
                 inserted = _insert_rows(conn, [row])
                 if inserted != 1:
@@ -214,13 +207,23 @@ def run_simulation(connection_factory=None, clock=None, sleeper=time.sleep, repo
             except Exception:
                 conn.rollback()
                 raise
-            if stage != current_stage:
-                report({"stage": stage, "status": "started", "device_id": SERIES_DEVICE_ID})
-                current_stage = stage
             report({
-                "stage": stage, "device_id": SERIES_DEVICE_ID,
+                "profile": profile, "device_id": current_device,
                 "recorded_at": expected_at.isoformat(), "inserted": 1,
             })
 
-    return {"device_id": SERIES_DEVICE_ID, "total_inserted": LOOKBACK_SAMPLES + total_live_minutes}
+    return {"device_id": current_device, "total_inserted": LOOKBACK_SAMPLES + LIVE_MINUTES}
+
+
+def main(profile, argv=None):
+    parser = argparse.ArgumentParser(description=f"Replace all sensor readings with {profile} conditions for manual predictions.")
+    parser.parse_args(argv)
+    try:
+        result = run_simulation(profile, report=lambda message: print(json.dumps(message), flush=True))
+    except KeyboardInterrupt:
+        return 130
+    except (OSError, RuntimeError, ValueError, DatabaseError) as exc:
+        parser.exit(1, f"Simulation failed: {exc}\n")
+    print(json.dumps(result), flush=True)
+    return 0
 

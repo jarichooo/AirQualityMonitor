@@ -1,8 +1,15 @@
 # Simulation guide
 
-Use this for the final dashboard demonstration. The simulator starts with good
-conditions, then changes to warning conditions, then critical conditions. You
-use **Predict now** whenever you want to create a two-hour forecast.
+Run one condition at a time, then use **Predict now** to create a two-hour forecast.
+
+**Each launch deletes all existing sensor readings, forecasts, and prediction
+requests, then seeds the selected condition. Accounts are kept.**
+
+| Condition | Script/module |
+| --- | --- |
+| Good | `ai_model.simulate_good` |
+| Warning | `ai_model.simulate_mid` |
+| Critical | `ai_model.simulate_bad` |
 
 Stop any previous simulation with **Ctrl+C**, then paste this into the server's
 SSH terminal:
@@ -24,14 +31,17 @@ SSH terminal:
     -d --no-deps forecast_worker
   sudo --preserve-env=DB_PASS docker compose --profile forecast run \
     --rm --no-deps --name farm_simulation --entrypoint python \
-    forecast_worker -m ai_model.simulate
+    forecast_worker -m ai_model.simulate_good
 )
 ```
 
-Keep the terminal open. It immediately inserts **120 good-condition readings**,
-then inserts one reading per minute for **15 minutes**: five good, five warning,
-and five critical. It then stops. The simulator does not run the predictive
-model or Qwen by itself.
+This block runs **Good**. To run **Warning** or **Critical**, change only the last
+module name to `ai_model.simulate_mid` or `ai_model.simulate_bad`, then paste the
+whole block again after stopping the previous run.
+
+Keep the terminal open. Each script inserts **120 readings for its condition**,
+then **one reading per minute for five minutes**: **125 readings total**. It then
+stops. The scripts do not run the predictive model or Qwen by themselves.
 
 Open `http://<server-IP>:5000/dashboard`, sign in, and click **Predict now**
 after the terminal reports `seeded: 120`. The predicted values appear first;
@@ -39,13 +49,12 @@ Qwen guidance follows when ready. You can click again after a new reading has
 arrived, at least 60 seconds after the previous request, and after the current
 prediction finishes. The button disables itself while it cannot run.
 
-The stage describes the inserted readings. The forecast can change more
-gradually because the model uses the most recent 120 readings; its colours are
-based on its own predicted values.
+All 120 model inputs match the selected condition. Forecast colours still follow
+the model's own predicted values; they are not forced to match the input label.
 
-Starting the simulation removes only earlier simulator readings, forecasts, and
-queued simulator requests. Imported readings, physical sensor readings, accounts,
-and their existing IDs stay intact. Do not run two simulations together.
+Each new condition replaces the previous data and restarts reading IDs at 1.
+If seeding fails, the reset rolls back. Stop other simulations and wait for any
+active prediction to finish before starting another condition.
 
 To stop early, press **Ctrl+C**. The dashboard, forecast worker, and Qwen service
 continue in the background. After the readings stop, request a prediction within

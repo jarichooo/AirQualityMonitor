@@ -395,16 +395,16 @@ Compose already sets `restart: unless-stopped` for each service.
 
 ## Good, warning and critical farm demo
 
-For a demonstration without the sensor device, run the final
-`ai_model/simulate.py` script. It seeds 120 good-condition rows, then adds five
-good, five warning, and five critical rows at one-minute intervals before exiting.
+For a demonstration without the sensor device, choose `ai_model/simulate_good.py`,
+`ai_model/simulate_mid.py`, or `ai_model/simulate_bad.py`. Each seeds 120 rows for
+its condition, then adds five rows at one-minute intervals before exiting.
 It supplies readings only: click **Predict now** on the dashboard to run the
 trained model and Qwen. The service allows one request at a time, requires a new
 reading, and uses a 60-second cooldown.
 
 Follow the [step-by-step simulation demonstration guide](ai_model/SIMULATION_GUIDE.md).
-The script removes only previous simulator rows, forecasts, and queued simulation
-requests; it keeps imported and physical-device data. The older `simulate_esp32.py`
+Each script deletes all existing sensor readings, forecasts, and prediction
+requests before seeding its condition. User accounts stay intact. The older `simulate_esp32.py`
 below tests MQTT ingestion and does not provide the model's required history.
 
 ## Dashboard accounts
