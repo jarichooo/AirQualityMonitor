@@ -518,6 +518,9 @@ class ForecastWorkerTest(unittest.TestCase):
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["options"]["num_ctx"], 4096)
+        self.assertEqual(payload["options"]["num_predict"], 384)
+        self.assertIn("at most 50 words", payload["prompt"])
+        self.assertIn("Do not list every reading", payload["prompt"])
         self.assertEqual(payload["keep_alive"], "15m")
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
 

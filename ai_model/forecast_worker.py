@@ -310,9 +310,10 @@ def acquire_worker_lock(conn):
 
 def call_qwen(predictions, severity, policy_text, target_at):
     prompt = (
-        "Use the trusted policy below to explain this two-hour model forecast in 1-3 concise sentences. "
-        "Use at most 70 words and summarize the most concerning channels; all numeric forecasts are displayed separately. "
-        "Keep every supplied value and category unchanged. Clearly call it a forecast, include the target time, "
+        "Use the trusted policy below to explain this two-hour forecast in 1-2 short sentences of plain English. "
+        "Use at most 50 words and mention only the two most concerning channels. "
+        "Do not list every reading; the numbers are already displayed separately. "
+        "If you mention a supplied value or category, keep it unchanged. Clearly call it a forecast, include the target time, "
         "do not claim any action occurred, and only recommend checks supported by the policy.\n\n"
         f"Trusted policy:\n{policy_text}\n\n"
         f"Target time (UTC): {target_at.astimezone(timezone.utc).isoformat()}\n"
@@ -326,7 +327,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 160, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 384, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")

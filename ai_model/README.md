@@ -242,8 +242,10 @@ After pulling this feature, stop old one-off simulators and prepare the server:
 )
 ```
 
-Then follow [the client guide](SIMULATION_GUIDE.md). It starts the manual worker
-with the database password and runs the chosen simulator in the same SSH terminal.
+Then follow [the client guide](SIMULATION_GUIDE.md). It separates one-time Python
+setup from background service startup and the short command used for every run.
+The native scripts use `~/henvironment-simulation-venv`; packages are installed
+once, not before each simulation. The manual prediction worker stays in Docker.
 Docker uses `--entrypoint python forecast_worker -m ai_model.simulate_good`; native
 Python uses `python -m ai_model.simulate_good` or `python ai_model/simulate_good.py`.
 Replace `simulate_good` with `simulate_mid` or `simulate_bad` for the other conditions.
@@ -273,9 +275,13 @@ runs. Guidance failure is logged and saved as `QWEN_TIMEOUT` or `QWEN_UNAVAILABL
 in the existing forecast `reason` field. Request another prediction with a fresh
 reading to try again.
 Numerical results and the previous completed guidance stay visible. Requests use
-an explicit 4096-token context and keep the model loaded for 15 minutes, using
+an explicit 4096-token context, allow up to 384 output tokens, and keep the model
+loaded for 15 minutes, using
 [Ollama's generation options](https://docs.ollama.com/api/generate). This avoids
 reloading it between normal demonstration cycles; it does not eliminate first-load latency.
+The prompt asks for at most 50 words without repeating the displayed readings.
+The output token allowance is a local generation setting, independent of internet
+access. Responses cut off at that limit remain rejected as incomplete.
 
 The trends now cover the **whole stored date range**, including October data.
 Hourly averages represent all stored readings; the individual graph shows the
