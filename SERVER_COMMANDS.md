@@ -391,7 +391,8 @@ sudo docker compose restart web_dashboard    # Restart one existing container
 ```
 
 The services are `postgres_db`, `mqtt_broker`, `ingestion`, and `web_dashboard`.
-Compose already sets `restart: unless-stopped` for each service.
+Compose sets `restart: always` for each service. A manually stopped service stays
+stopped until you start it or Docker restarts, including after a server reboot.
 
 ## Good, warning and critical farm demo
 
@@ -683,11 +684,49 @@ access. Consult the official [Linux](https://docs.ollama.com/linux) or
 installed CLI is not found, reopen the terminal. Normal checks and tests never
 upgrade an existing engine automatically.
 
+## Automatic startup
+
+On the already configured server, stop any simulation with **Ctrl+C** and wait
+for the current prediction to finish. After pulling the updated Compose file,
+run this once:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  python3 setup_reasoning_ai.py
+  sudo systemctl enable --now docker.service containerd.service henvironment-ollama.service
+  sudo docker compose --profile forecast up -d --wait \
+    postgres_db mqtt_broker ingestion web_dashboard forecast_worker
+  sudo systemctl is-enabled docker.service henvironment-ollama.service
+  sudo docker compose --profile forecast ps
+)
+```
+
+This uses the existing images and project Ollama service installed above. Docker
+starts the database, MQTT broker, sensor ingestion, dashboard, and prediction
+worker after boot; systemd starts Ollama. The `always` restart policy also brings
+back containers that were manually stopped before reboot. It follows
+[Docker's restart-policy behavior](https://docs.docker.com/engine/containers/start-containers-automatically/).
+
+Startup preserves database records and accounts. It never starts a simulation
+or seeds readings. New predictions still require **Predict now**; an unfinished
+request saved before shutdown may resume. Models and container images must
+already be installed; boot does not build, update, or download them.
+
+After reboot, ingestion is running again. Before a database-only demonstration,
+use the simulation guide's background-service block to pause ingestion first.
+If the ESP32 also restarts, its firmware starts paused: connect to it from the
+dashboard and resume collection. Server startup does not unpause the device or
+validate its timestamp compatibility with the forecast model.
+
+If you remove containers with `docker compose down`, recreate them with the
+startup block before expecting them to return after reboot.
+
 ## Shut down or reboot the server
 
-If the host Python simulator is running, stop it with Ctrl+C. Leave the Compose
-containers running so their `unless-stopped` policy can start them again after
-the next boot. From the SSH session, shut down Ubuntu normally:
+If the host Python simulator is running, stop it with Ctrl+C. Once automatic
+startup is configured above, shut down Ubuntu normally:
 
 ```bash
 sudo systemctl poweroff
@@ -700,9 +739,10 @@ After powering it on and reconnecting with SSH, check the services:
 
 ```bash
 cd ~/AirQualityMonitor
-sudo docker compose ps
+sudo docker compose --profile forecast ps
+sudo systemctl is-active docker.service henvironment-ollama.service
 ```
 
-If a service did not start, run `sudo docker compose up -d`. Do not run
-`docker compose stop` before a normal server shutdown: manually stopped
-containers using `unless-stopped` stay stopped on the next boot.
+If a container did not start, run `sudo docker compose --profile forecast up -d --wait`.
+For a project Ollama failure, inspect
+`sudo journalctl -u henvironment-ollama.service -n 50 --no-pager`.

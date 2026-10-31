@@ -109,6 +109,12 @@ A fresh PostgreSQL directory runs `schema.sql` automatically. The website and
 ingestion wait for PostgreSQL readiness. Stored data remains in `db_data/`.
 Do not delete that directory to apply schema changes.
 
+For boot-time startup of the database, broker, ingestion, dashboard, prediction
+worker, and local advice service, follow [Automatic startup](SERVER_COMMANDS.md#automatic-startup).
+The five containers use `restart: always`; enable Docker and the existing project
+Ollama service once. Startup preserves stored data and does not run simulations.
+New predictions remain controlled by **Predict now**.
+
 An admin can use **Delete readings** on the Data page to delete from an inclusive
 UTC timestamp onward. The default scope is the four known simulation device IDs,
 so imported and physical-device rows are kept; selecting all devices also deletes
