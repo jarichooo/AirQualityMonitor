@@ -16,6 +16,18 @@ the background worker, which runs the trained forecast model. Qwen then uses
 the forecast and `ai_model/reasoning ai/thresholds.md` to produce the advice.
 Both models run locally; the simulation does not start predictions automatically.
 
+## What the dashboard shows
+
+The prediction box shows the model's values first and the advice below them.
+Its legend is green for **Normal**, yellow for **Warning**, and red for
+**Critical**. These colours describe the actual forecast, not the condition
+script you started. Methane and ammonia use those simple names in the forecast.
+"Loading…" means the advice is still being generated. "Updating…" keeps the
+previous output visible while the next response is generated.
+
+Both charts label the horizontal axis **Time (UTC)** and the vertical axis with
+the selected sensor and its unit.
+
 ## One-time Python setup
 
 Connect through SSH and paste this once. Skip it on later runs:
@@ -80,8 +92,7 @@ and the advice follows when ready. You can click again after a new reading has
 arrived, at least 60 seconds after the previous request, and after the current
 prediction finishes. The button disables itself while it cannot run.
 
-All 120 model inputs match the selected condition. Forecast colours still follow
-the model's own predicted values; they are not forced to match the input label.
+All 120 model inputs match the selected condition.
 
 Each new condition replaces the previous data and restarts reading IDs at 1.
 If seeding fails, the reset rolls back.
@@ -165,3 +176,10 @@ PY
 Refresh the dashboard afterward. Technical server instructions are in
 [SERVER_COMMANDS.md](../SERVER_COMMANDS.md).
 Start the background services again before using **Predict now** after cleanup.
+
+## Physical device note
+
+This guide tests the database simulation, not a connected device. For a live
+device, **Predict now** needs 120 consecutive one-minute readings with stored
+timestamps aligned to UTC minutes. Verify the device and ingestion path against
+that requirement before relying on live forecasts.
