@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -14,7 +14,7 @@ class ModelUnavailable(RuntimeError):
 
 MODEL_SHA256 = "eaef59203a1654e4c51c626420f0a558e3aab939c30b881bcaeaad370763b959"
 MODEL_PATH = Path(__file__).with_name("microclimate_forecaster.joblib")
-MODEL_VERSION = f"gru-v2-{MODEL_SHA256[:12]}"
+MODEL_VERSION = f"gru-v2-gapfill2-{MODEL_SHA256[:12]}"
 LOOKBACK_SAMPLES = 120
 FEATURE_COLUMNS = (
     "temperature_c", "humidity_perc", "co2_ppm", "pm1_ugm3",
@@ -28,10 +28,106 @@ MODEL_COLUMNS = (
 SAMPLE_INTERVAL_SECONDS = 60
 CADENCE_TOLERANCE_SECONDS = 0
 HORIZON_MINUTES = 120
+MAX_GAP_MINUTES = 2
+MAX_FILLED_MINUTES = 6
 
 
 def _invalid(message):
     raise ModelUnavailable(message)
+
+
+def _validate_sample(row, feature_columns):
+    sample = {}
+    for column in feature_columns:
+        value = row.get(column)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+            _invalid(f"{column} must be a finite number")
+        sample[column] = float(value)
+    humidity = sample.get("humidity_perc")
+    if humidity is not None and not 0 <= humidity <= 100:
+        _invalid("Humidity must be between 0 and 100")
+    for column in ("co2_ppm", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "mq4_ppm", "mq137_ppm"):
+        if column in sample and sample[column] < 0:
+            _invalid("Concentrations must be nonnegative")
+    particulate = (sample.get("pm1_ugm3"), sample.get("pm25_ugm3"), sample.get("pm10_ugm3"))
+    if all(value is not None for value in particulate) and not particulate[0] <= particulate[1] <= particulate[2]:
+        _invalid("Particulate readings must satisfy PM1 <= PM2.5 <= PM10")
+    return sample
+
+
+def prepare_history(history_rows, lookback_samples=LOOKBACK_SAMPLES, feature_columns=FEATURE_COLUMNS):
+    """Create a minute-aligned model window, filling only short internal gaps."""
+    if not isinstance(history_rows, (list, tuple)) or not history_rows:
+        _invalid("History rows are required")
+    if isinstance(lookback_samples, bool) or not isinstance(lookback_samples, int) or lookback_samples < 2:
+        _invalid("Lookback samples must be an integer of at least 2")
+    if any(not isinstance(row, dict) for row in history_rows):
+        _invalid("History rows must be mappings")
+    devices = {row.get("device_id") for row in history_rows}
+    device = next(iter(devices), None)
+    if len(devices) != 1 or not isinstance(device, str) or not device.strip():
+        _invalid("History must belong to one identified device")
+
+    bucketed = {}
+    previous_timestamp = None
+    for row in history_rows:
+        timestamp = row.get("recorded_at")
+        if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
+            _invalid("Reading timestamps must include a timezone")
+        timestamp = timestamp.astimezone(timezone.utc)
+        if previous_timestamp is not None and timestamp < previous_timestamp:
+            _invalid("History timestamps must be chronological")
+        previous_timestamp = timestamp
+        _validate_sample(row, feature_columns)
+        minute = timestamp.replace(second=0, microsecond=0)
+        candidate_id = row.get("id") if isinstance(row.get("id"), int) else -1
+        current = bucketed.get(minute)
+        current_id = current[1].get("id") if current and isinstance(current[1].get("id"), int) else -1
+        if current is None or timestamp > current[0] or (timestamp == current[0] and candidate_id >= current_id):
+            bucketed[minute] = (timestamp, row)
+
+    end = max(bucketed)
+    start = end - timedelta(minutes=lookback_samples - 1)
+    if start not in bucketed or end not in bucketed:
+        _invalid("The model window must start and end with measured readings")
+
+    grid = [start + timedelta(minutes=index) for index in range(lookback_samples)]
+    missing = [minute for minute in grid if minute not in bucketed]
+    max_filled = min(MAX_FILLED_MINUTES, max(1, lookback_samples // 20))
+    if len(missing) > max_filled:
+        _invalid(f"The model window has more than {max_filled} missing minutes")
+
+    prepared = []
+    index = 0
+    while index < lookback_samples:
+        minute = grid[index]
+        if minute in bucketed:
+            row = dict(bucketed[minute][1])
+            row["recorded_at"] = minute
+            prepared.append(row)
+            index += 1
+            continue
+
+        gap_start = index
+        while index < lookback_samples and grid[index] not in bucketed:
+            index += 1
+        gap_size = index - gap_start
+        if gap_size > MAX_GAP_MINUTES or gap_start == 0 or index == lookback_samples:
+            _invalid(f"Missing runs longer than {MAX_GAP_MINUTES} minutes cannot be filled")
+        before = prepared[-1]
+        after = bucketed[grid[index]][1]
+        for offset in range(1, gap_size + 1):
+            ratio = offset / (gap_size + 1)
+            filled = {
+                "id": None,
+                "recorded_at": grid[gap_start + offset - 1],
+                "device_id": device,
+            }
+            for column in feature_columns:
+                filled[column] = float(before[column]) + (float(after[column]) - float(before[column])) * ratio
+            prepared.append(filled)
+
+    return prepared, len(missing)
 
 
 def _validate_rows(history_rows):

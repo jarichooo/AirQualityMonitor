@@ -12,7 +12,8 @@ from web_app.forecast import FORECAST_COLUMNS, serialize_forecast
 
 class PipelineTest(unittest.TestCase):
     def test_numeric_forecast_and_qwen_guidance_reach_webpage_record(self):
-        now = datetime(2026, 10, 28, 14, tzinfo=timezone.utc)
+        now = datetime(2026, 10, 28, 14, 0, 50, tzinfo=timezone.utc)
+        cutoff = now.replace(second=0)
         model = SimpleNamespace(
             MODEL_VERSION="fixture-v1", LOOKBACK_SAMPLES=2,
             FEATURE_COLUMNS=("temperature_c",), TARGET_COLUMNS=("temperature_c",),
@@ -20,7 +21,8 @@ class PipelineTest(unittest.TestCase):
             predict=lambda rows: {"temperature_c": 34.25},
         )
         rows = [dict(id=index + 1, device_id="fixture-node", temperature_c=30.0,
-                     recorded_at=now - timedelta(minutes=1 - index)) for index in range(2)]
+                     recorded_at=cutoff - timedelta(minutes=1 - index) + timedelta(seconds=36))
+                for index in range(2)]
         connection = MagicMock()
 
         def explain(values, categories, policy, target):
@@ -30,7 +32,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(values, {"temperature_c": 34.25})
             self.assertEqual(categories, {"temperature_c": "warning"})
             self.assertIn("threshold", policy)
-            self.assertEqual(target, now + timedelta(hours=2))
+            self.assertEqual(target, cutoff + timedelta(hours=2))
             return "Temperature is forecast to reach the warning range; check ventilation."
 
         with (
@@ -51,7 +53,7 @@ class PipelineTest(unittest.TestCase):
             saved[key] = saved[key].adapted
         explanation_params = calls[-1].args[1]
         saved.update(explanation_status=explanation_params[0], explanation=explanation_params[1], last_guidance=None)
-        result = serialize_forecast(tuple(saved[key] for key in FORECAST_COLUMNS),
+        result = serialize_forecast(tuple(saved[key] for key in FORECAST_COLUMNS) + (rows[-1]["recorded_at"],),
                                     [("temperature_c", "Temperature", "°C")], now)
         self.assertEqual(result["status"], "available")
         self.assertEqual(result["predictions"][0]["value"], 34.25)

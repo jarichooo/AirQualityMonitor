@@ -93,13 +93,15 @@ def serialize_forecast(row, sensors, now=None):
     cutoff = _utc_timestamp(row[3])
     target = _utc_timestamp(row[4])
     generated = _utc_timestamp(row[5])
-    if cutoff is None or target is None or cutoff > now:
+    source_time = _utc_timestamp(row[15])
+    if (cutoff is None or target is None or source_time is None or source_time > now
+            or (source_time != cutoff and source_time.replace(second=0, microsecond=0) != cutoff)):
         return _unavailable(row, "The saved forecast is stale or has an invalid input time.", "unavailable", None)
     if target != cutoff + timedelta(hours=2):
         return _unavailable(row, "The saved forecast has an invalid two-hour target time.", "unavailable", None)
-    if generated is None or generated < cutoff or generated > now:
+    if generated is None or generated < source_time or generated > now:
         return _unavailable(row, "The saved forecast has an invalid generation time.", "unavailable", None)
-    if now - cutoff > timedelta(seconds=180) or target <= now:
+    if now - source_time > timedelta(seconds=180) or target <= now:
         result = _unavailable(row, "The saved forecast is stale.", "unavailable", None)
         result["last_guidance"] = _last_guidance(row, now)
         return result
@@ -133,11 +135,11 @@ def fetch_latest_forecasts(connection, sensors, now=None):
     columns = ", ".join(f"forecast.{column}" for column in FORECAST_COLUMNS)
     with connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT {columns} FROM public.air_quality_forecasts AS forecast "
-            "WHERE EXISTS (SELECT 1 FROM public.air_quality_logs AS source "
-            "WHERE source.id = forecast.input_row_id "
+            f"SELECT {columns}, source.recorded_at FROM public.air_quality_forecasts AS forecast "
+            "JOIN public.air_quality_logs AS source ON source.id = forecast.input_row_id "
             "AND source.device_id = forecast.device_id "
-            "AND source.recorded_at = forecast.input_cutoff_at) "
+            "AND (source.recorded_at = forecast.input_cutoff_at "
+            "OR date_trunc('minute', source.recorded_at) = forecast.input_cutoff_at) "
             "ORDER BY forecast.device_id"
         )
         rows = cursor.fetchall()

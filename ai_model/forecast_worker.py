@@ -131,6 +131,33 @@ def validate_history(rows, model=predictor, now=None):
     return rows
 
 
+def validate_source_history(rows, model=predictor, now=None):
+    """Validate measured rows before minute alignment and limited gap filling."""
+    now = now or utc_now()
+    if now.tzinfo is None:
+        raise ContractError("Current time must include a timezone")
+    if not rows:
+        raise ContractError("No history rows are available")
+    devices = {row["device_id"] for row in rows}
+    if len(devices) != 1 or not next(iter(devices), "").strip():
+        raise ContractError("History must belong to one identified device")
+    previous = None
+    for row in rows:
+        timestamp = row["recorded_at"]
+        if not isinstance(timestamp, datetime) or timestamp.tzinfo is None:
+            raise ContractError("Reading timestamps must include a timezone")
+        if timestamp > now:
+            raise ContractError("History contains a future reading")
+        if previous is not None and timestamp <= previous:
+            raise ContractError("History timestamps must be unique and chronological")
+        for column in model.FEATURE_COLUMNS:
+            validate_value(column, row.get(column))
+        previous = timestamp
+    if (now - rows[-1]["recorded_at"]).total_seconds() > FRESHNESS_SECONDS:
+        raise ContractError("Latest reading is stale")
+    return rows
+
+
 def validate_prediction(values, model=predictor):
     if not isinstance(values, dict) or set(values) != set(model.TARGET_COLUMNS):
         raise ContractError("Prediction keys must exactly match TARGET_COLUMNS")
@@ -164,11 +191,16 @@ def fetch_history(conn, device_id, model=predictor):
     columns = ", ".join(model.FEATURE_COLUMNS)
     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute(
-            f"SELECT id, recorded_at, device_id, {columns} FROM public.air_quality_logs "
-            "WHERE device_id = %s ORDER BY recorded_at DESC, id DESC LIMIT %s",
+            f"SELECT id, recorded_at, device_id, {columns} FROM ("
+            f"SELECT DISTINCT ON (date_trunc('minute', recorded_at AT TIME ZONE 'UTC')) "
+            f"id, recorded_at, device_id, {columns} FROM public.air_quality_logs "
+            "WHERE device_id = %s "
+            "ORDER BY date_trunc('minute', recorded_at AT TIME ZONE 'UTC') DESC, "
+            "recorded_at DESC, id DESC LIMIT %s"
+            ") AS recent_history ORDER BY recorded_at ASC, id ASC",
             (device_id, model.LOOKBACK_SAMPLES),
         )
-        return list(reversed(cursor.fetchall()))
+        return list(cursor.fetchall())
 
 
 def fetch_current_forecast(conn, device_id):
@@ -293,10 +325,13 @@ def invalidate_forecast(conn, reason, device_id=None, status="unavailable"):
 def invalidate_stale_forecasts(conn, now):
     with conn.cursor() as cursor:
         cursor.execute(
-            "UPDATE public.air_quality_forecasts SET status = 'unavailable', "
+            "UPDATE public.air_quality_forecasts AS forecast SET status = 'unavailable', "
             "reason = 'Latest reading is stale', predicted_values = %s, severity = %s, "
             "explanation_status = 'unavailable', explanation = NULL "
-            "WHERE status = 'available' AND input_cutoff_at < %s",
+            "WHERE forecast.status = 'available' AND NOT EXISTS ("
+            "SELECT 1 FROM public.air_quality_logs AS source "
+            "WHERE source.id = forecast.input_row_id "
+            "AND source.device_id = forecast.device_id AND source.recorded_at >= %s)",
             (Json({}), Json({}), now - timedelta(seconds=FRESHNESS_SECONDS)),
         )
     conn.commit()
@@ -364,7 +399,14 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
     fixed_now = now
     rows = fetch_history(conn, device_id, model)
     now = now or utc_now()
-    validate_history(rows, model, now)
+    validate_source_history(rows, model, now)
+    prepared_rows, filled_minutes = predictor.prepare_history(
+        rows, lookback_samples=model.LOOKBACK_SAMPLES, feature_columns=model.FEATURE_COLUMNS,
+    )
+    validate_history(prepared_rows, model, prepared_rows[-1]["recorded_at"])
+    if filled_minutes:
+        print(json.dumps({"device_id": device_id, "history_filled_minutes": filled_minutes}),
+              file=sys.stderr, flush=True)
     source_hash = history_hash(rows, model)
     current = fetch_current_forecast(conn, device_id)
     conn.commit()
@@ -396,8 +438,8 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
             return "policy_error"
         set_policy_pending(conn, device_id, forecast_id, severity, policy.sha256)
     else:
-        predictions = validate_prediction(model.predict(rows), model)
-        target_at = rows[-1]["recorded_at"] + timedelta(minutes=model.HORIZON_MINUTES)
+        predictions = validate_prediction(model.predict(prepared_rows), model)
+        target_at = prepared_rows[-1]["recorded_at"] + timedelta(minutes=model.HORIZON_MINUTES)
         forecast_id = str(uuid.uuid4())
         if policy_error:
             severity = unavailable_severity(model.TARGET_COLUMNS)
@@ -409,7 +451,7 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
             "device_id": device_id,
             "forecast_id": forecast_id,
             "input_row_id": rows[-1]["id"],
-            "input_cutoff_at": rows[-1]["recorded_at"],
+            "input_cutoff_at": prepared_rows[-1]["recorded_at"],
             "target_at": target_at,
             "generated_at": fixed_now or utc_now(),
             "model_version": model.MODEL_VERSION,

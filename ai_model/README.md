@@ -32,7 +32,7 @@ The adapter uses this delivered contract:
 
 | Metadata | Required meaning |
 | --- | --- |
-| `MODEL_VERSION` | `gru-v2-eaef59203a16`, identifying this artifact and stable CPU inference implementation. |
+| `MODEL_VERSION` | `gru-v2-gapfill2-eaef59203a16`, identifying the artifact, CPU inference, and bounded gap preprocessing. |
 | `LOOKBACK_SAMPLES` | 120 consecutive one-minute rows. |
 | `FEATURE_COLUMNS` | All eight database channels, in the order below. |
 | `TARGET_COLUMNS` | The same eight channels, from the final forecast row. |
@@ -68,21 +68,28 @@ Joblib is pickle-based: load only the trusted supplied artifact. To replace it,
 review the new model contract, update the expected checksum/version and rebuild
 the worker. Do not rename another file to match this artifact.
 
-The worker rejects insufficient history, missing required features, duplicate
-timestamps, unacceptable cadence, future/stale input, nonfinite values, negative
-gas/PM values, humidity outside 0–100, and output keys that differ from the
-declared targets. It does not fill missing values, resample or substitute zeros.
-Particulate input must also satisfy PM1 <= PM2.5 <= PM10, matching the delivered
-loader. After a collection gap, wait for a complete fresh lookback. Devices
-without a nonempty `device_id` are skipped.
+Before calling the strict model adapter, the worker groups actual readings into
+UTC minute slots, keeping the latest reading in each minute (highest ID breaks
+timestamp ties). It uses the latest 120-minute window, so second-level timestamp
+jitter no longer prevents inference. Stored readings and their timestamps stay
+unchanged.
 
-**Live input prerequisite:** every timestamp must fall on a UTC minute boundary
-(seconds and microseconds zero). Current firmware schedules from an arbitrary
-boot-time phase, so existing readings may fail this check even when 60 seconds
-apart. The adapter reports that reason; it does not floor timestamps, interpolate,
-fill gaps or change collection timing. Collection alignment needs to be addressed
-before claiming live forecasts work with that firmware. Resume ESP32 collection
-after restarting it.
+Internal gaps of at most **two consecutive minutes** are linearly interpolated,
+with at most **six estimated minutes per window**. The first and last slots must
+have actual readings; there is no extrapolation. Filled-minute counts are logged.
+The window must cover the full lookback, and the latest actual reading must be
+no more than 180 seconds old. Future timestamps, larger gaps, too many missing
+slots, missing/nonfinite features, negative concentrations, and humidity outside
+0–100 block prediction. Particulate inputs must satisfy PM1 <= PM2.5 <= PM10.
+Devices without a nonempty `device_id` are skipped.
+
+The saved input cutoff and forecast target use the normalized UTC minute; the
+source row ID still points to the actual newest measurement. Original source
+timestamps and values are included in the deduplication hash. Estimated values
+exist only in memory, never as measured rows. The two-minute/six-minute limits
+are an operational policy, not an accuracy guarantee: evaluate this preprocessing
+on representative real-device gaps before relying on the resulting forecasts.
+Resume device collection after restarting it.
 
 ## Ubuntu server: Docker worker
 
@@ -194,7 +201,7 @@ python -m ai_model.forecast_worker --once
 python -m ai_model.forecast_worker
 ```
 
-Insufficient, nonaligned or invalid readings report unavailable. Ctrl+C stops the
+Insufficient, excessive-gap or invalid readings report unavailable. Ctrl+C stops the
 continuous worker. It prints status to its terminal; do not run the native worker
 alongside the Docker worker.
 

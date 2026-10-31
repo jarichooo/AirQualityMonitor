@@ -285,9 +285,12 @@ readings predicted two hours ahead -> thresholds and Qwen -> dashboard numbers
 and explanatory sentences. The worker and webpage integration are prepared in
 [ai_model/README.md](ai_model/README.md). The supplied GRU Joblib artifact and its
 preprocessing are connected through `ai_model/predictor.py`, using pinned CPU
-dependencies and an optional Python 3.12 worker container. It needs 120 consecutive,
-minute-aligned readings; current firmware timestamp alignment remains a live-input
-prerequisite. Missing models or invalid inputs never produce invented values.
+dependencies and an optional Python 3.12 worker container. The worker prepares a
+120-minute input window from the latest reading in each UTC minute. It can
+interpolate internal gaps of up to two minutes, at most six minutes per window;
+longer gaps, insufficient coverage, stale readings, and invalid inputs block
+prediction. These estimates never change stored measurements. Their effect on
+forecast accuracy still needs validation with real device data.
 
 See [SERVER_COMMANDS.md](SERVER_COMMANDS.md#optional-ollama--qwen25-reasoning-engine)
 for Ubuntu, SCP, and troubleshooting instructions. Ollama setup alone needs no
