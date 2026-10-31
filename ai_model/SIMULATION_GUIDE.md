@@ -45,6 +45,10 @@ Connect through SSH and paste this once. Skip it on later runs:
 
 Run this once before presenting. The services keep running when
 you stop a simulation or change conditions; you only need one SSH terminal.
+If [automatic startup](../SERVER_COMMANDS.md#automatic-startup) is configured,
+these services already start at boot. Still run this block before a simulation:
+it pauses real sensor ingestion so the demo data stays separate. A reboot starts
+ingestion again; it does not restart the simulation.
 
 ```bash
 (
