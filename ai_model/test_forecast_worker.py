@@ -58,6 +58,133 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(record["predicted_values"], {"temperature_c": 34.0})
         self.assertEqual(events, ["saved", "qwen", "explained"])
 
+    def test_short_gap_and_timestamp_seconds_are_prepared_without_writing_readings(self):
+        process_now = self.now + timedelta(seconds=50)
+        rows = []
+        for offset in range(-121, 1):
+            if offset in {-60, -59}:
+                continue
+            rows.append({
+                "id": offset + 122,
+                "recorded_at": self.now + timedelta(minutes=offset, seconds=36),
+                "device_id": "esp32-1",
+                "temperature_c": 30.0 + (offset + 121) / 100,
+                "humidity_perc": 60.0,
+            })
+        model = SimpleNamespace(
+            MODEL_VERSION="gap-test-v1", LOOKBACK_SAMPLES=120,
+            SAMPLE_INTERVAL_SECONDS=60, CADENCE_TOLERANCE_SECONDS=0,
+            HORIZON_MINUTES=120,
+            FEATURE_COLUMNS=("temperature_c", "humidity_perc"),
+            TARGET_COLUMNS=("temperature_c",),
+            predict=Mock(return_value={"temperature_c": 34.0}),
+        )
+        with (
+            patch.object(worker, "fetch_history", return_value=rows),
+            patch.object(worker, "fetch_current_forecast", return_value=None),
+            patch.object(worker, "save_forecast") as save,
+            patch.object(worker, "update_explanation"),
+        ):
+            result = worker.process_device(
+                self.conn, "esp32-1", model, process_now, (self.policy, None),
+                Mock(return_value="Check ventilation."),
+            )
+
+        prepared = model.predict.call_args.args[0]
+        record = save.call_args.args[1]
+        self.assertEqual(result, "created")
+        self.assertEqual(len(prepared), 120)
+        self.assertTrue(all(
+            (right["recorded_at"] - left["recorded_at"]) == timedelta(minutes=1)
+            for left, right in zip(prepared, prepared[1:])
+        ))
+        self.assertEqual(sum(row["id"] is None for row in prepared), 2)
+        self.assertEqual(record["input_row_id"], rows[-1]["id"])
+        self.assertEqual(record["input_cutoff_at"], self.now)
+        self.assertEqual(record["target_at"], self.now + timedelta(hours=2))
+        self.assertEqual(record["source_hash"], worker.history_hash(rows, model))
+
+    def test_late_second_reading_uses_actual_timestamp_for_freshness(self):
+        rows = [
+            {
+                "id": index + 1,
+                "recorded_at": self.now - timedelta(minutes=119 - index) + timedelta(seconds=59),
+                "device_id": "esp32-1",
+                "temperature_c": 30.0,
+                "humidity_perc": 60.0,
+            }
+            for index in range(120)
+        ]
+        model = SimpleNamespace(
+            MODEL_VERSION="gap-test-v1", LOOKBACK_SAMPLES=120,
+            SAMPLE_INTERVAL_SECONDS=60, CADENCE_TOLERANCE_SECONDS=0,
+            HORIZON_MINUTES=120,
+            FEATURE_COLUMNS=("temperature_c", "humidity_perc"),
+            TARGET_COLUMNS=("temperature_c",),
+            predict=Mock(return_value={"temperature_c": 34.0}),
+        )
+        process_now = self.now + timedelta(minutes=3, seconds=30)
+        with (
+            patch.object(worker, "fetch_history", return_value=rows),
+            patch.object(worker, "fetch_current_forecast", return_value=None),
+            patch.object(worker, "save_forecast") as save,
+            patch.object(worker, "update_explanation"),
+        ):
+            result = worker.process_device(
+                self.conn, "esp32-1", model, process_now, (self.policy, None),
+                Mock(return_value="Check ventilation."),
+            )
+
+        self.assertEqual(result, "created")
+        record = save.call_args.args[1]
+        self.assertEqual((process_now - rows[-1]["recorded_at"]).total_seconds(), 151)
+        self.assertEqual(record["input_cutoff_at"], self.now)
+        self.assertEqual(record["input_row_id"], rows[-1]["id"])
+
+    def test_long_gap_is_rejected_before_prediction_or_save(self):
+        process_now = self.now + timedelta(seconds=50)
+        rows = []
+        for offset in range(-122, 1):
+            if offset in {-62, -61, -60}:
+                continue
+            rows.append({
+                "id": offset + 123,
+                "recorded_at": self.now + timedelta(minutes=offset, seconds=36),
+                "device_id": "esp32-1",
+                "temperature_c": 30.0,
+                "humidity_perc": 60.0,
+            })
+        model = SimpleNamespace(
+            MODEL_VERSION="gap-test-v1", LOOKBACK_SAMPLES=120,
+            SAMPLE_INTERVAL_SECONDS=60, CADENCE_TOLERANCE_SECONDS=0,
+            HORIZON_MINUTES=120,
+            FEATURE_COLUMNS=("temperature_c", "humidity_perc"),
+            TARGET_COLUMNS=("temperature_c",), predict=Mock(),
+        )
+        with (
+            patch.object(worker, "fetch_history", return_value=rows),
+            patch.object(worker, "fetch_current_forecast") as current,
+            patch.object(worker, "save_forecast") as save,
+        ):
+            with self.assertRaisesRegex(predictor.ModelUnavailable, "longer than 2 minutes"):
+                worker.process_device(self.conn, "esp32-1", model, process_now, (self.policy, None))
+        model.predict.assert_not_called()
+        current.assert_not_called()
+        save.assert_not_called()
+
+    def test_fetch_history_uses_latest_reading_from_each_utc_minute(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = self.rows
+
+        self.assertEqual(worker.fetch_history(connection, "esp32-1", self.model), self.rows)
+
+        query, params = cursor.execute.call_args.args
+        self.assertIn("DISTINCT ON (date_trunc('minute', recorded_at AT TIME ZONE 'UTC'))", query)
+        self.assertIn("recorded_at DESC, id DESC LIMIT %s", query)
+        self.assertIn("ORDER BY recorded_at ASC, id ASC", query)
+        self.assertEqual(params, ("esp32-1", self.model.LOOKBACK_SAMPLES))
+
     def test_unconfigured_model_and_missing_history_produce_no_forecast(self):
         with self.assertRaises(predictor.ModelUnavailable):
             worker.validate_model_contract(SimpleNamespace(MODEL_VERSION=None))
@@ -78,6 +205,22 @@ class ForecastWorkerTest(unittest.TestCase):
             worker.validate_prediction({"temperature_c": float("nan")}, self.model)
         with self.assertRaisesRegex(worker.ContractError, "exactly match"):
             worker.validate_prediction({"humidity_perc": 50.0}, self.model)
+
+    def test_source_freshness_and_future_checks_use_actual_timestamps(self):
+        future = [dict(row) for row in self.rows]
+        future[-1]["recorded_at"] = self.now + timedelta(seconds=1)
+        with self.assertRaisesRegex(worker.ContractError, "future"):
+            worker.validate_source_history(future, self.model, self.now)
+
+        stale = [dict(row, recorded_at=row["recorded_at"] - timedelta(minutes=4))
+                 for row in self.rows]
+        with self.assertRaisesRegex(worker.ContractError, "stale"):
+            worker.validate_source_history(stale, self.model, self.now)
+
+        invalid = [dict(row) for row in self.rows]
+        invalid[0]["humidity_perc"] = -1.0
+        with self.assertRaisesRegex(worker.ContractError, "between 0 and 100"):
+            worker.validate_source_history(invalid, self.model, self.now)
 
     def test_qwen_timeout_keeps_committed_numeric_forecast(self):
         events = []
@@ -482,7 +625,11 @@ class ForecastWorkerTest(unittest.TestCase):
         worker.invalidate_stale_forecasts(connection, self.now)
         query, params = connection.cursor.return_value.__enter__.return_value.execute.call_args.args
         self.assertIn("status = 'unavailable'", query)
-        self.assertIn("input_cutoff_at < %s", query)
+        self.assertIn("NOT EXISTS", query)
+        self.assertIn("source.id = forecast.input_row_id", query)
+        self.assertIn("source.device_id = forecast.device_id", query)
+        self.assertIn("source.recorded_at >= %s", query)
+        self.assertNotIn("input_cutoff_at <", query)
         self.assertEqual(params[-1], self.now - timedelta(seconds=worker.FRESHNESS_SECONDS))
         self.assertNotIn("last_guidance =", query)
         connection.commit.assert_called_once()

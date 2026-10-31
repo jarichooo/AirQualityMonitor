@@ -183,7 +183,14 @@ Start the background services again before using **Predict now** after cleanup.
 
 ## Physical device note
 
-This guide tests the database simulation, not a connected device. For a live
-device, **Predict now** needs 120 consecutive one-minute readings with stored
-timestamps aligned to UTC minutes. Verify the device and ingestion path against
-that requirement before relying on live forecasts.
+For a live device, let it collect about two hours of readings, then click
+**Predict now**. You do not need to run a simulation. The prediction worker groups
+readings into UTC minutes and uses the latest reading in each minute.
+
+After a short disconnection, it can estimate up to **two consecutive missing
+minutes**, with at most **six missing minutes in the 120-minute window**. It needs
+actual readings on both sides of each gap and a latest reading no more than
+three minutes old. Longer gaps or insufficient history block prediction.
+Estimated inputs are used only for prediction; the database and measured charts
+keep the original readings. Check accuracy with real device data before relying
+on forecasts that use estimated inputs.

@@ -37,12 +37,13 @@ class ForecastTestCase(unittest.TestCase):
             "explanation": "Check ventilation before the forecast target.",
             "policy_sha256": "abc123",
             "last_guidance": None,
+            "source_recorded_at": cutoff,
         }
         values.update(changes)
         return tuple(values[column] for column in (
             "forecast_id", "device_id", "input_row_id", "input_cutoff_at", "target_at",
             "generated_at", "model_version", "status", "reason", "predicted_values",
-            "severity", "explanation_status", "explanation", "policy_sha256", "last_guidance",
+            "severity", "explanation_status", "explanation", "policy_sha256", "last_guidance", "source_recorded_at",
         ))
 
     def test_forecast_api_requires_login_and_returns_saved_output(self):
@@ -69,12 +70,39 @@ class ForecastTestCase(unittest.TestCase):
         self.assertIn("source.id = forecast.input_row_id", query)
         self.assertIn("source.device_id = forecast.device_id", query)
         self.assertIn("source.recorded_at = forecast.input_cutoff_at", query)
+        self.assertIn("date_trunc('minute', source.recorded_at) = forecast.input_cutoff_at", query)
+
+    def test_off_minute_source_remains_fresh_for_the_full_three_minutes(self):
+        source_time = datetime(2026, 10, 31, 12, 2, 59, tzinfo=timezone.utc)
+        cutoff = source_time.replace(second=0)
+        now = datetime(2026, 10, 31, 12, 5, 30, tzinfo=timezone.utc)
+        row = self.row(now, input_cutoff_at=cutoff, source_recorded_at=source_time,
+                       target_at=cutoff + timedelta(hours=2))
+        for check_time in (now, source_time + timedelta(seconds=180)):
+            with self.subTest(check_time=check_time):
+                forecast = serialize_forecast(row, application.SENSORS, check_time)
+                self.assertEqual(forecast["status"], "available")
+                self.assertTrue(forecast["predictions"])
+        expired = serialize_forecast(row, application.SENSORS,
+                                     source_time + timedelta(seconds=181))
+        self.assertEqual(expired["status"], "unavailable")
+        self.assertEqual(expired["predictions"], [])
+
+    def test_future_or_mismatched_source_timestamp_is_unavailable(self):
+        now = datetime(2026, 10, 31, 12, 5, 30, tzinfo=timezone.utc)
+        for source_time in (now + timedelta(seconds=1), now - timedelta(minutes=1), None):
+            with self.subTest(source_time=source_time):
+                forecast = serialize_forecast(self.row(now, source_recorded_at=source_time),
+                                               application.SENSORS, now)
+                self.assertEqual(forecast["status"], "unavailable")
+                self.assertEqual(forecast["predictions"], [])
 
     def test_stale_unavailable_and_untrusted_values_hide_numbers(self):
         now = datetime(2026, 10, 28, 12, tzinfo=timezone.utc)
         stale_cutoff = now - timedelta(seconds=181)
         stale = serialize_forecast(
-            self.row(now, input_cutoff_at=stale_cutoff, target_at=stale_cutoff + timedelta(hours=2)),
+            self.row(now, input_cutoff_at=stale_cutoff, source_recorded_at=stale_cutoff,
+                     target_at=stale_cutoff + timedelta(hours=2)),
             application.SENSORS, now,
         )
         self.assertEqual(stale["status"], "unavailable")
