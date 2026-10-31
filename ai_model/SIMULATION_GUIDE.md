@@ -41,40 +41,21 @@ Connect through SSH and paste this once. Skip it on later runs:
 )
 ```
 
-## Start the background services
+## Every simulation run
 
-Run this once before presenting. The services keep running when
-you stop a simulation or change conditions; you only need one SSH terminal.
-If [automatic startup](../SERVER_COMMANDS.md#automatic-startup) is configured,
-these services already start at boot. Still run this block before a simulation:
-it pauses real sensor ingestion so the demo data stays separate. A reboot starts
-ingestion again; it does not restart the simulation.
+The server's configured background services start automatically after boot.
+Wait for the dashboard to become available; you do not need to start them manually.
+Simulation scripts still need to be started in your SSH terminal.
+
+Stop the previous simulation with **Ctrl+C** and wait for any active prediction
+to finish. Paste this block each time. It stops real-device ingestion so physical
+readings cannot mix with the simulation:
 
 ```bash
 (
   set -e
   cd ~/AirQualityMonitor
   sudo docker compose stop ingestion
-  sudo docker compose up -d --wait postgres_db
-  sudo docker compose up -d --no-deps web_dashboard
-  sudo systemctl start henvironment-ollama.service
-  curl --retry 15 --retry-connrefused --retry-delay 2 -fsS \
-    http://127.0.0.1:11435/api/tags >/dev/null
-
-  sudo docker compose --profile forecast up \
-    -d --no-deps forecast_worker
-)
-```
-
-## Every simulation run
-
-Stop the previous simulation with **Ctrl+C** and wait for any active prediction
-to finish. This is the only block you need each time:
-
-```bash
-(
-  set -e
-  cd ~/AirQualityMonitor
   source ~/henvironment-simulation-venv/bin/activate
   python3 ai_model/simulate_good.py
 )
@@ -104,6 +85,19 @@ If seeding fails, the reset rolls back.
 To stop the simulation, press **Ctrl+C**. The dashboard and prediction services
 continue in the background. After the readings stop, request a prediction within
 about three minutes before they become too old.
+
+When finished with the demo, stop the simulation with **Ctrl+C** and restore
+real-device ingestion:
+
+```bash
+(
+  set -e
+  cd ~/AirQualityMonitor
+  sudo docker compose up -d ingestion
+)
+```
+
+A server reboot also starts ingestion again. It does not restart a simulation.
 
 ## Apply code updates
 
@@ -174,12 +168,14 @@ with closing(database_connection()) as conn:
     with conn:
         print(clear_history(conn))
 PY
+  sudo docker compose --profile forecast up -d --no-deps forecast_worker
 )
 ```
 
 Refresh the dashboard afterward. Technical server instructions are in
 [SERVER_COMMANDS.md](../SERVER_COMMANDS.md).
-Start the background services again before using **Predict now** after cleanup.
+The cleanup block restarts the prediction worker and leaves real-device ingestion
+stopped. Start a simulation, or restore ingestion using the command above.
 
 ## Physical device note
 
