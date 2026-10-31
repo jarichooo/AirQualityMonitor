@@ -58,8 +58,8 @@ SENSORS = (
     ("pm1_ugm3", "PM1.0", "µg/m³"),
     ("pm25_ugm3", "PM2.5", "µg/m³"),
     ("pm10_ugm3", "PM10", "µg/m³"),
-    ("mq4_ppm", "Methane estimate (MQ-4)", "ppm"),
-    ("mq137_ppm", "Ammonia estimate (MQ-137)", "ppm"),
+    ("mq4_ppm", "Methane", "ppm"),
+    ("mq137_ppm", "Ammonia", "ppm"),
 )
 LIVE_SENSORS = (
     ("t", "Temperature", "°C"),
@@ -68,8 +68,8 @@ LIVE_SENSORS = (
     ("pm1", "PM1.0", "µg/m³"),
     ("pm25", "PM2.5", "µg/m³"),
     ("pm10", "PM10", "µg/m³"),
-    ("mq4_ppm", "Methane estimate (MQ-4)", "ppm"),
-    ("mq137_ppm", "Ammonia estimate (MQ-137)", "ppm"),
+    ("mq4_ppm", "Methane", "ppm"),
+    ("mq137_ppm", "Ammonia", "ppm"),
 )
 # Match the forecast worker so cleanup cannot race with simulation or inference.
 DELETE_WORKER_LOCK_ID = 739_783_247_071_623_201

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="dashboard-page">
     <div class="page-heading dashboard-heading">
-        <div class="page-heading-copy"><h1>Dashboard</h1><p>Environmental readings and descriptive analytics &middot; All stored readings (UTC)</p></div>
+        <div class="page-heading-copy"><h1>Dashboard</h1><p>Live readings, trends, and forecasts &middot; UTC</p></div>
         <div class="dashboard-heading-tools">
             <a class="button button-secondary" href="{{ url_for('dashboard', sensor=selected.column) }}">Refresh</a>
             <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
@@ -16,31 +16,35 @@
     {% endif %}
     <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
         <div class="dashboard-panel-heading device-live-heading">
-            <div><h2 id="device-live-title">Live ESP32 readings</h2><p>Direct from the sensor device &middot; refreshes as readings arrive</p></div>
+            <div><h2 id="device-live-title">Live readings</h2><p>Current measurements from your device</p></div>
             <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status">Not connected</span></div>
         </div>
-        <form class="device-connect-form" id="device-connect-form">
-            <label class="field" for="device-websocket-url"><span>ESP32 WebSocket address</span>
-                <input id="device-websocket-url" name="device-websocket-url" type="url" value="ws://airqualitymonitor.local:81/" required autocomplete="url" spellcheck="false">
-            </label>
-            <button class="button button-primary" type="submit">Connect</button>
-        </form>
-        <div class="device-collection-controls">
-            <button class="button button-secondary" id="device-pause-toggle" type="button" aria-describedby="device-collection-help" disabled>Waiting for ESP32</button>
-            <strong id="device-collection-state" class="device-collection-state" data-state="unknown" role="status" aria-live="polite">Collection status unknown</strong>
+        <div class="device-live-setup">
+            <form class="device-connect-form" id="device-connect-form">
+                <label class="field" for="device-websocket-url"><span>Device address</span>
+                    <input id="device-websocket-url" name="device-websocket-url" type="url" value="ws://airqualitymonitor.local:81/" required autocomplete="url" spellcheck="false">
+                </label>
+                <button class="button button-primary" type="submit">Connect</button>
+            </form>
+            <div class="device-collection-block" role="group" aria-label="Data collection">
+                <div class="device-collection-controls">
+                    <button class="button button-secondary" id="device-pause-toggle" type="button" aria-describedby="device-collection-help" disabled>Waiting for device</button>
+                    <strong id="device-collection-state" class="device-collection-state" data-state="unknown" role="status" aria-live="polite">Status unknown</strong>
+                </div>
+                <p id="device-collection-help" class="device-live-time" role="status">Connect to check or change data collection.</p>
+                <p class="device-live-time">Last update: <time id="device-live-time">Waiting for readings</time></p>
+            </div>
         </div>
-        <p id="device-collection-help" class="device-live-time" role="status">Connect to the ESP32 to control collection.</p>
-        <p class="device-live-time">Latest device message: <time id="device-live-time">Waiting for readings</time></p>
-        <div class="dashboard-metrics live-sensor-grid" aria-label="Live ESP32 sensor readings">
+        <div class="dashboard-metrics live-sensor-grid" aria-label="Live sensor readings">
             {% for key, label, unit in live_sensors %}
             <div class="metric-card">
                 <span class="metric-card-label">{{ label }}</span>
                 <span class="metric-card-value"><strong data-live-sensor="{{ key }}">—</strong><small>{{ unit }}</small></span>
-                <span class="metric-card-status" data-live-valid="{{ key }}">Waiting for sensor data</span>
+                <span class="metric-card-status" data-live-valid="{{ key }}">Waiting for readings</span>
             </div>
             {% endfor %}
         </div>
-        <p class="device-live-time">MQ-4 methane and MQ-137 ammonia values are PPM estimates. Verify the configured load resistance and sensor calibration before relying on concentration values.</p>
+        <p class="device-calibration-note">Gas readings are estimates. Check sensor setup and calibration before relying on these values.</p>
     </section>
     <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
         {% for metric in metrics %}
@@ -117,4 +121,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='pause-feedback-2') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
