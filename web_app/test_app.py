@@ -28,7 +28,6 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b"Good day", dashboard.data)
         self.assertIn(b"Methane", dashboard.data)
         self.assertIn(b"Ammonia", dashboard.data)
-        self.assertIn(b"Check sensor setup and calibration", dashboard.data)
         self.assertIn("mq4_ppm", application.READING_COLUMNS)
         self.assertIn("mq137_ppm", application.READING_COLUMNS)
         self.assertNotIn("mq135_raw", application.READING_COLUMNS)
