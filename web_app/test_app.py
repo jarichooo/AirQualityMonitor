@@ -51,7 +51,7 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b">Clear<", page.data)
             self.assertIn(b'aria-label="Log out"', page.data)
             self.assertNotIn(b">Logout<", page.data)
-            self.assertIn(b"profile-identity", page.data)
+            self.assertNotIn(b"profile-identity", page.data)
             self.assertNotIn(b"profile-button", page.data)
             self.assertNotIn(b"profile-popover", page.data)
 
