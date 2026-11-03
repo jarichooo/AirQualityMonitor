@@ -51,7 +51,7 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
 .sidebar-header { display: flex; min-height: 88px; align-items: center; gap: 13px; padding: 18px; border-bottom: 1px solid rgb(255 255 255 / 9%); }
 .brand-toggle, .icon-button { border: 0; color: inherit; cursor: pointer; }
 .brand-toggle { flex: 0 0 auto; padding: 0; border-radius: 50%; background: transparent; }
-.brand-mark { display: block; width: 40px; height: 40px; border-radius: 50%; background: #fff; }
+.brand-mark { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--surface-elevated); font-size: 22px; line-height: 1; }
 .greeting { display: grid; min-width: 160px; line-height: 1.35; opacity: 1; transition: opacity var(--transition); }
 .greeting span { color: rgb(255 255 255 / 62%); font-size: 11px; letter-spacing: .02em; }
 .greeting strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
