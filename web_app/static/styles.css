@@ -66,12 +66,7 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
 .nav-label { opacity: 1; transition: opacity var(--transition); }
 
 .sidebar-footer { position: relative; margin-top: auto; padding: 12px; }
-.account-row { display: flex; min-height: 52px; align-items: center; gap: 6px; }
-.profile-identity { display: flex; min-width: 0; flex: 1; align-items: center; gap: 10px; padding: 4px; border-radius: 9px; text-align: left; }
-.profile-avatar { display: grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 600; }
-.profile-copy { display: grid; min-width: 0; opacity: 1; line-height: 1.4; transition: opacity var(--transition); }
-.profile-copy strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.profile-copy small { color: rgb(255 255 255 / 56%); font-size: 10px; }
+.account-row { display: flex; min-height: 52px; align-items: center; justify-content: flex-end; gap: 6px; }
 .icon-button { display: inline-grid; width: 38px; height: 38px; flex: 0 0 auto; place-items: center; border-radius: 9px; background: transparent; text-decoration: none; transition: background 150ms ease, color 150ms ease, transform 100ms ease; }
 .icon-button.drawer-close { display: none; }
 .icon-button:hover { background: rgb(255 255 255 / 10%); color: #fff; }
@@ -85,11 +80,10 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
 
 .sidebar.is-collapsed { width: var(--sidebar-collapsed-width); }
 .sidebar.is-collapsed .sidebar-header { justify-content: center; padding-inline: 10px; }
-.sidebar.is-collapsed .greeting, .sidebar.is-collapsed .nav-label, .sidebar.is-collapsed .nav-kicker, .sidebar.is-collapsed .profile-copy, .sidebar.is-collapsed .account-logout { display: none; }
+.sidebar.is-collapsed .greeting, .sidebar.is-collapsed .nav-label, .sidebar.is-collapsed .nav-kicker { display: none; }
 .sidebar.is-collapsed .sidebar-nav { justify-items: center; padding-inline: 10px; }
 .sidebar.is-collapsed .nav-link { width: 46px; justify-content: center; padding-inline: 0; }
 .sidebar.is-collapsed .account-row { justify-content: center; }
-.sidebar.is-collapsed .profile-identity { width: 46px; flex: 0 0 46px; justify-content: center; padding-inline: 0; }
 .sidebar.is-collapsed .brand-toggle[data-tooltip]::after, .sidebar.is-collapsed .nav-link[data-tooltip]::after { display: block; top: 50%; bottom: auto; left: calc(100% + 10px); transform: translate(0, -50%); }
 .sidebar.is-collapsed .brand-toggle[data-tooltip]:hover::after, .sidebar.is-collapsed .brand-toggle[data-tooltip]:focus-visible::after,
 .sidebar.is-collapsed .nav-link[data-tooltip]:hover::after, .sidebar.is-collapsed .nav-link[data-tooltip]:focus-visible::after { transform: translate(3px, -50%); }
