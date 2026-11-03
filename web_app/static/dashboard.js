@@ -158,11 +158,11 @@
             },
         },
         scales: {
-            x: { grid: { color: "#edf1f5" }, ticks: { color: "#6b7688", maxRotation: 0, autoSkip: false, callback: chartTick } },
+            x: { grid: { color: "#1e2d45" }, ticks: { color: "#93a4bc", maxRotation: 0, autoSkip: false, callback: chartTick } },
             y: {
-                grid: { color: "#edf1f5" },
-                ticks: { color: "#6b7688", callback: (value) => formatNumber(value, selectedMetric) },
-                title: { display: true, color: "#6b7688", text: metricConfig[selectedMetric].unit, font: { family: "Poppins", size: 11 } },
+                grid: { color: "#1e2d45" },
+                ticks: { color: "#93a4bc", callback: (value) => formatNumber(value, selectedMetric) },
+                title: { display: true, color: "#93a4bc", text: metricConfig[selectedMetric].unit, font: { family: "Poppins", size: 11 } },
             },
         },
     });
@@ -173,12 +173,12 @@
         const datasets = [{
             label: metricConfig[selectedMetric].label,
             data: values,
-            borderColor: "#0b78d0",
-            backgroundColor: "#0b78d0",
+            borderColor: "#2f95eb",
+            backgroundColor: "#2f95eb",
             borderWidth: 2,
             pointRadius: 0,
             pointHoverRadius: 3,
-            pointHoverBackgroundColor: "#0b78d0",
+            pointHoverBackgroundColor: "#2f95eb",
             tension: 0.22,
             spanGaps: true,
         }];
@@ -187,7 +187,7 @@
             datasets.push({
                 label: "Configured threshold",
                 data: labels.map(() => threshold),
-                borderColor: "#d99b24",
+                borderColor: "#fbbf24",
                 borderWidth: 1,
                 borderDash: [6, 5],
                 pointRadius: 0,
