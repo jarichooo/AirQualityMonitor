@@ -230,7 +230,9 @@ available, then click **Predict now** again. Save the log output if it keeps fai
 3. In the **Time range** dropdown, select **Delete all simulation readings** (no timestamp needed).
 4. Click **Delete selected readings** and confirm.
 
-This removes all seeded and appended simulation rows (`sim-farm-good`, `sim-farm-mid`, `sim-farm-bad`, etc.) and their saved forecasts, leaves your imported dataset untouched, and resets the next reading ID right after the highest retained row (e.g. `9861`).
+This removes all seeded and appended simulation rows (`sim-farm-good`, `sim-farm-mid`, `sim-farm-bad`, `sim-farm-random`, etc.) and their saved forecasts, leaves your imported dataset untouched, and resets the next reading ID right after the highest retained row (e.g. `9861`).
+
+If a physical device was briefly connected and inserted fewer than 120 minutes of readings (blocking **Predict now**), select **Delete incomplete readings (< 120 rows)** in the same dropdown to clear those incomplete device runs and unlock **Predict now**.
 
 ### Option B: From the Ubuntu SSH terminal
 
