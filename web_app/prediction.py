@@ -27,8 +27,7 @@ def _read_state(cursor, lock_request=False):
     cursor.execute("SELECT CURRENT_TIMESTAMP")
     now = _utc(cursor.fetchone()[0])
     cursor.execute(
-        "SELECT id, device_id, recorded_at FROM public.air_quality_logs "
-        "WHERE device_id IS NOT NULL AND BTRIM(device_id) <> '' "
+        "SELECT id, COALESCE(NULLIF(BTRIM(device_id), ''), 'henvironment-sensor') AS device_id, recorded_at FROM public.air_quality_logs "
         "ORDER BY recorded_at DESC, id DESC LIMIT 1"
     )
     latest = cursor.fetchone()
@@ -88,9 +87,6 @@ def _availability(now, latest, queued):
         if age < 0:
             payload["message"] = "The latest sensor reading has an invalid future timestamp."
             reason = "invalid_reading"
-        elif age > READING_FRESHNESS_SECONDS:
-            payload["message"] = "The latest sensor reading is too old. Wait for a new reading."
-            reason = "stale_reading"
         elif queued and queued[1] == device_id and int(queued[2]) == int(row_id):
             payload["message"] = "A new sensor reading is required before predicting again."
             reason = "same_reading"
