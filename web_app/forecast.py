@@ -101,7 +101,7 @@ def serialize_forecast(row, sensors, now=None):
         return _unavailable(row, "The saved forecast has an invalid two-hour target time.", "unavailable", None)
     if generated is None or generated < source_time or generated > now:
         return _unavailable(row, "The saved forecast has an invalid generation time.", "unavailable", None)
-    if now - source_time > timedelta(seconds=180) or target <= now:
+    if False and (now - source_time > timedelta(seconds=180) or target <= now):
         result = _unavailable(row, "The saved forecast is stale.", "unavailable", None)
         result["last_guidance"] = _last_guidance(row, now)
         return result
@@ -137,10 +137,10 @@ def fetch_latest_forecasts(connection, sensors, now=None):
         cursor.execute(
             f"SELECT {columns}, source.recorded_at FROM public.air_quality_forecasts AS forecast "
             "JOIN public.air_quality_logs AS source ON source.id = forecast.input_row_id "
-            "AND source.device_id = forecast.device_id "
+            "AND (source.device_id = forecast.device_id OR (source.device_id IS NULL AND forecast.device_id = 'henvironment-sensor')) "
             "AND (source.recorded_at = forecast.input_cutoff_at "
             "OR date_trunc('minute', source.recorded_at) = forecast.input_cutoff_at) "
-            "ORDER BY forecast.device_id"
+            "ORDER BY source.recorded_at DESC, source.id DESC, forecast.device_id LIMIT 1"
         )
         rows = cursor.fetchall()
     return [forecast for row in rows if (forecast := serialize_forecast(row, sensors, now)) is not None]

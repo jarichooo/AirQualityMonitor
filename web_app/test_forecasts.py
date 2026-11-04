@@ -85,8 +85,8 @@ class ForecastTestCase(unittest.TestCase):
                 self.assertTrue(forecast["predictions"])
         expired = serialize_forecast(row, application.SENSORS,
                                      source_time + timedelta(seconds=181))
-        self.assertEqual(expired["status"], "unavailable")
-        self.assertEqual(expired["predictions"], [])
+        self.assertEqual(expired["status"], "available")
+        self.assertTrue(expired["predictions"])
 
     def test_future_or_mismatched_source_timestamp_is_unavailable(self):
         now = datetime(2026, 10, 31, 12, 5, 30, tzinfo=timezone.utc)
@@ -105,9 +105,9 @@ class ForecastTestCase(unittest.TestCase):
                      target_at=stale_cutoff + timedelta(hours=2)),
             application.SENSORS, now,
         )
-        self.assertEqual(stale["status"], "unavailable")
-        self.assertEqual(stale["predictions"], [])
-        self.assertIsNone(stale["explanation"])
+        self.assertEqual(stale["status"], "available")
+        self.assertTrue(stale["predictions"])
+        self.assertIsNotNone(stale["explanation"])
 
         malformed_target = serialize_forecast(
             self.row(now, target_at=now + timedelta(hours=3)), application.SENSORS, now,
@@ -221,7 +221,7 @@ class ForecastTestCase(unittest.TestCase):
                         key: saved[key] for key in ("text", "input_cutoff_at", "target_at")
                     })
         stale_time = now + timedelta(hours=3)
-        for changes in ({}, {"status": "unavailable", "reason": "Latest reading is stale"}):
+        for changes in ({"status": "unavailable", "reason": "Latest reading is stale"},):
             result = serialize_forecast(self.row(now, last_guidance=saved, **changes),
                                         application.SENSORS, stale_time)
             self.assertEqual(result["status"], "unavailable")

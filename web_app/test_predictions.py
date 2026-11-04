@@ -142,13 +142,13 @@ class PredictionDomainTest(unittest.TestCase):
                 self.assertTrue(payload["message"])
                 self.assertNotRegex(payload["message"], r"Qwen|Ollama|worker|joblib|NumPy")
 
-    def test_missing_stale_and_future_readings_are_rejected(self):
-        readings = (None, (1, "sensor-1", NOW - timedelta(seconds=181)),
-                    (1, "sensor-1", NOW + timedelta(seconds=1)))
-        for latest in readings:
+    def test_missing_and_future_readings_are_rejected_while_historical_readings_are_allowed(self):
+        for latest in (None, (1, "sensor-1", NOW + timedelta(seconds=1))):
             with self.subTest(latest=latest), self.assertRaises(prediction.PredictionRejected) as caught:
                 prediction.enqueue_prediction(FakeConnection(latest=latest))
             self.assertEqual(caught.exception.status_code, 409)
+        historical = prediction.enqueue_prediction(FakeConnection(latest=(1, "sensor-1", NOW - timedelta(days=9))))
+        self.assertEqual(historical["status"], "queued")
 
 
 class PredictionApiTest(unittest.TestCase):

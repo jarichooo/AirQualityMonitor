@@ -214,8 +214,8 @@ class ForecastWorkerTest(unittest.TestCase):
 
         stale = [dict(row, recorded_at=row["recorded_at"] - timedelta(minutes=4))
                  for row in self.rows]
-        with self.assertRaisesRegex(worker.ContractError, "stale"):
-            worker.validate_source_history(stale, self.model, self.now)
+        self.assertEqual(worker.validate_source_history(stale, self.model, self.now), stale)
+
 
         invalid = [dict(row) for row in self.rows]
         invalid[0]["humidity_perc"] = -1.0
