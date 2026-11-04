@@ -507,7 +507,7 @@ def delete_readings():
     if not token or not secrets.compare_digest(token.encode(), submitted.encode()):
         abort(400)
     delete_mode = request.form.get("delete_mode")
-    expected_confirmation = {"all": "delete_all", "all_simulated": "delete_all_simulated", "from_timestamp": "delete_from_timestamp"}.get(delete_mode)
+    expected_confirmation = {"all": "delete_all", "all_simulated": "delete_all_simulated", "incomplete": "delete_incomplete", "from_timestamp": "delete_from_timestamp"}.get(delete_mode)
     if not expected_confirmation or request.form.get("confirmation") != expected_confirmation:
         abort(400)
     cutoff = None
@@ -548,8 +548,21 @@ def delete_readings():
                             cursor.execute("TRUNCATE TABLE air_quality_logs RESTART IDENTITY")
                         else:
                             scope_sql = " AND device_id = ANY(%s)" if delete_scope == "simulated" else ""
-                            where_sql = "device_id = ANY(%s)" if delete_mode == "all_simulated" else f"recorded_at >= %s{scope_sql}"
-                            params = (list(SIMULATED_DEVICE_IDS),) if delete_mode == "all_simulated" else ((cutoff, list(SIMULATED_DEVICE_IDS)) if scope_sql else (cutoff,))
+                            if delete_mode == "all_simulated":
+                                where_sql = "device_id = ANY(%s)"
+                                params = (list(SIMULATED_DEVICE_IDS),)
+                            elif delete_mode == "incomplete":
+                                where_sql = (
+                                    "COALESCE(NULLIF(BTRIM(device_id), ''), 'henvironment-sensor') IN ("
+                                    "SELECT COALESCE(NULLIF(BTRIM(device_id), ''), 'henvironment-sensor') "
+                                    "FROM air_quality_logs GROUP BY 1 "
+                                    "HAVING COUNT(DISTINCT date_trunc('minute', recorded_at AT TIME ZONE 'UTC')) < 120)"
+                                )
+                                params = ()
+                            else:
+                                where_sql = f"recorded_at >= %s{scope_sql}"
+                                params = (cutoff, list(SIMULATED_DEVICE_IDS)) if scope_sql else (cutoff,)
+
                             cursor.execute(
                                 "WITH deleted AS ("
                                 f"DELETE FROM air_quality_logs WHERE {where_sql} RETURNING device_id"
@@ -559,7 +572,17 @@ def delete_readings():
                             )
                             deleted_count, affected_devices = cursor.fetchone()
                             if deleted_count:
-                                if affected_devices and forecast_table_exists:
+                                if delete_mode in {"all_simulated", "incomplete"}:
+                                    cursor.execute(
+                                        "DO $$ BEGIN "
+                                        "IF to_regclass('public.air_quality_prediction_requests') IS NOT NULL THEN "
+                                        "DELETE FROM public.air_quality_prediction_requests; "
+                                        "END IF; "
+                                        "END $$;"
+                                    )
+                                    if forecast_table_exists:
+                                        cursor.execute("DELETE FROM air_quality_forecasts")
+                                elif affected_devices and forecast_table_exists:
                                     cursor.execute(
                                         "DELETE FROM air_quality_forecasts WHERE device_id = ANY(%s)",
                                         (affected_devices,),
@@ -588,6 +611,12 @@ def delete_readings():
         elif delete_mode == "all_simulated" and deleted_count:
             flash(
                 f"Deleted {deleted_count} simulation readings. "
+                f"Existing IDs were kept; the next reading ID is {next_id}.",
+                "success",
+            )
+        elif delete_mode == "incomplete" and deleted_count:
+            flash(
+                f"Deleted {deleted_count} incomplete readings. "
                 f"Existing IDs were kept; the next reading ID is {next_id}.",
                 "success",
             )

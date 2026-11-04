@@ -12,7 +12,7 @@
         !mode || !from || !scope || !scopeSummary) return;
 
     let submitting = false;
-    const allowedModes = new Set(["from_timestamp", "all_simulated", "all"]);
+    const allowedModes = new Set(["from_timestamp", "all_simulated", "incomplete", "all"]);
     const allowedScopes = new Set(["simulated", "all"]);
 
     const validUtcTimestamp = (value) => {
@@ -26,11 +26,11 @@
     };
 
     const updateControls = () => {
-        const allTime = mode.value === "all" || mode.value === "all_simulated";
+        const allTime = mode.value === "all" || mode.value === "all_simulated" || mode.value === "incomplete";
         from.disabled = allTime;
         from.required = !allTime;
         from.setCustomValidity("");
-        if (mode.value === "all") {
+        if (mode.value === "all" || mode.value === "incomplete") {
             scope.value = "all";
             scope.disabled = true;
         } else if (mode.value === "all_simulated") {
@@ -41,9 +41,11 @@
             scope.disabled = false;
         }
         const timeText = allTime ? "Across all timestamps" : "From the selected UTC time onward";
-        const sourceText = scope.value === "simulated"
-            ? "only rows from the known simulation devices will be deleted."
-            : "rows from every device, including the imported dataset, will be deleted.";
+        const sourceText = mode.value === "incomplete"
+            ? "only devices with fewer than 120 minute readings will be deleted."
+            : scope.value === "simulated"
+                ? "only rows from the known simulation devices will be deleted."
+                : "rows from every device, including the imported dataset, will be deleted.";
         scopeSummary.textContent = `${timeText}, ${sourceText}`;
     };
 
@@ -69,12 +71,14 @@
             return;
         }
 
-        const timeText = (mode.value === "all" || mode.value === "all_simulated")
+        const timeText = (mode.value === "all" || mode.value === "all_simulated" || mode.value === "incomplete")
             ? "ALL timestamps"
             : `timestamps at or after ${from.value.replace("T", " ")} UTC`;
-        const sourceText = (mode.value === "all_simulated" || scope.value === "simulated")
-            ? "the known simulation devices"
-            : "EVERY device, including the imported dataset";
+        const sourceText = mode.value === "incomplete"
+            ? "devices with fewer than 120 minute readings"
+            : (mode.value === "all_simulated" || scope.value === "simulated")
+                ? "the known simulation devices"
+                : "EVERY device, including the imported dataset";
         const confirmed = window.confirm(
             `Delete readings from ${sourceText} for ${timeText}?\n\n` +
             "This ignores the current table filters and cannot be undone. Retained row IDs will not change, and the next reading will follow the highest retained ID.\n\n" +
@@ -86,7 +90,9 @@
             ? "delete_all"
             : mode.value === "all_simulated"
                 ? "delete_all_simulated"
-                : "delete_from_timestamp";
+                : mode.value === "incomplete"
+                    ? "delete_incomplete"
+                    : "delete_from_timestamp";
         submitting = true;
         submitButton.disabled = true;
         submitButton.textContent = "Deleting…";

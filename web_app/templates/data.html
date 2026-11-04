@@ -146,6 +146,7 @@
                 <select id="delete-mode" name="delete_mode">
                     <option value="from_timestamp" selected>From a timestamp onward</option>
                     <option value="all_simulated">Delete all simulation readings</option>
+                    <option value="incomplete">Delete incomplete readings (&lt; 120 rows)</option>
                     <option value="all">Delete every reading (all devices)</option>
                 </select>
             </label>
@@ -183,4 +184,4 @@
 </dialog>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='3') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='4') }}" defer></script>{% endblock %}
