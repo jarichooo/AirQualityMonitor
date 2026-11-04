@@ -195,6 +195,31 @@ class AppTestCase(unittest.TestCase):
             self.assertFalse(any("DELETE FROM air_quality_forecasts" in str(call.args[0]) for call in calls))
             self.assertIn("Literal(1)", repr(calls[-1].args[0]))
 
+    def test_delete_all_simulated_clears_simulated_rows_and_restarts_sequence(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token",
+            "delete_mode": "all_simulated",
+            "confirmation": "delete_all_simulated",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [
+                (True,), ("air_quality_forecasts",), (125, ["sim-farm-good"]), ("public", "air_quality_logs_id_seq", 9861)
+            ]
+            response = self.client.post("/data/delete", data=fields)
+            self.assertEqual(response.status_code, 303)
+            calls = cursor.execute.call_args_list
+            self.assertIn("WHERE device_id = ANY(%s) RETURNING device_id", calls[5].args[0])
+            self.assertEqual(calls[5].args[1], (list(application.SIMULATED_DEVICE_IDS),))
+            self.assertIn("Literal(9861)", repr(calls[-1].args[0]))
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data").data
+            self.assertIn(b"Deleted 125 simulation readings", page)
+            self.assertIn(b"next reading ID is 9861", page)
+
     def test_delete_from_timestamp_no_match_does_not_rewind_sequence_or_forecasts(self):
         self.login()
         with self.client.session_transaction() as session:

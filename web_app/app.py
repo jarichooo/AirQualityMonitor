@@ -507,7 +507,7 @@ def delete_readings():
     if not token or not secrets.compare_digest(token.encode(), submitted.encode()):
         abort(400)
     delete_mode = request.form.get("delete_mode")
-    expected_confirmation = {"all": "delete_all", "from_timestamp": "delete_from_timestamp"}.get(delete_mode)
+    expected_confirmation = {"all": "delete_all", "all_simulated": "delete_all_simulated", "from_timestamp": "delete_from_timestamp"}.get(delete_mode)
     if not expected_confirmation or request.form.get("confirmation") != expected_confirmation:
         abort(400)
     cutoff = None
@@ -518,6 +518,9 @@ def delete_readings():
         try:
             cutoff = parse_delete_cutoff(request.form.get("delete_from"))
         except ValueError:
+            abort(400)
+    elif delete_mode == "all_simulated":
+        if delete_scope not in {None, "", "simulated"}:
             abort(400)
     elif delete_scope not in {None, "", "all"}:
         abort(400)
@@ -545,10 +548,11 @@ def delete_readings():
                             cursor.execute("TRUNCATE TABLE air_quality_logs RESTART IDENTITY")
                         else:
                             scope_sql = " AND device_id = ANY(%s)" if delete_scope == "simulated" else ""
-                            params = (cutoff, list(SIMULATED_DEVICE_IDS)) if scope_sql else (cutoff,)
+                            where_sql = "device_id = ANY(%s)" if delete_mode == "all_simulated" else f"recorded_at >= %s{scope_sql}"
+                            params = (list(SIMULATED_DEVICE_IDS),) if delete_mode == "all_simulated" else ((cutoff, list(SIMULATED_DEVICE_IDS)) if scope_sql else (cutoff,))
                             cursor.execute(
                                 "WITH deleted AS ("
-                                f"DELETE FROM air_quality_logs WHERE recorded_at >= %s{scope_sql} RETURNING device_id"
+                                f"DELETE FROM air_quality_logs WHERE {where_sql} RETURNING device_id"
                                 ") SELECT COUNT(*), COALESCE(ARRAY_AGG(DISTINCT device_id) "
                                 "FILTER (WHERE device_id IS NOT NULL), ARRAY[]::varchar[]) FROM deleted",
                                 params,
@@ -581,6 +585,12 @@ def delete_readings():
             flash("Readings were not deleted because a prediction or simulation is active. Wait for it to finish or stop the simulation, then try again.", "error")
         elif delete_mode == "all":
             flash("All sensor readings and saved forecasts were deleted. The next reading ID is 1.", "success")
+        elif delete_mode == "all_simulated" and deleted_count:
+            flash(
+                f"Deleted {deleted_count} simulation readings. "
+                f"Existing IDs were kept; the next reading ID is {next_id}.",
+                "success",
+            )
         elif deleted_count:
             flash(
                 f"Deleted {deleted_count} matching readings from {cutoff.strftime('%Y-%m-%d %H:%M:%S')} UTC. "
