@@ -9,6 +9,7 @@ Run one condition at a time, then use **Predict now** to create a two-hour forec
 | Good | `ai_model/simulate_good.py` |
 | Warning | `ai_model/simulate_mid.py` |
 | Critical | `ai_model/simulate_bad.py` |
+| Random (Good + Warning + Critical) | `ai_model/simulate_random.py` |
 
 The Python scripts write readings to PostgreSQL. **Predict now** sends a job to
 the background worker, which runs the trained forecast model. Qwen then uses
@@ -108,7 +109,9 @@ readings cannot mix with the simulation:
 ```
 
 This runs **Good**. For **Warning**, replace `simulate_good.py` with
-`simulate_mid.py`. For **Critical**, use `simulate_bad.py`:
+`simulate_mid.py`. For **Critical**, use `simulate_bad.py`. For **Random**
+(mixing Good, Warning, and Critical sensor values within threshold bands), use
+`simulate_random.py`:
 
 ```bash
 # Warning condition
@@ -127,6 +130,15 @@ This runs **Good**. For **Warning**, replace `simulate_good.py` with
   sudo docker compose stop ingestion
   source ~/henvironment-simulation-venv/bin/activate
   python3 ai_model/simulate_bad.py
+)
+
+# Random mixed condition
+(
+  set -e
+  cd "$HOME/AirQualityMonitor"
+  sudo docker compose stop ingestion
+  source ~/henvironment-simulation-venv/bin/activate
+  python3 ai_model/simulate_random.py
 )
 ```
 

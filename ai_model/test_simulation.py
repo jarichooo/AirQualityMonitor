@@ -21,6 +21,24 @@ class SimulationTest(unittest.TestCase):
                 self.assertLessEqual(reading["pm1_ugm3"], reading["pm25_ugm3"])
                 self.assertLessEqual(reading["pm25_ugm3"], reading["pm10_ugm3"])
 
+    def test_random_profile_combines_good_warning_and_critical_with_true_randomness(self):
+        policy = load_policy()
+        first = simulation.generate_readings("random", self.now)
+        second = simulation.generate_readings("random", self.now)
+        self.assertEqual(len(first), LOOKBACK_SAMPLES)
+        self.assertNotEqual(
+            [[row[col] for col in FEATURE_COLUMNS] for row in first],
+            [[row[col] for col in FEATURE_COLUMNS] for row in second],
+        )
+        for reading in first:
+            self.assertEqual(reading["device_id"], "sim-farm-random")
+            values = {column: reading[column] for column in FEATURE_COLUMNS}
+            categories = set(policy.classify(values).values())
+            self.assertEqual(categories, {"normal", "warning", "critical"})
+            self.assertLessEqual(reading["pm1_ugm3"], reading["pm25_ugm3"])
+            self.assertLessEqual(reading["pm25_ugm3"], reading["pm10_ugm3"])
+            self.assertTrue(0 <= reading["humidity_perc"] <= 100)
+
     def test_history_has_exact_minute_cadence_and_ends_at_current_minute(self):
         readings = simulation.generate_readings("good", self.now)
         self.assertEqual(len(readings), LOOKBACK_SAMPLES)
@@ -71,7 +89,7 @@ class SimulationTest(unittest.TestCase):
         for execution in calls[4:7]:
             self.assertIn("WHERE device_id = ANY(%s)", execution.args[0])
             self.assertEqual(execution.args[1], ([
-                "sim-farm-good", "sim-farm-mid", "sim-farm-bad", "sim-farm-series", "python-simulator",
+                "sim-farm-good", "sim-farm-mid", "sim-farm-bad", "sim-farm-random", "sim-farm-series", "python-simulator",
             ],))
         self.assertIn("MAX(id)", calls[7].args[0])
         self.assertEqual(result, {"readings_deleted": 8, "forecasts_deleted": 8})
