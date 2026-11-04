@@ -220,6 +220,33 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"Deleted 125 simulation readings", page)
             self.assertIn(b"next reading ID is 9861", page)
 
+    def test_delete_incomplete_clears_short_device_runs_and_restarts_sequence(self):
+        self.login()
+        with self.client.session_transaction() as session:
+            session["delete_readings_token"] = "test-token"
+        fields = {
+            "csrf_token": "test-token",
+            "delete_mode": "incomplete",
+            "confirmation": "delete_incomplete",
+        }
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [
+                (True,), ("air_quality_forecasts",), (21, ["esp32-68EE8FDD25F0"]), ("public", "air_quality_logs_id_seq", 9861)
+            ]
+            response = self.client.post("/data/delete", data=fields)
+            self.assertEqual(response.status_code, 303)
+            calls = cursor.execute.call_args_list
+            self.assertIn("HAVING COUNT(DISTINCT date_trunc('minute', recorded_at AT TIME ZONE 'UTC')) < 120", calls[5].args[0])
+            self.assertEqual(calls[5].args[1], ())
+            self.assertIn("DELETE FROM public.air_quality_prediction_requests", calls[6].args[0])
+            self.assertEqual(calls[7].args[0], "DELETE FROM air_quality_forecasts")
+            self.assertIn("Literal(9861)", repr(calls[-1].args[0]))
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data").data
+            self.assertIn(b"Deleted 21 incomplete readings", page)
+            self.assertIn(b"next reading ID is 9861", page)
+
     def test_delete_from_timestamp_no_match_does_not_rewind_sequence_or_forecasts(self):
         self.login()
         with self.client.session_transaction() as session:
