@@ -9,8 +9,8 @@ class PolicyTests(unittest.TestCase):
     def test_project_policy_boundaries_and_channel_identity(self):
         policy = load_policy()
         cases = {
-            "mq137_ppm": [(10, "normal"), (10.5, "warning"), (20, "warning"), (20.1, "critical")],
-            "mq4_ppm": [(1000, "normal"), (1000.1, "warning"), (5000, "warning"), (5001, "critical")],
+            "mq137_ppm": [(1000, "normal"), (1000.1, "warning"), (5000, "warning"), (5001, "critical")],
+            "mq4_ppm": [(10, "normal"), (10.5, "warning"), (20, "warning"), (20.1, "critical")],
             "temperature_c": [(17.9, "critical"), (18, "warning"), (21, "normal"),
                               (32, "normal"), (35, "warning"), (35.1, "critical")],
             "humidity_perc": [(39.9, "critical"), (40, "warning"), (50, "normal"),
@@ -30,7 +30,7 @@ class PolicyTests(unittest.TestCase):
         for replacement in ("__import__('os').system('echo invalid')", "value == 10", "value < float('inf')"):
             with self.subTest(replacement=replacement), tempfile.TemporaryDirectory() as directory:
                 path = Path(directory) / "thresholds.md"
-                path.write_text(source.replace("0 <= value <= 10", replacement, 1), encoding="utf-8")
+                path.write_text(source.replace("| 0 <= value <= 10 |", f"| {replacement} |", 1), encoding="utf-8")
                 with self.assertRaises(ValueError):
                     load_policy(path)
         policy = load_policy()

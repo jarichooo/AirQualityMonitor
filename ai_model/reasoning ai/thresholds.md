@@ -8,8 +8,8 @@ policy, not a guarantee of animal safety or predictive-model accuracy.
 
 | Measurement | Unit | Normal | Warning | Critical |
 | --- | --- | --- | --- | --- |
-| Ammonia (NH3, MQ-137) | ppm | 0 <= value <= 10 | 10 < value <= 20 | value > 20 |
-| Methane (CH4, MQ-4) | ppm | 0 <= value <= 1000 | 1000 < value <= 5000 | value > 5000 |
+| Ammonia (NH3, MQ-137) | ppm | 0 <= value <= 1000 | 1000 < value <= 5000 | value > 5000 |
+| Methane (CH4, MQ-4) | ppm | 0 <= value <= 10 | 10 < value <= 20 | value > 20 |
 | Temperature (SHT31) | degrees C | 21 <= value <= 32 | 18 <= value < 21 OR 32 < value <= 35 | value < 18 OR value > 35 |
 | Relative humidity (SHT31) | % RH | 50 <= value <= 70 | 40 <= value < 50 OR 70 < value <= 80 | value < 40 OR value > 80 |
 | Carbon dioxide (CO2, MH-Z19E) | ppm | 0 <= value <= 2500 | 2500 < value <= 3000 | value > 3000 |
@@ -25,9 +25,9 @@ Humidity is assessed independently, including when temperature is normal.
 - Evaluate critical first, then warning, then normal. Respect the inclusive
   (`<=`) and exclusive (`<` or `>`) boundaries exactly.
 - Normal includes its upper limit. Warning starts immediately above that limit,
-  including decimal values: NH3 10.5 ppm and CO2 2500.5 ppm are warning.
-- NH3 20 ppm is warning; values above 20 ppm are critical. CO2 3000 ppm is
-  warning; values above 3000 ppm are critical.
+  including decimal values: Methane 10.5 ppm, Ammonia 1000.5 ppm, and CO2 2500.5 ppm are warning.
+- Methane 20 ppm is warning; values above 20 ppm are critical. Ammonia 5000 ppm is
+  warning; values above 5000 ppm are critical. CO2 3000 ppm is warning; values above 3000 ppm are critical.
 - Temperature 18 and 35 C are warning; 21 and 32 C are normal. Humidity 40 and
   80% are warning; 50 and 70% are normal.
 - Use finite, current readings with validated units, channel identity and
@@ -70,9 +70,7 @@ treatments or guaranteed outcomes; this policy does not define those procedures.
 
 ## Source notes
 
-Numeric bands are based on the owner's chart and selected general temperature
-envelope. Overlapping endpoints and integer-label gaps have been resolved above.
-The chart reverses the gas names; MQ-137 is ammonia and MQ-4 is methane:
-[MQ-137 manufacturer reference](https://www.winsen-sensor.com/sensors/toxic-gas-sensor/mq137.html),
-[MQ-4 manufacturer reference](https://www.winsen-sensor.com/product/mq-4.html?lang=en).
-Manufacturer references establish sensor identities, not the project's alarm limits.
+Numeric bands follow the owner's professional threshold chart and selected general
+temperature envelope (Ammonia <= 1000 ppm normal, 1000-5000 ppm warning, > 5000 ppm
+critical; Methane <= 10 ppm normal, 10-20 ppm warning, > 20 ppm critical).
+Overlapping endpoints and integer-label gaps have been resolved above.
