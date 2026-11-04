@@ -2,8 +2,7 @@
 
 Run one condition at a time, then use **Predict now** to create a two-hour forecast.
 
-**Each launch deletes all existing sensor readings, forecasts, and prediction
-requests, then seeds the selected condition. Accounts are kept.**
+**Each launch preserves existing database readings (such as `henvironment-data.csv`), seeds 120 minute-aligned readings for the selected condition ending at the current UTC minute, and appends one reading per minute until stopped. Accounts are kept.**
 
 | Condition | Script |
 | --- | --- |
@@ -41,6 +40,53 @@ Connect through SSH and paste this once. Skip it on later runs:
 )
 ```
 
+## Import `henvironment-data.csv` baseline dataset (optional)
+
+To load the 9,860 historical rows from `ai_model/henvironment-data.csv` (`2026-10-20` to `2026-10-26`, IDs `1–9860`) into PostgreSQL before running simulations:
+
+```bash
+(
+  set -eu
+  cd "$HOME/AirQualityMonitor"
+  sudo docker compose stop ingestion
+  sudo docker compose up -d --wait postgres_db web_dashboard
+
+  sudo docker cp ai_model/henvironment-data.csv postgres_db:/tmp/henvironment-data.csv
+
+  sudo docker exec -i postgres_db psql -v ON_ERROR_STOP=1 -U admin -d air_quality <<'SQL'
+BEGIN;
+SET LOCAL TIME ZONE 'UTC';
+
+DO $$
+BEGIN
+    IF to_regclass('public.air_quality_prediction_requests') IS NOT NULL THEN
+        DELETE FROM public.air_quality_prediction_requests;
+    END IF;
+    IF to_regclass('public.air_quality_forecasts') IS NOT NULL THEN
+        DELETE FROM public.air_quality_forecasts;
+    END IF;
+END $$;
+
+TRUNCATE TABLE public.air_quality_logs RESTART IDENTITY;
+
+\copy public.air_quality_logs (recorded_at, temperature_c, humidity_perc, co2_ppm, pm1_ugm3, pm25_ugm3, pm10_ugm3, mq4_ppm, mq137_ppm) FROM '/tmp/henvironment-data.csv' WITH (FORMAT csv, HEADER true)
+
+UPDATE public.air_quality_logs
+SET device_id = 'henvironment-sensor'
+WHERE device_id IS NULL;
+
+COMMIT;
+
+SELECT COUNT(*) AS total_readings,
+       MIN(recorded_at) AS earliest_utc,
+       MAX(recorded_at) AS latest_utc
+FROM public.air_quality_logs;
+SQL
+
+  sudo docker exec postgres_db rm -f /tmp/henvironment-data.csv
+)
+```
+
 ## Every simulation run
 
 The server's configured background services start automatically after boot.
@@ -54,7 +100,7 @@ readings cannot mix with the simulation:
 ```bash
 (
   set -e
-  cd ~/AirQualityMonitor
+  cd "$HOME/AirQualityMonitor"
   sudo docker compose stop ingestion
   source ~/henvironment-simulation-venv/bin/activate
   python3 ai_model/simulate_good.py
@@ -62,14 +108,34 @@ readings cannot mix with the simulation:
 ```
 
 This runs **Good**. For **Warning**, replace `simulate_good.py` with
-`simulate_mid.py`. For **Critical**, use `simulate_bad.py`. Do not recreate the
-environment or reinstall packages each time.
+`simulate_mid.py`. For **Critical**, use `simulate_bad.py`:
 
+```bash
+# Warning condition
+(
+  set -e
+  cd "$HOME/AirQualityMonitor"
+  sudo docker compose stop ingestion
+  source ~/henvironment-simulation-venv/bin/activate
+  python3 ai_model/simulate_mid.py
+)
+
+# Critical condition
+(
+  set -e
+  cd "$HOME/AirQualityMonitor"
+  sudo docker compose stop ingestion
+  source ~/henvironment-simulation-venv/bin/activate
+  python3 ai_model/simulate_bad.py
+)
+```
+
+Do not recreate the environment or reinstall packages each time.
 The database password is already included, so you do not need to enter it.
 
-Keep the terminal open. Each script inserts **120 readings for its condition**,
-then keeps adding **one reading per minute until you press Ctrl+C**. There is no
-five-minute limit. The scripts only supply readings.
+Keep the terminal open. Each script inserts **120 readings for its condition**
+(`now - 119 minutes` through `now` in UTC), then keeps adding **one reading per
+minute until you press Ctrl+C**. Existing database rows are preserved.
 
 Open `http://<server-IP>:5000/dashboard`, sign in, and click **Predict now**
 after the terminal reports `seeded: 120`. The predicted values appear first,
@@ -78,9 +144,6 @@ arrived, at least 60 seconds after the previous request, and after the current
 prediction finishes. The button disables itself while it cannot run.
 
 All 120 model inputs match the selected condition.
-
-Each new condition replaces the previous data and restarts reading IDs at 1.
-If seeding fails, the reset rolls back.
 
 To stop the simulation, press **Ctrl+C**. The dashboard and prediction services
 continue in the background. After the readings stop, request a prediction within
@@ -101,16 +164,17 @@ A server reboot also starts ingestion again. It does not restart a simulation.
 
 ## Apply code updates
 
-After the changes have been pushed to the remote repository, wait for the current
+After the changes have been pushed to the remote repository (`git push origin major_updates`), wait for the current
 prediction to finish, then run:
 
 ```bash
 (
-  set -e
-  cd ~/AirQualityMonitor
+  set -eu
+  cd "$HOME/AirQualityMonitor"
   git pull --ff-only origin major_updates
   sudo docker compose --profile forecast up -d --build --no-deps \
     web_dashboard forecast_worker
+  sudo docker compose --profile forecast ps
 )
 ```
 
@@ -146,6 +210,17 @@ After checking the error, wait for a new reading and for the button to become
 available, then click **Predict now** again. Save the log output if it keeps failing.
 
 ## Remove simulation data without starting another run
+
+### Option A: From the webpage (recommended)
+
+1. Stop the running simulation script in SSH with **Ctrl+C** (and wait for any active prediction to finish).
+2. Open the **Data** page in the dashboard (logged in as `admin`) and click **Delete readings**.
+3. In the **Time range** dropdown, select **Delete all simulation readings** (no timestamp needed).
+4. Click **Delete selected readings** and confirm.
+
+This removes all seeded and appended simulation rows (`sim-farm-good`, `sim-farm-mid`, `sim-farm-bad`, etc.) and their saved forecasts, leaves your imported dataset untouched, and resets the next reading ID right after the highest retained row (e.g. `9861`).
+
+### Option B: From the Ubuntu SSH terminal
 
 Stop the simulation first, then paste this block. It deletes simulation data
 only and does not start a new simulation:
