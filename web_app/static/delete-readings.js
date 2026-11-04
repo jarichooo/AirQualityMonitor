@@ -12,7 +12,7 @@
         !mode || !from || !scope || !scopeSummary) return;
 
     let submitting = false;
-    const allowedModes = new Set(["from_timestamp", "all"]);
+    const allowedModes = new Set(["from_timestamp", "all_simulated", "all"]);
     const allowedScopes = new Set(["simulated", "all"]);
 
     const validUtcTimestamp = (value) => {
@@ -26,12 +26,15 @@
     };
 
     const updateControls = () => {
-        const allTime = mode.value === "all";
+        const allTime = mode.value === "all" || mode.value === "all_simulated";
         from.disabled = allTime;
         from.required = !allTime;
         from.setCustomValidity("");
-        if (allTime) {
+        if (mode.value === "all") {
             scope.value = "all";
+            scope.disabled = true;
+        } else if (mode.value === "all_simulated") {
+            scope.value = "simulated";
             scope.disabled = true;
         } else if (scope.disabled) {
             scope.value = "simulated";
@@ -66,10 +69,10 @@
             return;
         }
 
-        const timeText = mode.value === "all"
+        const timeText = (mode.value === "all" || mode.value === "all_simulated")
             ? "ALL timestamps"
             : `timestamps at or after ${from.value.replace("T", " ")} UTC`;
-        const sourceText = scope.value === "simulated"
+        const sourceText = (mode.value === "all_simulated" || scope.value === "simulated")
             ? "the known simulation devices"
             : "EVERY device, including the imported dataset";
         const confirmed = window.confirm(
@@ -79,7 +82,11 @@
         );
         if (!confirmed) return;
 
-        form.elements.confirmation.value = mode.value === "all" ? "delete_all" : "delete_from_timestamp";
+        form.elements.confirmation.value = mode.value === "all"
+            ? "delete_all"
+            : mode.value === "all_simulated"
+                ? "delete_all_simulated"
+                : "delete_from_timestamp";
         submitting = true;
         submitButton.disabled = true;
         submitButton.textContent = "Deleting…";
