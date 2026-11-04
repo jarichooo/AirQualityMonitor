@@ -171,10 +171,10 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
         started_at = _utc_minute(clock())
         rows = generate_readings(profile, started_at)
         try:
-            cleanup = clear_history(conn, all_readings=True)
+
             inserted = _insert_rows(conn, rows)
-            if inserted != LOOKBACK_SAMPLES:
-                raise RuntimeError(f"Expected to seed {LOOKBACK_SAMPLES} readings, inserted {inserted}")
+
+
             conn.commit()
         except BaseException:
             conn.rollback()
@@ -186,7 +186,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
 
         report({
             "profile": profile, "status": "started", "device_id": current_device,
-            "seeded": inserted, **cleanup,
+            "seeded": inserted,
         })
         expected_at = started_at
         while True:
@@ -215,7 +215,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
 
 
 def main(profile, argv=None):
-    parser = argparse.ArgumentParser(description=f"Replace all sensor readings with {profile} conditions for manual predictions.")
+    parser = argparse.ArgumentParser(description=f"Seed {profile} conditions and append readings each minute for manual predictions.")
     parser.parse_args(argv)
     os.environ["DB_PASS"] = os.environ.get("DB_PASS") or "notsosecretpass"
     try:

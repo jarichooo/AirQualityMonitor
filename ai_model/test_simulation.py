@@ -149,7 +149,7 @@ class SimulationTest(unittest.TestCase):
                             sleeper=sleeper, report=reports.append,
                         )
 
-                clear.assert_called_once_with(connection, all_readings=True)
+                clear.assert_not_called()
                 predict.assert_not_called()
                 qwen.assert_not_called()
                 lock_calls = [call for call in cursor.execute.call_args_list if "advisory" in call.args[0]]
