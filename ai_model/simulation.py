@@ -4,6 +4,7 @@ import argparse
 import json
 import math
 import os
+import random
 import time
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
@@ -47,11 +48,59 @@ PROFILES = {
     },
 }
 
+RANDOM_BANDS = {
+    "temperature_c": {
+        "good": ((21.2, 31.8),),
+        "mid": ((18.1, 20.9), (32.1, 34.9)),
+        "bad": ((15.5, 17.9), (35.1, 39.0)),
+    },
+    "humidity_perc": {
+        "good": ((50.5, 69.5),),
+        "mid": ((40.5, 49.8), (70.2, 79.8)),
+        "bad": ((28.0, 39.8), (80.2, 92.0)),
+    },
+    "co2_ppm": {
+        "good": ((450.0, 2450.0),),
+        "mid": ((2510.0, 2990.0),),
+        "bad": ((3020.0, 4200.0),),
+    },
+    "pm1_ugm3": {
+        "good": ((1.0, 9.8),),
+        "mid": ((10.2, 34.5),),
+        "bad": ((35.5, 60.0),),
+    },
+    "pm25_ugm3": {
+        "good": ((10.2, 34.5),),
+        "mid": ((35.5, 148.0),),
+        "bad": ((152.0, 240.0),),
+    },
+    "pm10_ugm3": {
+        "good": ((35.0, 148.0),),
+        "mid": ((152.0, 980.0),),
+        "bad": ((1010.0, 1400.0),),
+    },
+    "mq4_ppm": {
+        "good": ((60.0, 980.0),),
+        "mid": ((1020.0, 4950.0),),
+        "bad": ((5050.0, 7000.0),),
+    },
+    "mq137_ppm": {
+        "good": ((1.0, 9.8),),
+        "mid": ((10.2, 19.8),),
+        "bad": ((20.2, 32.0),),
+    },
+}
+
+CONDITION_TIERS = ("good", "mid", "bad")
+PARTICULATE_COLUMNS = ("pm1_ugm3", "pm25_ugm3", "pm10_ugm3")
+INDEPENDENT_COLUMNS = tuple(col for col in FEATURE_COLUMNS if col not in PARTICULATE_COLUMNS)
+VALID_PROFILES = (*PROFILES, "random")
+
 MANUAL_SEEDER_LOCK = 739_783_247_071_623_202
 
 
 def device_id(profile):
-    if profile not in PROFILES:
+    if profile not in VALID_PROFILES:
         raise ValueError(f"Unknown simulation profile: {profile}")
     return f"sim-farm-{profile}"
 
@@ -62,13 +111,42 @@ def _utc_minute(now):
     return now.astimezone(timezone.utc).replace(second=0, microsecond=0)
 
 
+def _sample_band(rng, column, tier):
+    low, high = rng.choice(RANDOM_BANDS[column][tier])
+    return round(rng.uniform(low, high), 3)
+
+
+def _random_reading(recorded_at, rng):
+    row = {"recorded_at": recorded_at, "device_id": device_id("random")}
+    pm_indices = sorted(rng.randrange(len(CONDITION_TIERS)) for _ in PARTICULATE_COLUMNS)
+    tiers = {
+        column: CONDITION_TIERS[index]
+        for column, index in zip(PARTICULATE_COLUMNS, pm_indices)
+    }
+    independent = list(INDEPENDENT_COLUMNS)
+    rng.shuffle(independent)
+    for required_tier, column in zip(CONDITION_TIERS, independent):
+        tiers[column] = required_tier
+    for column in independent[len(CONDITION_TIERS):]:
+        tiers[column] = rng.choice(CONDITION_TIERS)
+    for column in FEATURE_COLUMNS:
+        row[column] = _sample_band(rng, column, tiers[column])
+    return row
+
+
 def generate_readings(profile, now):
-    """Return the latest 120 deterministic samples, ending at the current UTC minute."""
-    profile_values = PROFILES.get(profile)
-    if profile_values is None:
+    """Return the latest 120 samples, ending at the current UTC minute."""
+    if profile not in VALID_PROFILES:
         raise ValueError(f"Unknown simulation profile: {profile}")
     end = _utc_minute(now)
     start = end - timedelta(minutes=LOOKBACK_SAMPLES - 1)
+    if profile == "random":
+        rng = random.SystemRandom()
+        return [
+            _random_reading(start + timedelta(minutes=offset), rng)
+            for offset in range(LOOKBACK_SAMPLES)
+        ]
+    profile_values = PROFILES[profile]
     readings = []
     for offset in range(LOOKBACK_SAMPLES):
         recorded_at = start + timedelta(minutes=offset)
@@ -103,7 +181,7 @@ def _insert_rows(conn, rows):
 
 def clear_history(conn, *, all_readings=False):
     """Clear demo history or all readings; caller holds the worker lock and commits."""
-    devices = [device_id(profile) for profile in PROFILES] + ["sim-farm-series", "python-simulator"]
+    devices = [device_id(profile) for profile in VALID_PROFILES] + ["sim-farm-series", "python-simulator"]
     scope = "" if all_readings else " WHERE device_id = ANY(%s)"
     params = None if all_readings else (devices,)
     with conn.cursor() as cursor:
@@ -168,6 +246,7 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
 
         if not acquire_worker_lock(conn):
             raise RuntimeError("A prediction is running; wait for it to finish and try again")
+
         started_at = _utc_minute(clock())
         rows = generate_readings(profile, started_at)
         try:
@@ -225,4 +304,3 @@ def main(profile, argv=None):
     except (OSError, RuntimeError, ValueError, DatabaseError) as exc:
         parser.exit(1, f"Simulation failed: {exc}\n")
     return 0
-
