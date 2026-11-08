@@ -35,15 +35,6 @@
                 <p class="device-live-time">Last update: <time id="device-live-time">Waiting for readings</time></p>
             </div>
         </div>
-        <div class="dashboard-metrics live-sensor-grid" aria-label="Live sensor readings">
-            {% for key, label, unit in live_sensors %}
-            <div class="metric-card">
-                <span class="metric-card-label">{{ label }}</span>
-                <span class="metric-card-value"><strong data-live-sensor="{{ key }}">—</strong><small>{{ unit }}</small></span>
-                <span class="metric-card-status" data-live-valid="{{ key }}">Waiting for readings</span>
-            </div>
-            {% endfor %}
-        </div>
     </section>
     <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
         {% for metric in metrics %}
