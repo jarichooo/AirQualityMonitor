@@ -382,9 +382,9 @@ class AppTestCase(unittest.TestCase):
                 cursor.fetchall.return_value = []
                 page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
-                self.assertIn(expected, page.data)
+                self.assertIn(b'id="device-live-title">Live readings</h2>', page.data)
                 if result[0]:
-                    self.assertIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
+                    self.assertNotIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
                 connect.return_value.close.assert_called_once()
         with patch.object(application, "get_db_connection", side_effect=application.psycopg2.OperationalError):
             self.assertIn(b"Collection status is unavailable", self.client.get("/dashboard").data)
@@ -433,8 +433,8 @@ class AppTestCase(unittest.TestCase):
                                                    (latest, 32, "node-1")]]
             page = self.client.get("/dashboard?sensor=bad")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Live readings, trends, and forecasts", page.data)
-            self.assertIn(b"2026-10-04 05:36:00 to 2026-10-26 23:59:00", page.data)
+            self.assertNotIn(b"Live readings, trends, and forecasts", page.data)
+            self.assertNotIn(b"2026-10-04 05:36:00 to 2026-10-26 23:59:00", page.data)
             self.assertIn(b"10-27 00:00 UTC", page.data)
             self.assertNotIn(b"Last 24 hours (UTC)", page.data)
             self.assertIn(b"30.00", page.data)

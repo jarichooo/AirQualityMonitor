@@ -2,18 +2,6 @@
 {% macro reading(value) %}{{ '%.2f'|format(value) if value is not none else '—' }}{% endmacro %}
 {% block content %}
 <div class="dashboard-page">
-    <div class="page-heading dashboard-heading">
-        <div class="page-heading-copy"><h1>Dashboard</h1><p>Live readings, trends, and forecasts &middot; UTC</p></div>
-        <div class="dashboard-heading-tools">
-            <a class="button button-secondary" href="{{ url_for('dashboard', sensor=selected.column) }}">Refresh</a>
-            <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
-        </div>
-    </div>
-    {% if database_error %}
-    <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
-    {% else %}
-    <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %}{% if earliest and latest %} &middot; Recorded range (UTC): {{ earliest.strftime('%Y-%m-%d %H:%M:%S') }} to {{ latest.strftime('%Y-%m-%d %H:%M:%S') }}{% else %} &middot; No readings yet{% endif %}</p>
-    {% endif %}
     <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
         <div class="dashboard-panel-heading device-live-heading">
             <div><h2 id="device-live-title">Live readings</h2><p>Current measurements from your device</p></div>
@@ -36,6 +24,9 @@
             </div>
         </div>
     </section>
+    {% if database_error %}
+    <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
+    {% endif %}
     <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
         {% for metric in metrics %}
         <a class="metric-card{% if selected.column == metric.column %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor=metric.column) }}"{% if selected.column == metric.column %} aria-current="true"{% endif %}>
