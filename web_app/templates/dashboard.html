@@ -2,10 +2,9 @@
 {% macro reading(value) %}{{ '%.2f'|format(value) if value is not none else '—' }}{% endmacro %}
 {% block content %}
 <div class="dashboard-page">
-    <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
+    <section class="dashboard-panel device-live-panel" aria-label="Live readings" data-device-socket>
         <div class="dashboard-panel-heading device-live-heading">
-            <div><h2 id="device-live-title">Live readings</h2><p>Current measurements from your device</p></div>
-            <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status">Not connected</span></div>
+            <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status" hidden>Not connected</span></div>
         </div>
         <div class="device-live-setup">
             <form class="device-connect-form" id="device-connect-form">

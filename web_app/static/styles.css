@@ -125,7 +125,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .dashboard-range-field { width: 164px; flex: 0 0 164px; }
 .dashboard-metrics { display: grid; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .dashboard-panel.device-live-panel { display: grid; gap: 16px; padding: 20px; }
-.device-live-panel .device-live-heading { align-items: center; flex-wrap: wrap; padding: 0; }
+.device-live-panel .device-live-heading { align-items: center; justify-content: flex-end; flex-wrap: wrap; padding: 0; }
 .device-live-status { display: inline-flex; min-width: 0; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .device-live-setup { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, 1fr); align-items: start; gap: 16px 24px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-elevated); }
 .device-connect-form { display: flex; min-width: 0; align-items: flex-end; gap: 10px; }

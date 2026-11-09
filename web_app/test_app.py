@@ -382,7 +382,7 @@ class AppTestCase(unittest.TestCase):
                 cursor.fetchall.return_value = []
                 page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
-                self.assertIn(b'id="device-live-title">Live readings</h2>', page.data)
+                self.assertIn(b'id="device-live-dot"', page.data)
                 if result[0]:
                     self.assertNotIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
                 connect.return_value.close.assert_called_once()
