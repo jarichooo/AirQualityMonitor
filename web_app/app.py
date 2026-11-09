@@ -166,6 +166,21 @@ def group_severity(items):
     return severity, SEVERITY_BADGE[severity]
 
 
+def classify_reading_row(row):
+    """Determine the worst severity across all sensor values in a data row."""
+    if not row or len(row) < 2:
+        return "unavailable", "NO DATA"
+    severities = [
+        classify_sensor_reading(col, val)
+        for col, val in zip(READING_COLUMNS[1:], row[1:])
+    ]
+    valid_severities = [s for s in severities if s != "unavailable"]
+    if not valid_severities:
+        return "unavailable", "NO DATA"
+    worst = max(valid_severities, key=lambda s: SEVERITY_RANK.get(s, 0))
+    return worst, SEVERITY_BADGE.get(worst, "NORMAL")
+
+
 def fetch_dashboard_data(sensor):
     """Measured analytics; saved forecasts are fetched separately by the panel."""
     now = datetime.now(timezone.utc)
@@ -951,10 +966,22 @@ def data_page():
     last_record = min(filters["page"] * filters["per_page"], total)
     export_args = {key: value for key, value in query_args.items() if key != "per_page"}
 
+    reading_rows = [
+        {
+            "timestamp": row[0],
+            "sensor_values": row[1:],
+            "severity": classify_reading_row(row)[0],
+            "badge": classify_reading_row(row)[1],
+            "raw": row,
+        }
+        for row in readings
+    ]
+
     return render_template(
         "data.html",
         **shell_context("Data"),
         readings=readings,
+        reading_rows=reading_rows,
         csv_headers=CSV_HEADERS,
         filters=filters,
         filter_options=READING_FILTERS,

@@ -41,6 +41,10 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"31.5", page.data)
             self.assertIn(b"CO2 (ppm)", page.data)
             self.assertIn(b"420", page.data)
+            self.assertIn(b"Status", page.data)
+            self.assertIn(b"status-column", page.data)
+            self.assertIn(b"severity-pill is-warning", page.data)
+            self.assertIn(b"WARNING", page.data)
             self.assertIn(b"Sensor Readings", page.data)
             self.assertIn(b"data-custom-select", page.data)
             self.assertIn(b"panel-heading-tools", page.data)
@@ -66,6 +70,20 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"Ammonia (ppm)", page.data)
             self.assertNotIn(b"MQ135", page.data)
             self.assertNotIn(b"(raw)", page.data)
+
+    def test_data_table_status_column_severities(self):
+        self.login()
+        now = datetime(2026, 11, 9, 8, 0, 0, tzinfo=timezone.utc)
+        normal_row = (now, 25.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        warning_row = (now, 33.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        critical_row = (now, 36.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        with patch.object(application, "fetch_readings", return_value=([normal_row, warning_row, critical_row], 3, None)):
+            page = self.client.get("/data")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b'<th class="status-column-header">Status</th>', page.data)
+            self.assertIn(b'<span class="severity-pill is-normal">NORMAL</span>', page.data)
+            self.assertIn(b'<span class="severity-pill is-warning">WARNING</span>', page.data)
+            self.assertIn(b'<span class="severity-pill is-critical">CRITICAL</span>', page.data)
 
     def test_reading_filters_and_clauses(self):
         for key, clause in (
@@ -546,6 +564,19 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(application.reading_direction(14.3, 10.0), "up")
         self.assertEqual(application.reading_direction(63.0, 65.0), "down")
         self.assertEqual(application.reading_direction(31.2, 31.2), "flat")
+        self.assertEqual(application.classify_reading_row(None), ("unavailable", "NO DATA"))
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 500, 5, 20, 50, 5, 200)),
+            ("normal", "NORMAL"),
+        )
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 500, 5, 20, 50, 15, 200)),
+            ("warning", "WARNING"),
+        )
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 3200, 5, 20, 50, 5, 200)),
+            ("critical", "CRITICAL"),
+        )
 
         self.login()
         earliest = datetime(2026, 10, 1, 10, tzinfo=timezone.utc)
