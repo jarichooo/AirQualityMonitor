@@ -9,6 +9,7 @@
     const time = document.querySelector("#device-live-time");
     const fields = [...document.querySelectorAll("[data-live-sensor]")];
     const pauseButton = document.querySelector("#device-pause-toggle");
+    const shutdownButton = document.querySelector("#server-shutdown-button");
     const collectionState = document.querySelector("#device-collection-state");
     const collectionHelp = document.querySelector("#device-collection-help");
     const storageKey = "henvironment-esp32-websocket";
@@ -25,7 +26,7 @@
         readingsPaused = null;
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = "Disable";
+            pauseButton.textContent = "Disable IoT";
             pauseButton.removeAttribute("aria-pressed");
         }
         if (collectionState) {
@@ -39,7 +40,7 @@
         clearTimeout(controlTimer);
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = command === "PAUSE" ? "Disabling…" : command === "RESUME" ? "Enabling…" : "Disable";
+            pauseButton.textContent = command === "PAUSE" ? "Disabling IoT…" : command === "RESUME" ? "Resuming IoT…" : "Disable IoT";
         }
         if (collectionHelp) {
             collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
@@ -76,7 +77,7 @@
         readingsPaused = message.paused;
         if (pauseButton) {
             pauseButton.disabled = false;
-            pauseButton.textContent = readingsPaused ? "Enable" : "Disable";
+            pauseButton.textContent = readingsPaused ? "Resume IoT" : "Disable IoT";
             pauseButton.setAttribute("aria-pressed", String(readingsPaused));
         }
         if (collectionState) {
@@ -85,7 +86,7 @@
         }
         if (collectionHelp) {
             collectionHelp.textContent = readingsPaused
-                ? "Stored and live readings are paused. Click Resume readings to continue."
+                ? "Stored and live readings are paused. Click Resume IoT to continue."
                 : "A new reading is sent every minute. Pausing stops uploads from this device.";
         }
         showStatus(readingsPaused ? "Connected · Readings paused" : "Connected · Sending every minute", "is-current");
@@ -178,6 +179,28 @@
     pauseButton?.addEventListener("click", () => {
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
         sendControl(readingsPaused ? "RESUME" : "PAUSE");
+    });
+    shutdownButton?.addEventListener("click", async () => {
+        const url = shutdownButton.dataset.shutdownUrl;
+        const token = shutdownButton.dataset.shutdownToken;
+        if (!url || !window.confirm("Shut down the server now?")) return;
+        shutdownButton.disabled = true;
+        shutdownButton.textContent = "Shutting down…";
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ csrf_token: token }),
+            });
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(payload.message || "Unable to shut down the server.");
+            }
+        } catch (error) {
+            shutdownButton.disabled = false;
+            shutdownButton.textContent = "Shutdown server";
+            window.alert(error.message || "Unable to shut down the server.");
+        }
     });
     window.addEventListener("pagehide", () => {
         manuallyClosed = true;

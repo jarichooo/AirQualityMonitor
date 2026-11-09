@@ -4,6 +4,8 @@ import math
 import os
 import re
 import secrets
+import socket
+import struct
 from contextlib import closing
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
@@ -329,6 +331,8 @@ def index():
 @login_required
 def dashboard():
     session.setdefault("prediction_token", secrets.token_hex(32))
+    if session.get("role") == "admin":
+        session.setdefault("shutdown_token", secrets.token_hex(32))
     sensor = request.args.get("sensor", "temperature_c")
     if sensor not in {column for column, _, _ in SENSORS}:
         sensor = "temperature_c"
@@ -352,6 +356,85 @@ def dashboard():
                                             (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
                                            for minute in (0, 15, 30, 45, 60)],
                            live_sensors=LIVE_SENSORS)
+
+
+def _dbus_string_field(code, kind, value):
+    encoded = value.encode("utf-8")
+    return struct.pack("<B3sI", code, b"\x01" + kind.encode("ascii") + b"\x00", len(encoded)) + encoded + b"\x00"
+
+
+def _dbus_message(serial, path, interface, member, destination, signature="", body=b""):
+    fields = [
+        _dbus_string_field(1, "o", path),
+        _dbus_string_field(2, "s", interface),
+        _dbus_string_field(3, "s", member),
+        _dbus_string_field(6, "s", destination),
+    ]
+    if signature:
+        sig_bytes = signature.encode("ascii")
+        fields.append(struct.pack("<B3sB", 8, b"\x01g\x00", len(sig_bytes)) + sig_bytes + b"\x00")
+    array_buf = bytearray()
+    for index, field in enumerate(fields):
+        if index:
+            array_buf.extend(b"\x00" * ((-len(array_buf)) % 8))
+        array_buf.extend(field)
+    header = bytearray(struct.pack("<BBBBIII", ord("l"), 1, 0, 1, len(body), serial, len(array_buf)))
+    header.extend(array_buf)
+    header.extend(b"\x00" * ((-len(header)) % 8))
+    return bytes(header) + body
+
+
+def trigger_host_poweroff(socket_path=None):
+    bus_path = socket_path or os.environ.get("DBUS_SYSTEM_BUS_PATH", "/run/dbus/system_bus_socket")
+    family = getattr(socket, "AF_UNIX", None)
+    if family is None or not os.path.exists(bus_path):
+        raise OSError("System D-Bus socket is not available")
+    uid_hex = str(os.getuid() if hasattr(os, "getuid") else 0).encode("ascii").hex().encode("ascii")
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5)
+        sock.connect(bus_path)
+        sock.sendall(b"\x00AUTH EXTERNAL " + uid_hex + b"\r\n")
+        reply = b""
+        while not reply.endswith(b"\r\n"):
+            chunk = sock.recv(256)
+            if not chunk:
+                raise OSError("D-Bus closed connection during authentication")
+            reply += chunk
+        if not reply.startswith(b"OK "):
+            raise OSError("D-Bus authentication rejected")
+        sock.sendall(b"BEGIN\r\n")
+        sock.sendall(_dbus_message(1, "/org/freedesktop/DBus", "org.freedesktop.DBus", "Hello", "org.freedesktop.DBus"))
+        sock.recv(4096)
+        sock.sendall(_dbus_message(
+            2, "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+            "PowerOff", "org.freedesktop.login1", "b", struct.pack("<I", 1),
+        ))
+        response = sock.recv(4096)
+        if len(response) >= 2 and response[1] == 3:
+            raise OSError("System poweroff was rejected by login1")
+
+
+@app.route("/api/system/shutdown", methods=["POST"])
+@login_required
+def shutdown_server_api():
+    if session.get("role") != "admin":
+        return jsonify(status="error", message="Administrator access is required."), 403
+    body = request.get_json(silent=True)
+    submitted = body.get("csrf_token") if isinstance(body, dict) else None
+    token = session.get("shutdown_token")
+    try:
+        valid_token = (isinstance(submitted, str) and bool(token)
+                       and secrets.compare_digest(token.encode(), submitted.encode()))
+    except UnicodeError:
+        valid_token = False
+    if not valid_token:
+        return jsonify(status="error", message="Invalid shutdown request token."), 400
+    try:
+        trigger_host_poweroff()
+    except OSError:
+        app.logger.exception("Unable to trigger host poweroff")
+        return jsonify(status="error", message="Unable to shut down the server from this environment."), 503
+    return jsonify(status="shutting_down", message="Server is shutting down."), 202
 
 
 @app.route("/api/forecasts")
