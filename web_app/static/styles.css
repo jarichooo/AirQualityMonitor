@@ -816,15 +816,16 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .table-header-scroll::-webkit-scrollbar { height: 0; }
 .table-body-scroll { position: relative; width: 100%; min-height: 0; flex: 1 1 auto; max-height: min(62vh, 680px); overflow: auto; outline: none; overscroll-behavior: contain; scrollbar-color: var(--border-strong) transparent; scrollbar-width: thin; }
 .table-body-scroll:focus-visible { box-shadow: inset 0 0 0 3px rgb(47 149 235 / 28%); }
-.data-table { width: 100%; min-width: 1345px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
-.timestamp-column { width: 215px; }
-.sensor-column { width: 125px; }
-.status-column { width: 130px; }
-th, td { height: 54px; padding: 14px 18px; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; white-space: nowrap; }
-th:last-child, td:last-child { padding-right: 26px; }
+.data-table { width: 100%; min-width: 900px; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-variant-numeric: tabular-nums; }
+.timestamp-column { width: 19%; }
+.sensor-column { width: 9%; }
+.status-column { width: 9%; }
+th, td { height: 42px; padding: 7px 8px; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; white-space: nowrap; }
+th:first-child, td:first-child { padding-left: 14px; }
+th:last-child, td:last-child { padding-right: 14px; }
 .status-column-header, .status-cell { text-align: center; }
-th.status-column-header:last-child, td.status-cell:last-child { padding-left: 14px; padding-right: 20px; }
-.status-cell .severity-pill { min-width: 82px; padding: 3.5px 12px; font-size: 10px; font-weight: 700; letter-spacing: .04em; border-radius: 999px; box-shadow: 0 2px 8px rgb(0 0 0 / 25%); }
+th.status-column-header:last-child, td.status-cell:last-child { padding-left: 6px; padding-right: 12px; }
+.status-cell .severity-pill { min-width: 64px; padding: 2px 7px; font-size: 8.5px; font-weight: 700; letter-spacing: .04em; border-radius: 999px; box-shadow: 0 2px 6px rgb(0 0 0 / 22%); }
 
 /* Sensor Cell Digits Colored According to Threshold Condition */
 td.cell-normal,
@@ -846,12 +847,13 @@ td.cell-unavailable,
 td.numeric.is-unavailable {
     color: var(--muted);
 }
-th { height: 48px; background: var(--sidebar); box-shadow: inset 0 -1px var(--border-strong); color: var(--text); font-size: 11.5px; font-weight: 600; letter-spacing: .015em; }
-.table-header-scroll th { height: 68px; line-height: 1.3; overflow-wrap: anywhere; white-space: normal; }
+th { height: 44px; background: var(--sidebar); box-shadow: inset 0 -1px var(--border-strong); color: var(--text); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; }
+.table-header-scroll th { height: 48px; line-height: 1.25; overflow-wrap: normal; white-space: normal; padding-top: 6px; padding-bottom: 6px; }
 .table-body-scroll .table-a11y-head { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .table-body-scroll .table-a11y-head th { height: 1px; padding: 0; border: 0; font-size: 1px; line-height: 1px; }
 th.numeric, td.numeric { text-align: right; }
-td { font-size: 13px; }
+td { font-size: 11.5px; }
+td.timestamp-cell { font-size: 11px; }
 tbody tr { transition: background 120ms ease; }
 tbody tr:hover { background: var(--surface-elevated); }
 tbody tr:last-child td { border-bottom: 0; }
@@ -863,7 +865,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .empty-state .button { margin-top: 16px; }
 
 .loading-state { position: absolute; inset: 0; z-index: 5; overflow: hidden; background: rgb(17 27 46 / 92%); }
-.skeleton-row { display: grid; min-width: 1345px; height: 50px; grid-template-columns: 215px repeat(8, minmax(125px, 1fr)) 130px; align-items: center; gap: 0; border-bottom: 1px solid var(--border); }
+.skeleton-row { display: grid; width: 100%; min-width: 900px; height: 42px; grid-template-columns: 19% repeat(8, 9%) 9%; align-items: center; gap: 0; border-bottom: 1px solid var(--border); }
 .skeleton-row span { width: calc(100% - 32px); height: 10px; margin-inline: 16px; border-radius: 999px; background: linear-gradient(90deg, #16233a 25%, #1f3150 50%, #16233a 75%); background-size: 200% 100%; animation: shimmer 1.25s infinite; }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
