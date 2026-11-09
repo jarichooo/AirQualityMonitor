@@ -53,6 +53,20 @@ CSV_HEADERS = (
 )
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
+READING_FILTERS = (
+    ("all", "All readings"),
+    ("warning_critical", "Warning and critical"),
+    ("critical_only", "Critical only"),
+    ("ammonia", "MQ-137 Ammonia outside normal"),
+    ("methane", "MQ-4 Methane outside normal"),
+    ("temperature", "Temperature outside normal"),
+    ("humidity", "Humidity outside normal"),
+    ("co2", "MH-Z19E Carbon Dioxide outside normal"),
+    ("pm1", "PM 1.0 outside normal"),
+    ("pm25", "PM 2.5 outside normal"),
+    ("pm10", "PM 10 outside normal"),
+)
+READING_FILTER_MAP = dict(READING_FILTERS)
 SENSORS = (
     ("temperature_c", "Temperature", "°C"),
     ("humidity_perc", "Humidity", "%"),
@@ -503,10 +517,33 @@ def parse_filters(args):
     if per_page not in PAGE_SIZES:
         per_page = 25
 
+    reading_filter = args.get("filter", "all").strip().lower()
+    filter_aliases = {
+        "mq137": "ammonia",
+        "mq137_ammonia": "ammonia",
+        "mq4_ammonia": "ammonia",
+        "mq4": "methane",
+        "mq4_methane": "methane",
+        "mq137_methane": "methane",
+        "temp": "temperature",
+        "hum": "humidity",
+        "co2_ppm": "co2",
+        "carbon_dioxide": "co2",
+        "pm1_0": "pm1",
+        "pm2_5": "pm25",
+        "pm10_0": "pm10",
+        "warning": "warning_critical",
+        "critical": "critical_only",
+    }
+    reading_filter = filter_aliases.get(reading_filter, reading_filter)
+    if reading_filter not in READING_FILTER_MAP:
+        reading_filter = "all"
+
     return {
         "date_range": date_range,
         "start_date": args.get("start_date", "").strip(),
         "end_date": args.get("end_date", "").strip(),
+        "filter": reading_filter,
         "q": args.get("q", "").strip()[:100],
         "page": parse_positive_int(args.get("page"), 1),
         "per_page": per_page,
@@ -550,6 +587,46 @@ def build_where_clause(filters):
             params.extend((start, end + timedelta(days=1)))
         except ValueError:
             error = "Choose a valid date range. The start date must not be after the end date."
+
+    reading_filter = filters.get("filter", "all")
+    if reading_filter in ("warning_critical", "warning"):
+        conditions.append(
+            "(temperature_c < 21 OR temperature_c > 32 "
+            "OR humidity_perc < 50 OR humidity_perc > 70 "
+            "OR co2_ppm > 2500 "
+            "OR pm1_ugm3 > 10 "
+            "OR pm25_ugm3 > 35 "
+            "OR pm10_ugm3 > 150 "
+            "OR mq4_ppm > 10 "
+            "OR mq137_ppm > 1000)"
+        )
+    elif reading_filter in ("critical_only", "critical"):
+        conditions.append(
+            "(temperature_c < 18 OR temperature_c > 35 "
+            "OR humidity_perc < 40 OR humidity_perc > 80 "
+            "OR co2_ppm > 3000 "
+            "OR pm1_ugm3 > 35 "
+            "OR pm25_ugm3 > 150 "
+            "OR pm10_ugm3 > 1000 "
+            "OR mq4_ppm > 20 "
+            "OR mq137_ppm > 5000)"
+        )
+    elif reading_filter == "ammonia":
+        conditions.append("mq137_ppm > 1000")
+    elif reading_filter == "methane":
+        conditions.append("mq4_ppm > 10")
+    elif reading_filter == "temperature":
+        conditions.append("(temperature_c < 21 OR temperature_c > 32)")
+    elif reading_filter == "humidity":
+        conditions.append("(humidity_perc < 50 OR humidity_perc > 70)")
+    elif reading_filter == "co2":
+        conditions.append("co2_ppm > 2500")
+    elif reading_filter == "pm1":
+        conditions.append("pm1_ugm3 > 10")
+    elif reading_filter == "pm25":
+        conditions.append("pm25_ugm3 > 35")
+    elif reading_filter == "pm10":
+        conditions.append("pm10_ugm3 > 150")
 
     if filters["q"]:
         searchable = ("recorded_at",) + READING_COLUMNS[1:]
@@ -856,6 +933,7 @@ def data_page():
         "date_range": filters["date_range"],
         "start_date": filters["start_date"],
         "end_date": filters["end_date"],
+        "filter": filters["filter"],
         "q": filters["q"],
         "per_page": filters["per_page"],
     }
@@ -879,6 +957,8 @@ def data_page():
         readings=readings,
         csv_headers=CSV_HEADERS,
         filters=filters,
+        filter_options=READING_FILTERS,
+        active_filter_label=READING_FILTER_MAP.get(filters["filter"], "All readings"),
         total=total,
         total_pages=total_pages,
         previous_url=previous_url,

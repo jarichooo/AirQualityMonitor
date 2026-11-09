@@ -252,23 +252,30 @@
                 closeDateMenu();
             }
         });
+        const readingFilter = document.querySelector("#reading-filter");
         dateOptions.forEach((option, index) => {
             option.addEventListener("click", () => {
                 const value = option.dataset.value;
-                dateRange.value = value;
-                document.querySelector("#date-range-value").textContent = option.textContent;
+                if (readingFilter) {
+                    readingFilter.value = value;
+                } else if (dateRange) {
+                    dateRange.value = value;
+                }
+                const labelElem = document.querySelector("#date-range-value");
+                if (labelElem) labelElem.textContent = option.textContent;
                 dateOptions.forEach((item) => {
                     const selected = item === option;
                     item.classList.toggle("is-selected", selected);
                     item.setAttribute("aria-selected", String(selected));
                 });
                 closeDateMenu();
-                customDates.hidden = value !== "custom";
-                if (value !== "custom") {
-                    customDates.querySelectorAll("input").forEach((input) => { input.value = ""; });
-                    submitFilters();
+                if (customDates) {
+                    customDates.hidden = value !== "custom";
+                    if (value !== "custom") {
+                        customDates.querySelectorAll("input").forEach((input) => { input.value = ""; });
+                    }
                 }
-                else if (customDates.querySelectorAll("input")[0].value && customDates.querySelectorAll("input")[1].value) submitFilters();
+                submitFilters();
             });
             option.addEventListener("keydown", (event) => {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {

@@ -67,6 +67,33 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"MQ135", page.data)
             self.assertNotIn(b"(raw)", page.data)
 
+    def test_reading_filters_and_clauses(self):
+        for key, clause in (
+            ("warning_critical", "temperature_c < 21"),
+            ("critical_only", "temperature_c < 18"),
+            ("ammonia", "mq137_ppm > 1000"),
+            ("methane", "mq4_ppm > 10"),
+            ("temperature", "temperature_c < 21"),
+            ("humidity", "humidity_perc < 50"),
+            ("co2", "co2_ppm > 2500"),
+            ("pm1", "pm1_ugm3 > 10"),
+            ("pm25", "pm25_ugm3 > 35"),
+            ("pm10", "pm10_ugm3 > 150"),
+        ):
+            f = application.parse_filters({"filter": key})
+            self.assertEqual(f["filter"], key)
+            where, _, _ = application.build_where_clause(f)
+            self.assertIn(clause, where)
+
+        self.login()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data?filter=critical_only")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"Critical only", page.data)
+            self.assertIn(b"MQ-137 Ammonia outside normal", page.data)
+            self.assertIn(b"MH-Z19E Carbon Dioxide outside normal", page.data)
+            self.assertIn(b'name="filter" value="critical_only"', page.data)
+
     def test_custom_date_validation(self):
         filters = application.parse_filters({
             "date_range": "custom",

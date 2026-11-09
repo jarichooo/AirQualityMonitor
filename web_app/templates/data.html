@@ -13,24 +13,19 @@
                 </div>
             </div>
             <div class="panel-heading-tools">
-                <div class="date-filter">
-                    <span class="sr-only" id="date-range-label">Date range</span>
+                <div class="reading-filter-wrapper">
+                    <span class="sr-only" id="filter-label">Filter readings</span>
                     <div class="custom-select" data-custom-select>
-                        <button class="custom-select-trigger" id="date-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="date-range-label date-range-value">
-                            <span id="date-range-value">
-                                {% if filters.date_range == 'today' %}Today
-                                {% elif filters.date_range == '7d' %}Last 7 days
-                                {% elif filters.date_range == '30d' %}Last 30 days
-                                {% elif filters.date_range == 'custom' %}Custom
-                                {% else %}All records{% endif %}
-                            </span>
+                        <button class="custom-select-trigger" id="date-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="filter-label date-range-value">
+                            <span id="date-range-value">{{ active_filter_label|default('All readings') }}</span>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
                         </button>
-                        <div class="custom-select-menu" id="date-range-menu" role="listbox" aria-labelledby="date-range-label">
-                            {% for value, label in (('all', 'All records'), ('today', 'Today'), ('7d', 'Last 7 days'), ('30d', 'Last 30 days'), ('custom', 'Custom')) %}
-                            <button class="custom-select-option{% if filters.date_range == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if filters.date_range == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
+                        <div class="custom-select-menu" id="date-range-menu" role="listbox" aria-labelledby="filter-label">
+                            {% for value, label in filter_options %}
+                            <button class="custom-select-option{% if filters.filter == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if filters.filter == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
                             {% endfor %}
                         </div>
+                        <input id="reading-filter" type="hidden" name="filter" value="{{ filters.filter }}">
                         <input id="date-range" type="hidden" name="date_range" value="{{ filters.date_range }}">
                     </div>
                 </div>
