@@ -491,6 +491,51 @@ class AppTestCase(unittest.TestCase):
         for name in ("Regular", "Medium", "SemiBold", "Bold"):
             self.assertGreater((font_dir / f"Poppins-{name}.ttf").stat().st_size, 100_000)
 
+    def test_grouped_metric_cards_severity_and_trend_arrows(self):
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 754.6), "normal")
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 1500), "warning")
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 5100), "critical")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 8), "normal")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 14.3), "warning")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 25), "critical")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 31.2), "normal")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 33.5), "warning")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 36.0), "critical")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 63), "normal")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 45), "warning")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 85), "critical")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 1200), "normal")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 2689.3), "warning")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 3100), "critical")
+        self.assertEqual(application.classify_sensor_reading("pm1_ugm3", 7.8), "normal")
+        self.assertEqual(application.classify_sensor_reading("pm25_ugm3", 48.6), "warning")
+        self.assertEqual(application.classify_sensor_reading("pm10_ugm3", 1111), "critical")
+        self.assertEqual(application.reading_direction(14.3, 10.0), "up")
+        self.assertEqual(application.reading_direction(63.0, 65.0), "down")
+        self.assertEqual(application.reading_direction(31.2, 31.2), "flat")
+
+        self.login()
+        earliest = datetime(2026, 10, 1, 10, tzinfo=timezone.utc)
+        latest = datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
+        latest_row = (
+            latest,
+            31.2, 63.0, 2689.3, 7.8, 48.6, 1111.0, 14.3, 754.6,
+            30.0, 65.0, 2500.0, 7.8, 40.0, 900.0, 10.0, 800.0,
+        )
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(2, earliest, latest), latest_row, (0, 0, 0, 2) * 8]
+            cursor.fetchall.return_value = []
+            page = self.client.get("/dashboard")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"Temperature and Humidity", page.data)
+            self.assertIn(b"Particulate matter", page.data)
+            self.assertIn(b"Carbon Dioxide", page.data)
+            self.assertIn(b"metric-card metric-card-group is-normal", page.data)
+            self.assertIn(b"metric-card metric-card-group is-critical", page.data)
+            self.assertIn(b"metric-trend-arrow is-up", page.data)
+            self.assertIn(b"metric-trend-arrow is-down", page.data)
+
 
 if __name__ == "__main__":
     unittest.main()

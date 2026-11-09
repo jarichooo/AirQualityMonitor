@@ -85,6 +85,73 @@ def parse_delete_cutoff(value):
     return datetime.strptime(value, timestamp_format).replace(tzinfo=timezone.utc)
 
 
+SEVERITY_RANK = {"unavailable": 0, "normal": 1, "warning": 2, "critical": 3}
+SEVERITY_BADGE = {
+    "normal": "NORMAL",
+    "warning": "WARNING",
+    "critical": "CRITICAL",
+    "unavailable": "NO DATA",
+}
+
+
+def classify_sensor_reading(column, value):
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return "unavailable"
+    val = float(value)
+    if column == "temperature_c":
+        return "critical" if (val < 18 or val > 35) else ("warning" if (val < 21 or val > 32) else "normal")
+    if column == "humidity_perc":
+        if val < 0 or val > 100:
+            return "unavailable"
+        return "critical" if (val < 40 or val > 80) else ("warning" if (val < 50 or val > 70) else "normal")
+    if val < 0:
+        return "unavailable"
+    if column == "co2_ppm":
+        return "critical" if val > 3000 else ("warning" if val > 2500 else "normal")
+    if column == "pm1_ugm3":
+        return "critical" if val > 35 else ("warning" if val > 10 else "normal")
+    if column == "pm25_ugm3":
+        return "critical" if val > 150 else ("warning" if val > 35 else "normal")
+    if column == "pm10_ugm3":
+        return "critical" if val > 1000 else ("warning" if val > 150 else "normal")
+    if column == "mq4_ppm":
+        return "critical" if val > 20 else ("warning" if val > 10 else "normal")
+    if column == "mq137_ppm":
+        return "critical" if val > 5000 else ("warning" if val > 1000 else "normal")
+    return "unavailable"
+
+
+def reading_direction(value, previous_value):
+    if value is None or previous_value is None:
+        return None
+    try:
+        current, previous = float(value), float(previous_value)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(current) and math.isfinite(previous)):
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return "flat"
+
+
+def enrich_metrics(metrics):
+    for item in metrics:
+        severity = classify_sensor_reading(item["column"], item.get("value"))
+        item["severity"] = severity
+        item["badge"] = SEVERITY_BADGE[severity]
+        item["direction"] = reading_direction(item.get("value"), item.get("previous"))
+    return metrics
+
+
+def group_severity(items):
+    known = [item.get("severity") for item in items if item.get("severity") in {"normal", "warning", "critical"}]
+    severity = max(known, key=lambda sev: SEVERITY_RANK[sev]) if known else "unavailable"
+    return severity, SEVERITY_BADGE[severity]
+
+
 def fetch_dashboard_data(sensor):
     """Measured analytics; saved forecasts are fetched separately by the panel."""
     now = datetime.now(timezone.utc)
@@ -103,7 +170,13 @@ def fetch_dashboard_data(sensor):
                 start = earliest.replace(minute=0, second=0, microsecond=0)
                 end = latest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
                 recorded_start, recorded_end = latest - timedelta(hours=1), latest
-                cursor.execute(f"SELECT {', '.join(READING_COLUMNS)} FROM air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1")
+                lead_cols = ", ".join(f"LEAD({col}) OVER (ORDER BY recorded_at DESC, id DESC)" for col, _, _ in SENSORS)
+                cursor.execute(
+                    f"SELECT {', '.join(READING_COLUMNS)}, {lead_cols} FROM ("
+                    f"SELECT id, {', '.join(READING_COLUMNS)} FROM air_quality_logs "
+                    "ORDER BY recorded_at DESC, id DESC LIMIT 2"
+                    ") AS recent_two ORDER BY recorded_at DESC, id DESC LIMIT 1"
+                )
                 latest_row = cursor.fetchone()
                 aggregates = ", ".join(f"MIN({col}), AVG({col}), MAX({col}), COUNT({col})" for col, _, _ in SENSORS)
                 cursor.execute(f"SELECT {aggregates} FROM air_quality_logs WHERE recorded_at >= %s AND recorded_at <= %s",
@@ -124,8 +197,9 @@ def fetch_dashboard_data(sensor):
                 low, average, high, count = summary[index * 4:index * 4 + 4]
                 metrics.append(dict(column=column, label=label, unit=unit,
                                     value=latest_row[index + 1] if latest_row else None,
+                                    previous=latest_row[index + 1 + len(SENSORS)] if latest_row and len(latest_row) > index + 1 + len(SENSORS) else None,
                                     minimum=low, average=average, maximum=high, count=count))
-    return dict(total=total, earliest=earliest, latest=latest, metrics=metrics, series=series,
+    return dict(total=total, earliest=earliest, latest=latest, metrics=enrich_metrics(metrics), series=series,
                 start=start, end=end, recorded_series=recorded_series,
                 recorded_start=recorded_start, recorded_end=recorded_end)
 
@@ -347,7 +421,18 @@ def dashboard():
     except psycopg2.Error:
         app.logger.exception("Unable to load collection summary")
         database_error = True
+    enrich_metrics(data["metrics"])
+    metrics_by_key = {m["column"]: m for m in data["metrics"]}
+    temp_humidity_severity, temp_humidity_badge = group_severity(
+        [metrics_by_key.get("temperature_c"), metrics_by_key.get("humidity_perc")]
+    )
+    pm_severity, pm_badge = group_severity(
+        [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
+    )
     return render_template("dashboard.html", **shell_context("Dashboard"),
+                           metrics_by_key=metrics_by_key,
+                           temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
+                           pm_group=dict(severity=pm_severity, badge=pm_badge),
                            **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
                            recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
