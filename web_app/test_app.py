@@ -439,6 +439,7 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"Last 24 hours (UTC)", page.data)
             self.assertIn(b"30.00", page.data)
             self.assertIn(b"trend-threshold", page.data)
+            self.assertNotIn(b"trend-threshold-label", page.data)
             self.assertIn(b'id="dashboard-notification-slot"', page.data)
             for col in ("mq137_ppm", "mq4_ppm", "temperature_c", "humidity_perc", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "co2_ppm"):
                 self.assertIn(f'id="chart-{col}"'.encode(), page.data)
