@@ -97,7 +97,7 @@
     </div>
     <div class="dashboard-layout">
         <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
-            <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
+            <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ 'Carbon Dioxide' if selected.column == 'co2_ppm' else selected.label }}</h2></div></div>
             <div class="trend-chart-wrap">
                 {% if recorded_trend.points %}
                 <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="recorded-trend-description">
