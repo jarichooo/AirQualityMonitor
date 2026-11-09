@@ -127,7 +127,6 @@
                         {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
                         {% for tline in chart.threshold_lines %}
                         <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
-                        <text class="trend-threshold-label is-{{ tline.kind }}" x="756" y="{{ tline.y - 5 if tline.y > 42 else tline.y + 13 }}" text-anchor="end">{{ tline.label }}</text>
                         {% endfor %}
                         <path class="trend-axis" d="M60 25V210H760"/>
                         <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
