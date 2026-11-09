@@ -452,7 +452,7 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"<polyline", page.data)
             self.assertIn(b'<h2 id="recorded-trend-title">Temperature and Humidity</h2>', page.data)
             self.assertNotIn(b"Individual measurements", page.data)
-            self.assertIn(b"View recorded values", page.data)
+            self.assertNotIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
             self.assertIn("SELECT recorded_at, temperature_c, device_id", cursor.execute.call_args.args[0])
             self.assertEqual(cursor.execute.call_args_list[-3].args[1], (earliest, latest))

@@ -102,74 +102,74 @@
         </a>
     </div>
 
-    <div class="dashboard-layout">
-        <div class="sensor-charts-grid" aria-label="Sensor recorded readings charts">
-            {% for chart in sensor_charts %}
-            {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
-            {% set desc_id = 'recorded-trend-description' if chart.is_selected else 'chart-desc-' ~ chart.column %}
-            <section class="dashboard-panel sensor-chart-panel" id="{{ chart.chart_id }}" aria-labelledby="{{ title_id }}">
-                {% for alias in chart.aliases %}<span id="{{ alias }}" class="chart-anchor-alias" aria-hidden="true"></span>{% endfor %}
-                <div class="dashboard-panel-heading">
-                    <div>
-                        <h2 id="{{ title_id }}">{{ chart.title }}</h2>
-                        <p class="chart-threshold-caption">{{ chart.threshold_summary }}</p>
-                    </div>
-                    <div class="chart-heading-meta">
-                        <span class="severity-pill is-{{ chart.severity }}">{{ chart.badge }}</span>
-                    </div>
+    <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts">
+        {% for chart in sensor_charts %}
+        {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
+        {% set desc_id = 'recorded-trend-description' if chart.is_selected else 'chart-desc-' ~ chart.column %}
+        <section class="dashboard-panel sensor-chart-panel" id="{{ chart.chart_id }}" aria-labelledby="{{ title_id }}">
+            {% for alias in chart.aliases %}<span id="{{ alias }}" class="chart-anchor-alias" aria-hidden="true"></span>{% endfor %}
+            <div class="dashboard-panel-heading">
+                <div>
+                    <h2 id="{{ title_id }}">{{ chart.title }}</h2>
+                    <p class="chart-threshold-caption">{{ chart.threshold_summary }}</p>
                 </div>
-                <div class="trend-chart-wrap">
-                    <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="{{ desc_id }}">
-                        <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
-                        {% for y, tick_label in chart.y_ticks %}
-                        <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
-                        {% endfor %}
-                        {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
-                        {% for tline in chart.threshold_lines %}
-                        <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
-                        {% endfor %}
-                        <path class="trend-axis" d="M60 25V210H760"/>
-                        <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
-                        <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ chart.title }} ({{ chart.unit }})</text>
-                        {% for s in chart.series_list %}
-                        {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
-                        {% for point in s.points %}<circle class="trend-point" style="stroke: {{ s.color }};" cx="{{ point.x }}" cy="{{ point.y }}" r="3.5"><title>{{ point.series_label }} &middot; {{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ point.unit }}</title></circle>{% endfor %}
-                        {% endfor %}
-                    </svg>
-                    <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
-                        {% for s in chart.series_list %}
-                        <li class="chart-series-item">
-                            <span class="chart-series-swatch" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
-                            <span class="chart-series-name">{{ s.label }}</span>
-                            {% if s.latest_value is not none %}
-                            <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
-                            {% endif %}
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    {% if chart.points %}
-                    <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th>{% if chart.series_list|length > 1 %}<th>Sensor</th>{% endif %}<th>{{ chart.title }} ({{ chart.unit }})</th></tr></thead><tbody>{% for point in chart.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td>{% if chart.series_list|length > 1 %}<td>{{ point.series_label }}</td>{% endif %}<td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
-                    {% else %}
-                    <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
-                    {% endif %}
+                <div class="chart-heading-meta">
+                    <span class="severity-pill is-{{ chart.severity }}">{{ chart.badge }}</span>
                 </div>
-            </section>
-            {% endfor %}
-        </div>
-        <div class="dashboard-side-column">
-            <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" data-prediction-url="{{ url_for('predictions_api') }}" data-prediction-token="{{ session.get('prediction_token', '') }}" aria-busy="true">
-                <div class="forecast-actions" id="prediction-controls" hidden>
-                    <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
-                    <p id="prediction-status" role="status" aria-live="polite"></p>
-                </div>
-                <ul class="forecast-legend" aria-label="Prediction conditions">
-                    <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
-                    <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
-                    <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+            </div>
+            <div class="trend-chart-wrap">
+                <svg class="sensor-trend" viewBox="0 0 800 265" role="img" aria-labelledby="{{ desc_id }}">
+                    <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
+                    {% for y, tick_label in chart.y_ticks %}
+                    <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
+                    {% endfor %}
+                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="236" text-anchor="middle">{{ label }}</text>{% endfor %}
+                    {% for tline in chart.threshold_lines %}
+                    <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
+                    <text class="trend-threshold-label is-{{ tline.kind }}" x="756" y="{{ tline.y - 5 if tline.y > 42 else tline.y + 13 }}" text-anchor="end">{{ tline.label }}</text>
+                    {% endfor %}
+                    <path class="trend-axis" d="M60 25V210H760"/>
+                    <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (UTC)</text>
+                    {% for s in chart.series_list %}
+                    {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
+                    {% for point in s.points %}<circle class="trend-point" style="stroke: {{ s.color }};" cx="{{ point.x }}" cy="{{ point.y }}" r="3.5"><title>{{ point.series_label }} &middot; {{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ point.unit }}</title></circle>{% endfor %}
+                    {% endfor %}
+                </svg>
+                <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
+                    {% for s in chart.series_list %}
+                    <li class="chart-series-item">
+                        <span class="chart-series-swatch" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
+                        <span class="chart-series-name">{{ s.label }}</span>
+                        {% if s.latest_value is not none %}
+                        <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
                 </ul>
-                <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
-            </section>
-        </div>
+                {% if not chart.points %}
+                <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
+                {% endif %}
+            </div>
+        </section>
+        {% endfor %}
+        <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" data-prediction-url="{{ url_for('predictions_api') }}" data-prediction-token="{{ session.get('prediction_token', '') }}" aria-busy="true">
+            <div class="dashboard-panel-heading">
+                <div>
+                    <h2>2-Hour Forecast</h2>
+                    <p class="chart-threshold-caption">AI-predicted sensor conditions and guidance for the next 2 hours</p>
+                </div>
+            </div>
+            <div class="forecast-actions" id="prediction-controls" hidden>
+                <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
+                <p id="prediction-status" role="status" aria-live="polite"></p>
+            </div>
+            <ul class="forecast-legend" aria-label="Prediction conditions">
+                <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
+                <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
+                <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+            </ul>
+            <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
+        </section>
     </div>
 </div>
 {% endblock %}
