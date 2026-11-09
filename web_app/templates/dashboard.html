@@ -128,7 +128,7 @@
 
                     {% endfor %}
                     <path class="trend-axis" d="M60 25V210H760"/>
-                    <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (UTC)</text>
+                    <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (PHT)</text>
                     {% for s in chart.series_list %}
                     {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
                     {% endfor %}

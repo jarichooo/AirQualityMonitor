@@ -37,7 +37,10 @@ class AppTestCase(unittest.TestCase):
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
             page = self.client.get("/data?date_range=all&per_page=25")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Timestamp (UTC)", page.data)
+            self.assertIn(b"Timestamp (PHT)", page.data)
+            self.assertIn(b"Sep 27, 2026, 01:50:25 PM", page.data)
+            self.assertIn(b'class="numeric cell-normal is-normal">31.5</td>', page.data)
+            self.assertIn(b'class="numeric cell-warning is-warning">12</td>', page.data)
             self.assertIn(b"31.5", page.data)
             self.assertIn(b"CO2 (ppm)", page.data)
             self.assertIn(b"420", page.data)
@@ -84,6 +87,10 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b'<span class="severity-pill is-normal">NORMAL</span>', page.data)
             self.assertIn(b'<span class="severity-pill is-warning">WARNING</span>', page.data)
             self.assertIn(b'<span class="severity-pill is-critical">CRITICAL</span>', page.data)
+            self.assertIn(b"Nov 9, 2026, 04:00:00 PM", page.data)
+            self.assertIn(b'class="numeric cell-normal is-normal">25.0</td>', page.data)
+            self.assertIn(b'class="numeric cell-warning is-warning">33.0</td>', page.data)
+            self.assertIn(b'class="numeric cell-critical is-critical">36.0</td>', page.data)
 
     def test_reading_filters_and_clauses(self):
         for key, clause in (

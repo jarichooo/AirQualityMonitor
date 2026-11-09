@@ -65,9 +65,9 @@
         <div class="table-stage" id="table-stage">
             <div class="table-header-scroll" id="table-header-scroll" aria-hidden="true">
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ (table_headers|default(csv_headers))|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
                     <thead><tr>
-                        {% for header in csv_headers %}<th{% if not loop.first %} class="numeric"{% endif %}>{{ header }}</th>{% endfor %}
+                        {% for header in table_headers|default(csv_headers) %}<th{% if not loop.first %} class="numeric"{% endif %}>{{ header }}</th>{% endfor %}
                         <th class="status-column-header">Status</th>
                     </tr></thead>
                 </table>
@@ -75,19 +75,27 @@
             <div class="table-body-scroll" id="table-body-scroll" tabindex="0" role="region" aria-label="Sensor readings table. Scroll horizontally to view all columns.">
                 <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
                     <span class="sr-only">Loading sensor data</span>
-                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range(csv_headers|length + 1) %}<span></span>{% endfor %}</div>{% endfor %}
+                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range((table_headers|default(csv_headers))|length + 1) %}<span></span>{% endfor %}</div>{% endfor %}
                 </div>
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ (table_headers|default(csv_headers))|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
                     <thead class="table-a11y-head"><tr>
-                        {% for header in csv_headers %}<th>{{ header }}</th>{% endfor %}
+                        {% for header in table_headers|default(csv_headers) %}<th>{{ header }}</th>{% endfor %}
                         <th>Status</th>
                     </tr></thead>
                     <tbody>
                         {% for row in reading_rows|default([]) %}
                         <tr>
-                            <td>{{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '—' }}</td>
-                            {% for value in row.sensor_values %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
+                            <td class="timestamp-cell" title="UTC: {{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '' }}">{{ row.formatted_time if row.formatted_time else (row.timestamp|pht_time if row.timestamp else '—') }}</td>
+                            {% if row.cells %}
+                                {% for cell in row.cells %}
+                                <td class="numeric cell-{{ cell.severity }} is-{{ cell.severity }}">{{ cell.value if cell.value is not none else '—' }}</td>
+                                {% endfor %}
+                            {% else %}
+                                {% for value in row.sensor_values|default([]) %}
+                                <td class="numeric">{{ value if value is not none else '—' }}</td>
+                                {% endfor %}
+                            {% endif %}
                             <td class="status-cell"><span class="severity-pill is-{{ row.severity }}">{{ row.badge }}</span></td>
                         </tr>
                         {% else %}

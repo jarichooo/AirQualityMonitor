@@ -51,6 +51,17 @@ CSV_HEADERS = (
     "Methane (ppm)",
     "Ammonia (ppm)",
 )
+TABLE_HEADERS = (
+    "Timestamp (PHT)",
+    "Temp (°C)",
+    "Humidity (%)",
+    "CO2 (ppm)",
+    "PM1.0 (µg/m³)",
+    "PM2.5 (µg/m³)",
+    "PM10 (µg/m³)",
+    "Methane (ppm)",
+    "Ammonia (ppm)",
+)
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
 READING_FILTERS = (
@@ -106,6 +117,27 @@ SEVERITY_BADGE = {
     "critical": "CRITICAL",
     "unavailable": "NO DATA",
 }
+PHT = timezone(timedelta(hours=8))
+
+
+def to_pht(dt):
+    if not dt:
+        return dt
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(PHT)
+
+
+def format_pht_timestamp(dt):
+    """Convert UTC timestamp to Philippine Standard Time (PHT, UTC+8) in 12-hour format."""
+    if not dt:
+        return "—"
+    pht_dt = to_pht(dt)
+    return f"{pht_dt.strftime('%b')} {pht_dt.day}, {pht_dt.year}, {pht_dt.strftime('%I:%M:%S %p')}"
+
+
+app.jinja_env.filters["pht_time"] = format_pht_timestamp
+app.jinja_env.globals.update(to_pht=to_pht, format_pht_timestamp=format_pht_timestamp)
 
 
 def classify_sensor_reading(column, value):
@@ -757,7 +789,7 @@ def dashboard():
                            recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
                                                       data["recorded_end"], hourly=False),
                            recorded_ticks=[(60 + minute / 60 * 700,
-                                            (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
+                                            to_pht(data["recorded_start"] + timedelta(minutes=minute)).strftime("%I:%M %p"))
                                            for minute in (0, 15, 30, 45, 60)],
                            live_sensors=LIVE_SENSORS)
 
@@ -969,6 +1001,15 @@ def data_page():
     reading_rows = [
         {
             "timestamp": row[0],
+            "formatted_time": format_pht_timestamp(row[0]),
+            "cells": [
+                {
+                    "column": col,
+                    "value": val,
+                    "severity": classify_sensor_reading(col, val),
+                }
+                for col, val in zip(READING_COLUMNS[1:], row[1:])
+            ],
             "sensor_values": row[1:],
             "severity": classify_reading_row(row)[0],
             "badge": classify_reading_row(row)[1],
@@ -983,6 +1024,7 @@ def data_page():
         readings=readings,
         reading_rows=reading_rows,
         csv_headers=CSV_HEADERS,
+        table_headers=TABLE_HEADERS,
         filters=filters,
         filter_options=READING_FILTERS,
         active_filter_label=READING_FILTER_MAP.get(filters["filter"], "All readings"),
