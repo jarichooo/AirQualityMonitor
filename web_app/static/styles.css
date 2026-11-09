@@ -328,14 +328,16 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 
 .dashboard-metrics-grouped .metric-card.is-selected,
 .dashboard-metrics-grouped .metric-card:active,
-.dashboard-metrics-grouped .metric-card:focus {
-    outline: none;
-    text-decoration: none;
+.dashboard-metrics-grouped .metric-card:focus,
+.dashboard-metrics-grouped .metric-card:focus-visible {
+    outline: none !important;
+    text-decoration: none !important;
 }
 .dashboard-metrics-grouped .metric-card::after,
 .dashboard-metrics-grouped .metric-card.is-selected::after,
 .dashboard-metrics-grouped .metric-card:active::after,
-.dashboard-metrics-grouped .metric-card:focus::after {
+.dashboard-metrics-grouped .metric-card:focus::after,
+.dashboard-metrics-grouped .metric-card:focus-visible::after {
     display: none !important;
     content: none !important;
 }
