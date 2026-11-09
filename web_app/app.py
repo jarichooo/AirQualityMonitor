@@ -250,25 +250,119 @@ def build_trend(series, start, end=None, hourly=True):
 
 
 SENSOR_CHART_SPECS = (
-    ("mq137_ppm", "Ammonia", "ppm", "Normal \u2264 1,000 ppm \u00b7 Warning up to 5,000 ppm \u00b7 Critical above 5,000 ppm",
-     (("warning", "Warning (1,000)", 1000.0), ("critical", "Critical (5,000)", 5000.0))),
-    ("mq4_ppm", "Methane", "ppm", "Normal \u2264 10 ppm \u00b7 Warning up to 20 ppm \u00b7 Critical above 20 ppm",
-     (("warning", "Warning (10)", 10.0), ("critical", "Critical (20)", 20.0))),
-    ("temperature_c", "Temperature", "\u00b0C", "Normal 21\u201332 \u00b0C \u00b7 Warning 18\u201321 / 32\u201335 \u00b0C \u00b7 Critical < 18 or > 35 \u00b0C",
-     (("critical", "Critical low (18)", 18.0), ("warning", "Warning low (21)", 21.0),
-      ("warning", "Warning (32)", 32.0), ("critical", "Critical (35)", 35.0))),
-    ("humidity_perc", "Humidity", "%", "Normal 50\u201370% \u00b7 Warning 40\u201350% / 70\u201380% \u00b7 Critical < 40% or > 80%",
-     (("critical", "Critical low (40)", 40.0), ("warning", "Warning low (50)", 50.0),
-      ("warning", "Warning (70)", 70.0), ("critical", "Critical (80)", 80.0))),
-    ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "Normal \u2264 10 \u00b5g/m\u00b3 \u00b7 Warning up to 35 \u00b5g/m\u00b3 \u00b7 Critical above 35 \u00b5g/m\u00b3",
-     (("warning", "Warning (10)", 10.0), ("critical", "Critical (35)", 35.0))),
-    ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "Normal \u2264 35 \u00b5g/m\u00b3 \u00b7 Warning up to 150 \u00b5g/m\u00b3 \u00b7 Critical above 150 \u00b5g/m\u00b3",
-     (("warning", "Warning (35)", 35.0), ("critical", "Critical (150)", 150.0))),
-    ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "Normal \u2264 150 \u00b5g/m\u00b3 \u00b7 Warning up to 1,000 \u00b5g/m\u00b3 \u00b7 Critical above 1,000 \u00b5g/m\u00b3",
-     (("warning", "Warning (150)", 150.0), ("critical", "Critical (1,000)", 1000.0))),
-    ("co2_ppm", "Carbon Dioxide", "ppm", "Normal \u2264 2,500 ppm \u00b7 Warning up to 3,000 ppm \u00b7 Critical above 3,000 ppm",
-     (("warning", "Warning (2,500)", 2500.0), ("critical", "Critical (3,000)", 3000.0))),
+    dict(
+        column="mq137_ppm",
+        chart_id="chart-mq137_ppm",
+        aliases=(),
+        title="Ammonia",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=5500.0,
+        ticks=(0, 500, 1000, 3000, 5000),
+        threshold_summary="Normal \u2264 1,000 ppm \u00b7 Warning up to 5,000 ppm \u00b7 Critical above 5,000 ppm",
+        series=(("mq137_ppm", "Ammonia", "ppm", "#f59e0b"),),
+        thresholds=(
+            ("normal", "Normal (500)", 500.0),
+            ("warning", "Warning (1,000)", 1000.0),
+            ("critical", "Critical (5,000)", 5000.0),
+        ),
+    ),
+    dict(
+        column="mq4_ppm",
+        chart_id="chart-mq4_ppm",
+        aliases=(),
+        title="Methane",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=24.0,
+        ticks=(0, 5, 10, 15, 20),
+        threshold_summary="Normal \u2264 10 ppm \u00b7 Warning up to 20 ppm \u00b7 Critical above 20 ppm",
+        series=(("mq4_ppm", "Methane", "ppm", "#a78bfa"),),
+        thresholds=(
+            ("normal", "Normal (5)", 5.0),
+            ("warning", "Warning (10)", 10.0),
+            ("critical", "Critical (20)", 20.0),
+        ),
+    ),
+    dict(
+        column="temperature_c",
+        chart_id="chart-temperature_c",
+        aliases=("chart-humidity_perc",),
+        title="Temperature and Humidity",
+        unit="\u00b0C / %",
+        scale="linear",
+        base_low=10.0,
+        base_high=88.0,
+        ticks=(18, 21, 32, 35, 40, 50, 70, 80),
+        threshold_summary="Temp normal 21\u201332 \u00b0C (Crit < 18 or > 35 \u00b0C) \u00b7 Humidity normal 50\u201370% (Crit < 40% or > 80%)",
+        series=(
+            ("temperature_c", "Temperature", "\u00b0C", "#fb7185"),
+            ("humidity_perc", "Humidity", "%", "#38bdf8"),
+        ),
+        thresholds=(
+            ("critical", "Temp Crit (18 \u00b0C)", 18.0),
+            ("normal", "Temp Normal (26.5 \u00b0C)", 26.5),
+            ("warning", "Temp Warn (32 \u00b0C)", 32.0),
+            ("critical", "Temp Crit (35 \u00b0C)", 35.0),
+            ("warning", "Hum Warn (50%)", 50.0),
+            ("normal", "Hum Normal (60%)", 60.0),
+            ("warning", "Hum Warn (70%)", 70.0),
+            ("critical", "Hum Crit (80%)", 80.0),
+        ),
+    ),
+    dict(
+        column="pm1_ugm3",
+        chart_id="chart-pm1_ugm3",
+        aliases=("chart-pm25_ugm3", "chart-pm10_ugm3"),
+        title="Particulate matter",
+        unit="\u00b5g/m\u00b3",
+        scale="log",
+        base_low=1.0,
+        base_high=1500.0,
+        ticks=(1, 4, 10, 35, 150, 400, 1000),
+        threshold_summary="PM 1.0 warning > 10, critical > 35 \u00b7 PM 2.5 warning > 35, critical > 150 \u00b7 PM 10 warning > 150, critical > 1,000 \u00b5g/m\u00b3",
+        series=(
+            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#34d399"),
+            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#38bdf8"),
+            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#fbbf24"),
+        ),
+        thresholds=(
+            ("normal", "PM 1.0 Normal (10)", 10.0),
+            ("warning", "PM 2.5 Warn / PM 1.0 Crit (35)", 35.0),
+            ("warning", "PM 10 Warn / PM 2.5 Crit (150)", 150.0),
+            ("critical", "PM 10 Critical (1,000)", 1000.0),
+        ),
+    ),
+    dict(
+        column="co2_ppm",
+        chart_id="chart-co2_ppm",
+        aliases=(),
+        title="Carbon Dioxide",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=3400.0,
+        ticks=(0, 1500, 2500, 3000),
+        threshold_summary="Normal \u2264 2,500 ppm \u00b7 Warning up to 3,000 ppm \u00b7 Critical above 3,000 ppm",
+        series=(("co2_ppm", "Carbon Dioxide", "ppm", "#a78bfa"),),
+        thresholds=(
+            ("normal", "Normal (1,500)", 1500.0),
+            ("warning", "Warning (2,500)", 2500.0),
+            ("critical", "Critical (3,000)", 3000.0),
+        ),
+    ),
 )
+
+
+def _scale_y(value, bottom, top, scale):
+    if scale == "log":
+        lo = math.log10(max(1.0, bottom))
+        hi = math.log10(max(lo + 0.1, top))
+        val = math.log10(max(1.0, float(value)))
+        return 210 - (val - lo) / (hi - lo) * 180
+    return 210 - (float(value) - bottom) / (top - bottom) * 180
 
 
 def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by_key):
@@ -278,82 +372,100 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
         duration = timedelta(hours=1)
     max_gap = timedelta(minutes=2)
     charts = []
-    for column, title, unit, threshold_summary, thresholds in SENSOR_CHART_SPECS:
-        idx = col_index[column]
-        sensor_rows = []
-        for row in recorded_series:
-            if len(row) >= 3 + len(SENSORS):
-                val = row[3 + idx]
-            elif column == selected_sensor and len(row) >= 2:
-                val = row[1]
-            else:
-                val = None
-            sensor_rows.append((row[0], val, row[2] if len(row) > 2 else None))
-        valid = [float(r[1]) for r in sensor_rows if r[1] is not None and math.isfinite(float(r[1]))]
-        t_vals = [level_val for _, _, level_val in thresholds]
-        if valid:
-            data_low, data_high = min(valid), max(valid)
-            anchor_vals = list(valid)
-            if column in ("mq137_ppm", "pm10_ugm3"):
-                warn_val, crit_val = t_vals[0], t_vals[1]
-                anchor_vals.append(warn_val)
-                if data_high >= warn_val * 0.65:
-                    anchor_vals.append(crit_val)
-                anchor_vals.append(0.0)
-            elif column in ("temperature_c", "humidity_perc"):
-                anchor_vals.extend(t_vals)
-            else:
-                anchor_vals.extend(t_vals)
-                anchor_vals.append(0.0)
-            low, high = min(anchor_vals), max(anchor_vals)
-        else:
-            low = 0.0 if column not in ("temperature_c", "humidity_perc") else t_vals[0]
-            high = t_vals[0] * 1.2 if column in ("mq137_ppm", "pm10_ugm3") else t_vals[-1]
-        padding = (high - low) * 0.08 or 1.0
-        bottom = max(0.0, low - padding) if column not in ("temperature_c", "humidity_perc") and (not valid or min(valid) >= 0) else (low - padding)
-        top = high + padding
-        segments, points, segment = [], [], []
-        previous, previous_device = None, None
-        for timestamp, value, device in sensor_rows:
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=timezone.utc)
-            if value is None or not math.isfinite(float(value)):
-                if segment:
+    for spec in SENSOR_CHART_SPECS:
+        scale = spec["scale"]
+        series_defs = spec["series"]
+        series_cols = {s[0] for s in series_defs}
+        all_valid = []
+        raw_by_col = {}
+        for col, _, _, _ in series_defs:
+            idx = col_index[col]
+            s_rows = []
+            for row in recorded_series:
+                if len(row) >= 3 + len(SENSORS):
+                    val = row[3 + idx]
+                elif col == selected_sensor and len(row) >= 2:
+                    val = row[1]
+                else:
+                    val = None
+                s_rows.append((row[0], val, row[2] if len(row) > 2 else None))
+            raw_by_col[col] = s_rows
+            all_valid.extend(float(r[1]) for r in s_rows if r[1] is not None and math.isfinite(float(r[1])))
+        bottom = spec["base_low"]
+        top = spec["base_high"]
+        if all_valid:
+            if min(all_valid) < bottom:
+                bottom = max(1.0 if scale == "log" else min(all_valid) - 2.0, min(all_valid) * 0.9)
+            if max(all_valid) > top:
+                top = max(all_valid) * 1.08
+        series_list = []
+        all_points = []
+        for col, s_label, s_unit, s_color in series_defs:
+            segments, points, segment = [], [], []
+            previous, previous_device = None, None
+            for timestamp, value, device in raw_by_col[col]:
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                if value is None or not math.isfinite(float(value)):
+                    if segment:
+                        segments.append(" ".join(segment))
+                    segment, previous = [], None
+                    continue
+                if previous is not None and (timestamp - previous > max_gap or device != previous_device):
                     segments.append(" ".join(segment))
-                segment, previous = [], None
-                continue
-            if previous is not None and (timestamp - previous > max_gap or device != previous_device):
+                    segment = []
+                x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * 700
+                y = _scale_y(value, bottom, top, scale)
+                point = dict(
+                    x=round(x, 2),
+                    y=round(y, 2),
+                    time=timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    value=round(float(value), 2),
+                    device=device or "Unspecified device",
+                    series_label=s_label,
+                    unit=s_unit,
+                )
+                points.append(point)
+                all_points.append(point)
+                segment.append(f"{point['x']},{point['y']}")
+                previous, previous_device = timestamp, device
+            if segment:
                 segments.append(" ".join(segment))
-                segment = []
-            x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * 700
-            y = 210 - (float(value) - bottom) / (top - bottom) * 180
-            point = dict(x=round(x, 2), y=round(y, 2), time=timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
-                         value=round(float(value), 2), device=device or "Unspecified device")
-            points.append(point)
-            segment.append(f"{point['x']},{point['y']}")
-            previous, previous_device = timestamp, device
-        if segment:
-            segments.append(" ".join(segment))
+            m = metrics_by_key.get(col, {})
+            series_list.append(dict(
+                column=col,
+                label=s_label,
+                unit=s_unit,
+                color=s_color,
+                segments=segments,
+                points=points,
+                latest_value=m.get("value"),
+                severity=m.get("severity", "unavailable"),
+            ))
         threshold_lines = []
-        for kind, label_text, level_val in thresholds:
+        for kind, label_text, level_val in spec["thresholds"]:
             if bottom <= level_val <= top:
-                ty = round(210 - (level_val - bottom) / (top - bottom) * 180, 2)
+                ty = round(_scale_y(level_val, bottom, top, scale), 2)
                 threshold_lines.append(dict(kind=kind, label=label_text, value=level_val, y=ty))
-        metric = metrics_by_key.get(column, {})
+        y_ticks = []
+        for tick_val in spec["ticks"]:
+            if bottom <= tick_val <= top:
+                ty = round(_scale_y(tick_val, bottom, top, scale), 2)
+                y_ticks.append((ty, f"{tick_val:,}" if tick_val >= 1000 else str(tick_val)))
+        group_sev, group_badge = group_severity([metrics_by_key.get(col, {}) for col, _, _, _ in series_defs])
         charts.append(dict(
-            column=column,
-            title=title,
-            unit=unit,
-            threshold_summary=threshold_summary,
-            severity=metric.get("severity", "unavailable"),
-            badge=metric.get("badge", "NO DATA"),
-            latest_value=metric.get("value"),
-            is_selected=(column == selected_sensor),
-            segments=segments,
-            points=points,
-            low=round(bottom, 2),
-            mid=round((bottom + top) / 2, 2),
-            high=round(top, 2),
+            column=spec["column"],
+            chart_id=spec["chart_id"],
+            aliases=spec["aliases"],
+            title=spec["title"],
+            unit=spec["unit"],
+            threshold_summary=spec["threshold_summary"],
+            severity=group_sev,
+            badge=group_badge,
+            is_selected=(selected_sensor in series_cols),
+            series_list=series_list,
+            points=all_points,
+            y_ticks=y_ticks,
             threshold_lines=threshold_lines,
         ))
     return charts

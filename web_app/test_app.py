@@ -450,7 +450,7 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"About these analytics", page.data)
             self.assertNotIn(b"analytics-notes-title", page.data)
             self.assertIn(b"<polyline", page.data)
-            self.assertIn(b'<h2 id="recorded-trend-title">Temperature</h2>', page.data)
+            self.assertIn(b'<h2 id="recorded-trend-title">Temperature and Humidity</h2>', page.data)
             self.assertNotIn(b"Individual measurements", page.data)
             self.assertIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
