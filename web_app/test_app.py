@@ -536,6 +536,9 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"metric-card metric-card-group is-critical", page.data)
             self.assertIn(b"metric-trend-arrow is-up", page.data)
             self.assertIn(b"metric-trend-arrow is-down", page.data)
+            self.assertIn(b"metric-card-stretch", page.data)
+            self.assertNotIn(b"Open graph", page.data)
+            self.assertNotIn(b"metric-card-thresholds", page.data)
 
 
 if __name__ == "__main__":
