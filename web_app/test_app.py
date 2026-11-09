@@ -44,7 +44,7 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"Sensor Readings", page.data)
             self.assertIn(b"data-custom-select", page.data)
             self.assertIn(b"panel-heading-tools", page.data)
-            self.assertIn(b"Export CSV", page.data)
+            self.assertIn(b"Export", page.data)
             self.assertNotIn(b"page-heading-actions", page.data)
             self.assertNotIn(b'name="per_page"', page.data)
             self.assertNotIn(b">Apply<", page.data)

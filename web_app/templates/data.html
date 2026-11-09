@@ -2,16 +2,6 @@
 
 {% block content %}
 <form class="data-page-form" id="data-filters" method="get">
-    <div class="page-heading">
-        <div class="page-heading-copy">
-            <h1>Data</h1>
-            <p>Review, filter, and export environmental sensor readings.</p>
-        </div>
-        {% if session.get('role') == 'admin' %}
-        <button class="button button-danger" id="delete-all-readings" type="button" aria-haspopup="dialog" aria-controls="delete-readings-dialog" disabled>Delete readings</button>
-        {% endif %}
-    </div>
-
     {% for category, message in get_flashed_messages(with_categories=true) %}
     <p class="data-notice data-notice-{{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
     {% endfor %}
@@ -19,8 +9,7 @@
         <div class="data-panel-heading">
             <div class="panel-heading-summary">
                 <div class="panel-heading-copy">
-                    <div class="panel-heading-title"><h2 id="sensor-readings-title">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
-                    <p>Latest measurements from the connected monitoring device.</p>
+                    <div class="panel-heading-title"><h2 id="sensor-readings-title" class="sr-only">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
                 </div>
             </div>
             <div class="panel-heading-tools">
@@ -49,9 +38,12 @@
                     <label class="field"><span>Start date</span><input type="date" name="start_date" value="{{ filters.start_date }}"></label>
                     <label class="field"><span>End date</span><input type="date" name="end_date" value="{{ filters.end_date }}"></label>
                 </div>
-                <a class="button button-primary export-button" id="export-button" href="{{ export_url }}" data-default-label="Export CSV">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span>Export CSV</span>
+                <a class="button button-primary export-button" id="export-button" href="{{ export_url }}" data-default-label="Export">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span>Export</span>
                 </a>
+                {% if session.get('role') == 'admin' %}
+                <button class="button button-danger" id="delete-all-readings" type="button" aria-haspopup="dialog" aria-controls="delete-readings-dialog" disabled>Delete records</button>
+                {% endif %}
                 <label class="field search-field">
                     <span class="sr-only">Search readings</span>
                     <span class="search-control">

@@ -776,8 +776,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .panel-heading-tools { display: flex; min-width: 0; align-items: flex-end; justify-content: flex-end; gap: 10px; }
 .panel-heading-tools > .date-filter,
 .panel-heading-tools > .custom-dates,
-.panel-heading-tools > .export-button { min-width: 0; flex: 0 1 auto; }
-.record-count { padding: 5px 9px; border-radius: 999px; background: var(--primary-soft); color: #67b7f7; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.panel-heading-tools > .export-button,
+.panel-heading-tools > #delete-all-readings { min-width: 0; flex: 0 1 auto; }
+.record-count { padding: 6px 12px; border-radius: 999px; background: var(--primary-soft); color: #67b7f7; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .field { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 500; }
 .field input { height: 42px; min-width: 0; padding: 8px 11px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface-elevated); color: var(--text); outline: none; transition: border-color 140ms ease, box-shadow 140ms ease; }
 .field input:hover { border-color: #3d567a; }
@@ -870,6 +871,7 @@ a.pagination-control:hover { border-color: var(--border-strong); background: var
     .panel-heading-tools { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.35fr); align-items: stretch; }
     .panel-heading-tools > .date-filter,
     .panel-heading-tools > .export-button,
+    .panel-heading-tools > #delete-all-readings,
     .panel-heading-tools > .search-field { width: 100%; min-width: 0; flex: none; }
     .panel-heading-tools > .custom-dates { width: 100%; min-width: 0; grid-column: 1 / -1; }
 }
