@@ -299,7 +299,7 @@ SENSOR_CHART_SPECS = (
         threshold_summary="Temp normal 21\u201332 \u00b0C (Crit < 18 or > 35 \u00b0C) \u00b7 Humidity normal 50\u201370% (Crit < 40% or > 80%)",
         series=(
             ("temperature_c", "Temperature", "\u00b0C", "#fb7185"),
-            ("humidity_perc", "Humidity", "%", "#38bdf8"),
+            ("humidity_perc", "Humidity", "%", "#c084fc"),
         ),
         thresholds=(
             ("critical", "Temp Crit", 18.0),
