@@ -326,19 +326,18 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     border-color: #3b5548;
 }
 
-.dashboard-metrics-grouped .metric-card.is-selected {
-    box-shadow: 0 0 0 2px rgb(255 255 255 / 32%), 0 14px 32px -8px rgb(0 0 0 / 65%), inset 0 1px 0 rgb(255 255 255 / 25%);
+.dashboard-metrics-grouped .metric-card.is-selected,
+.dashboard-metrics-grouped .metric-card:active,
+.dashboard-metrics-grouped .metric-card:focus {
+    outline: none;
+    text-decoration: none;
 }
-.dashboard-metrics-grouped .metric-card.is-selected::after {
-    position: absolute;
-    right: 14px;
-    bottom: 0;
-    left: 14px;
-    height: 3px;
-    border-radius: 3px 3px 0 0;
-    background: rgb(255 255 255 / 75%);
-    content: "";
-    pointer-events: none;
+.dashboard-metrics-grouped .metric-card::after,
+.dashboard-metrics-grouped .metric-card.is-selected::after,
+.dashboard-metrics-grouped .metric-card:active::after,
+.dashboard-metrics-grouped .metric-card:focus::after {
+    display: none !important;
+    content: none !important;
 }
 
 .metric-card-top {

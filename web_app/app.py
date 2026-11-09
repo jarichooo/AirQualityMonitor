@@ -754,9 +754,9 @@ def dashboard():
     session.setdefault("prediction_token", secrets.token_hex(32))
     if session.get("role") == "admin":
         session.setdefault("shutdown_token", secrets.token_hex(32))
-    sensor = request.args.get("sensor", "temperature_c")
-    if sensor not in {column for column, _, _ in SENSORS}:
-        sensor = "temperature_c"
+    sensor_param = request.args.get("sensor")
+    sensor = sensor_param if sensor_param in {column for column, _, _ in SENSORS} else None
+    query_sensor = sensor or "temperature_c"
     now = datetime.now(timezone.utc)
     data = dict(total=None, earliest=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
                 minimum=None, average=None, maximum=None, count=0) for c, l, u in SENSORS], series=[],
@@ -764,7 +764,7 @@ def dashboard():
                 recorded_start=now - timedelta(hours=1), recorded_end=now)
     database_error = False
     try:
-        data = fetch_dashboard_data(sensor)
+        data = fetch_dashboard_data(query_sensor)
     except psycopg2.Error:
         app.logger.exception("Unable to load collection summary")
         database_error = True
@@ -777,14 +777,15 @@ def dashboard():
         [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
     )
     sensor_charts = build_sensor_charts(
-        data["recorded_series"], data["recorded_start"], data["recorded_end"], sensor, metrics_by_key
+        data["recorded_series"], data["recorded_start"], data["recorded_end"], query_sensor, metrics_by_key
     )
+    selected_metric = next((m for m in data["metrics"] if m["column"] == sensor), None) if sensor else None
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            sensor_charts=sensor_charts,
                            metrics_by_key=metrics_by_key,
                            temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
                            pm_group=dict(severity=pm_severity, badge=pm_badge),
-                           **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
+                           **data, selected=selected_metric,
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
                            recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
                                                       data["recorded_end"], hourly=False),
