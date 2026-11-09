@@ -187,7 +187,8 @@ def fetch_dashboard_data(sensor):
                                "WHERE recorded_at >= %s AND recorded_at <= %s "
                                "GROUP BY 1 ORDER BY 1", (earliest, latest))
                 series = cursor.fetchall()
-                cursor.execute(f"SELECT recorded_at, {sensor}, device_id FROM air_quality_logs "
+                all_sensor_cols = ", ".join(col for col, _, _ in SENSORS)
+                cursor.execute(f"SELECT recorded_at, {sensor}, device_id, {all_sensor_cols} FROM air_quality_logs "
                                "WHERE recorded_at >= %s AND recorded_at <= %s "
                                "ORDER BY device_id NULLS FIRST, recorded_at, id",
                                (recorded_start, recorded_end))
@@ -246,6 +247,116 @@ def build_trend(series, start, end=None, hourly=True):
     if segment:
         segments.append(" ".join(segment))
     return dict(segments=segments, points=points, low=round(bottom, 2), high=round(top, 2))
+
+
+SENSOR_CHART_SPECS = (
+    ("mq137_ppm", "Ammonia", "ppm", "Normal \u2264 1,000 ppm \u00b7 Warning up to 5,000 ppm \u00b7 Critical above 5,000 ppm",
+     (("warning", "Warning (1,000)", 1000.0), ("critical", "Critical (5,000)", 5000.0))),
+    ("mq4_ppm", "Methane", "ppm", "Normal \u2264 10 ppm \u00b7 Warning up to 20 ppm \u00b7 Critical above 20 ppm",
+     (("warning", "Warning (10)", 10.0), ("critical", "Critical (20)", 20.0))),
+    ("temperature_c", "Temperature", "\u00b0C", "Normal 21\u201332 \u00b0C \u00b7 Warning 18\u201321 / 32\u201335 \u00b0C \u00b7 Critical < 18 or > 35 \u00b0C",
+     (("critical", "Critical low (18)", 18.0), ("warning", "Warning low (21)", 21.0),
+      ("warning", "Warning (32)", 32.0), ("critical", "Critical (35)", 35.0))),
+    ("humidity_perc", "Humidity", "%", "Normal 50\u201370% \u00b7 Warning 40\u201350% / 70\u201380% \u00b7 Critical < 40% or > 80%",
+     (("critical", "Critical low (40)", 40.0), ("warning", "Warning low (50)", 50.0),
+      ("warning", "Warning (70)", 70.0), ("critical", "Critical (80)", 80.0))),
+    ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "Normal \u2264 10 \u00b5g/m\u00b3 \u00b7 Warning up to 35 \u00b5g/m\u00b3 \u00b7 Critical above 35 \u00b5g/m\u00b3",
+     (("warning", "Warning (10)", 10.0), ("critical", "Critical (35)", 35.0))),
+    ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "Normal \u2264 35 \u00b5g/m\u00b3 \u00b7 Warning up to 150 \u00b5g/m\u00b3 \u00b7 Critical above 150 \u00b5g/m\u00b3",
+     (("warning", "Warning (35)", 35.0), ("critical", "Critical (150)", 150.0))),
+    ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "Normal \u2264 150 \u00b5g/m\u00b3 \u00b7 Warning up to 1,000 \u00b5g/m\u00b3 \u00b7 Critical above 1,000 \u00b5g/m\u00b3",
+     (("warning", "Warning (150)", 150.0), ("critical", "Critical (1,000)", 1000.0))),
+    ("co2_ppm", "Carbon Dioxide", "ppm", "Normal \u2264 2,500 ppm \u00b7 Warning up to 3,000 ppm \u00b7 Critical above 3,000 ppm",
+     (("warning", "Warning (2,500)", 2500.0), ("critical", "Critical (3,000)", 3000.0))),
+)
+
+
+def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by_key):
+    col_index = {col: idx for idx, (col, _, _) in enumerate(SENSORS)}
+    duration = (end - start) if end is not None else timedelta(hours=1)
+    if duration.total_seconds() <= 0:
+        duration = timedelta(hours=1)
+    max_gap = timedelta(minutes=2)
+    charts = []
+    for column, title, unit, threshold_summary, thresholds in SENSOR_CHART_SPECS:
+        idx = col_index[column]
+        sensor_rows = []
+        for row in recorded_series:
+            if len(row) >= 3 + len(SENSORS):
+                val = row[3 + idx]
+            elif column == selected_sensor and len(row) >= 2:
+                val = row[1]
+            else:
+                val = None
+            sensor_rows.append((row[0], val, row[2] if len(row) > 2 else None))
+        valid = [float(r[1]) for r in sensor_rows if r[1] is not None and math.isfinite(float(r[1]))]
+        t_vals = [level_val for _, _, level_val in thresholds]
+        if valid:
+            data_low, data_high = min(valid), max(valid)
+            anchor_vals = list(valid)
+            if column in ("mq137_ppm", "pm10_ugm3"):
+                warn_val, crit_val = t_vals[0], t_vals[1]
+                anchor_vals.append(warn_val)
+                if data_high >= warn_val * 0.65:
+                    anchor_vals.append(crit_val)
+                anchor_vals.append(0.0)
+            elif column in ("temperature_c", "humidity_perc"):
+                anchor_vals.extend(t_vals)
+            else:
+                anchor_vals.extend(t_vals)
+                anchor_vals.append(0.0)
+            low, high = min(anchor_vals), max(anchor_vals)
+        else:
+            low = 0.0 if column not in ("temperature_c", "humidity_perc") else t_vals[0]
+            high = t_vals[0] * 1.2 if column in ("mq137_ppm", "pm10_ugm3") else t_vals[-1]
+        padding = (high - low) * 0.08 or 1.0
+        bottom = max(0.0, low - padding) if column not in ("temperature_c", "humidity_perc") and (not valid or min(valid) >= 0) else (low - padding)
+        top = high + padding
+        segments, points, segment = [], [], []
+        previous, previous_device = None, None
+        for timestamp, value, device in sensor_rows:
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            if value is None or not math.isfinite(float(value)):
+                if segment:
+                    segments.append(" ".join(segment))
+                segment, previous = [], None
+                continue
+            if previous is not None and (timestamp - previous > max_gap or device != previous_device):
+                segments.append(" ".join(segment))
+                segment = []
+            x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * 700
+            y = 210 - (float(value) - bottom) / (top - bottom) * 180
+            point = dict(x=round(x, 2), y=round(y, 2), time=timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                         value=round(float(value), 2), device=device or "Unspecified device")
+            points.append(point)
+            segment.append(f"{point['x']},{point['y']}")
+            previous, previous_device = timestamp, device
+        if segment:
+            segments.append(" ".join(segment))
+        threshold_lines = []
+        for kind, label_text, level_val in thresholds:
+            if bottom <= level_val <= top:
+                ty = round(210 - (level_val - bottom) / (top - bottom) * 180, 2)
+                threshold_lines.append(dict(kind=kind, label=label_text, value=level_val, y=ty))
+        metric = metrics_by_key.get(column, {})
+        charts.append(dict(
+            column=column,
+            title=title,
+            unit=unit,
+            threshold_summary=threshold_summary,
+            severity=metric.get("severity", "unavailable"),
+            badge=metric.get("badge", "NO DATA"),
+            latest_value=metric.get("value"),
+            is_selected=(column == selected_sensor),
+            segments=segments,
+            points=points,
+            low=round(bottom, 2),
+            mid=round((bottom + top) / 2, 2),
+            high=round(top, 2),
+            threshold_lines=threshold_lines,
+        ))
+    return charts
 
 
 def get_db_connection():
@@ -429,7 +540,11 @@ def dashboard():
     pm_severity, pm_badge = group_severity(
         [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
     )
+    sensor_charts = build_sensor_charts(
+        data["recorded_series"], data["recorded_start"], data["recorded_end"], sensor, metrics_by_key
+    )
     return render_template("dashboard.html", **shell_context("Dashboard"),
+                           sensor_charts=sensor_charts,
                            metrics_by_key=metrics_by_key,
                            temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
                            pm_group=dict(severity=pm_severity, badge=pm_badge),
