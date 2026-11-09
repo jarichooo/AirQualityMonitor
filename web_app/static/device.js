@@ -25,7 +25,7 @@
         readingsPaused = null;
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = "Pause readings";
+            pauseButton.textContent = "Disable";
             pauseButton.removeAttribute("aria-pressed");
         }
         if (collectionState) {
@@ -39,7 +39,7 @@
         clearTimeout(controlTimer);
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = command === "PAUSE" ? "Pausing…" : command === "RESUME" ? "Resuming…" : "Pause readings";
+            pauseButton.textContent = command === "PAUSE" ? "Disabling…" : command === "RESUME" ? "Enabling…" : "Disable";
         }
         if (collectionHelp) {
             collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
@@ -76,7 +76,7 @@
         readingsPaused = message.paused;
         if (pauseButton) {
             pauseButton.disabled = false;
-            pauseButton.textContent = readingsPaused ? "Resume readings" : "Pause readings";
+            pauseButton.textContent = readingsPaused ? "Enable" : "Disable";
             pauseButton.setAttribute("aria-pressed", String(readingsPaused));
         }
         if (collectionState) {

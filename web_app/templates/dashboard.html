@@ -4,7 +4,7 @@
 <div class="dashboard-page">
     <div class="device-top-bar" aria-label="Device controls" data-device-socket>
         <span class="freshness-dot is-unavailable" id="device-live-dot" role="status" aria-label="Device connection status"></span>
-        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Pause readings</button>
+        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Disable</button>
     </div>
     {% if database_error %}
     <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
@@ -84,4 +84,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-4') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-5') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
