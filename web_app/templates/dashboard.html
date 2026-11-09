@@ -71,18 +71,18 @@
             <div class="metric-subgrid metric-subgrid-3">
                 <a class="metric-subitem{% if selected.column == 'pm1_ugm3' %} is-active{% endif %}" href="{{ url_for('dashboard', sensor='pm1_ugm3') }}"{% if selected.column == 'pm1_ugm3' %} aria-current="true"{% endif %}>
                     <span class="metric-subitem-label is-{{ pm1.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 1.0</span>
-                    <span class="metric-subitem-value"><strong>{{ reading(pm1.value) }}</strong>{{ trend_arrow(pm1) }}</span>
-                    <small class="metric-subitem-unit">{{ pm1.unit }}</small>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm1.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm1.unit }}</small>{{ trend_arrow(pm1) }}</span>
                 </a>
                 <a class="metric-subitem{% if selected.column == 'pm25_ugm3' %} is-active{% endif %}" href="{{ url_for('dashboard', sensor='pm25_ugm3') }}"{% if selected.column == 'pm25_ugm3' %} aria-current="true"{% endif %}>
                     <span class="metric-subitem-label is-{{ pm25.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 2.5</span>
-                    <span class="metric-subitem-value"><strong>{{ reading(pm25.value) }}</strong>{{ trend_arrow(pm25) }}</span>
-                    <small class="metric-subitem-unit">{{ pm25.unit }}</small>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm25.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm25.unit }}</small>{{ trend_arrow(pm25) }}</span>
                 </a>
                 <a class="metric-subitem{% if selected.column == 'pm10_ugm3' %} is-active{% endif %}" href="{{ url_for('dashboard', sensor='pm10_ugm3') }}"{% if selected.column == 'pm10_ugm3' %} aria-current="true"{% endif %}>
                     <span class="metric-subitem-label is-{{ pm10.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 10</span>
-                    <span class="metric-subitem-value"><strong>{{ reading(pm10.value) }}</strong>{{ trend_arrow(pm10) }}</span>
-                    <small class="metric-subitem-unit">{{ pm10.unit }}</small>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm10.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm10.unit }}</small>{{ trend_arrow(pm10) }}</span>
                 </a>
             </div>
         </div>
