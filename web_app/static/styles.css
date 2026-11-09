@@ -111,10 +111,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .collection-summary { margin: 0; color: var(--muted); font-size: 12px; }
 .metric-card { text-decoration: none; }
 .sensor-trend { width: 100%; height: auto; min-height: 240px; fill: none; stroke: none; }
-.sensor-trend text { fill: var(--muted); font: 500 11px "Poppins", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.sensor-trend text { fill: #cbd5e1; font: 500 15px "Poppins", system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 .trend-axis { stroke: var(--border-strong); stroke-width: 1.25; }
 .trend-grid { stroke: rgb(148 163 184 / 14%); stroke-width: 1; stroke-dasharray: 4 5; }
-.trend-threshold { fill: none; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.trend-threshold { fill: none; stroke-width: 2; stroke-dasharray: 8 5; }
 .trend-threshold.is-normal { stroke: #34d399; }
 .trend-threshold.is-warning { stroke: #fbbf24; }
 .trend-threshold.is-critical { stroke: #f87171; }
@@ -122,9 +122,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .sensor-trend .trend-threshold-label.is-normal { fill: #34d399; }
 .sensor-trend .trend-threshold-label.is-warning { fill: #fbbf24; }
 .sensor-trend .trend-threshold-label.is-critical { fill: #f87171; }
-.trend-line { fill: none; stroke: var(--secondary); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgb(56 189 248 / 30%)); }
-.trend-point { fill: var(--canvas); stroke: var(--secondary); stroke-width: 2; transition: r 140ms ease, fill 140ms ease, stroke-width 140ms ease; }
-.trend-point:hover { r: 5px; fill: var(--secondary); stroke: #fff; stroke-width: 2; }
+.trend-line { fill: none; stroke: var(--secondary); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgb(56 189 248 / 30%)); }
+.trend-point { fill: var(--canvas); stroke: var(--secondary); stroke-width: 2.5; transition: r 140ms ease, fill 140ms ease, stroke-width 140ms ease; }
+.trend-point:hover { r: 7px; fill: var(--secondary); stroke: #fff; stroke-width: 2; }
 .chart-series-legend {
     display: flex;
     flex-wrap: wrap;
@@ -132,9 +132,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     justify-content: center;
     gap: 10px 18px;
     margin: 0;
-    padding: 12px 6px 2px;
+    padding: 10px 6px 2px;
     list-style: none;
-    font-size: 12px;
+    font-size: 13.5px;
 }
 .chart-series-item {
     display: inline-flex;
@@ -595,7 +595,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     flex: 1 1 auto;
     flex-direction: column;
     justify-content: space-between;
-    padding: 12px 22px 16px 18px;
+    padding: 8px 12px 14px 8px;
 }
 .trend-chart-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
 .chart-fallback { position: absolute; inset: 45% 20px auto; margin: 0; color: var(--muted); font-size: 12px; text-align: center; }
@@ -703,7 +703,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .forecast-value.is-warning, .forecast-legend .is-warning { color: #fbbf24; }
 .forecast-value.is-critical, .forecast-legend .is-critical { color: #fb7185; }
 .forecast-value.is-unavailable { color: var(--muted); }
-.sensor-trend .trend-axis-title { fill: var(--text); font-size: 12px; font-weight: 600; }
+.sensor-trend .trend-axis-title { fill: var(--text); font-size: 15px; font-weight: 600; }
 .assessment-panel .dashboard-panel-heading { padding-bottom: 14px; border-bottom: 1px solid var(--border); }
 .assessment-panel { min-height: 0; flex: 1 1 auto; }
 .assessment-body { min-height: 0; flex: 1 1 auto; overflow: auto; }

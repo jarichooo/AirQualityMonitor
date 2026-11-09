@@ -118,7 +118,7 @@
                 </div>
             </div>
             <div class="trend-chart-wrap">
-                <svg class="sensor-trend" viewBox="0 0 800 265" role="img" aria-labelledby="{{ desc_id }}">
+                <svg class="sensor-trend" viewBox="6 14 770 252" role="img" aria-labelledby="{{ desc_id }}">
                     <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                     {% for y, tick_label in chart.y_ticks %}
                     <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
@@ -132,7 +132,7 @@
                     <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (UTC)</text>
                     {% for s in chart.series_list %}
                     {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
-                    {% for point in s.points %}<circle class="trend-point" style="stroke: {{ s.color }};" cx="{{ point.x }}" cy="{{ point.y }}" r="3.5"><title>{{ point.series_label }} &middot; {{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ point.unit }}</title></circle>{% endfor %}
+                    {% for point in s.points %}<circle class="trend-point" style="stroke: {{ s.color }};" cx="{{ point.x }}" cy="{{ point.y }}" r="4.5"><title>{{ point.series_label }} &middot; {{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ point.unit }}</title></circle>{% endfor %}
                     {% endfor %}
                 </svg>
                 <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
