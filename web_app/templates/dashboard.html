@@ -103,53 +103,27 @@
             <span class="metric-card-open">Open graph</span>
         </a>
     </div>
-    <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
-        <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
-        <div class="trend-chart-wrap">
-            {% if recorded_trend.points %}
-            <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="recorded-trend-description">
-                <title id="recorded-trend-description">{{ selected.label }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
-                {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
-                <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
-                {% endfor %}
-                {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
-                <path class="trend-axis" d="M60 25V210H760"/>
-                <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
-                <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
-                {% for segment in recorded_trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
-                {% for point in recorded_trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
-            </svg>
-            <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th><th>{{ selected.label }} ({{ selected.unit }})</th></tr></thead><tbody>{% for point in recorded_trend.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td><td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
-            {% else %}
-            <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
-            {% endif %}
-        </div>
-    </section>
     <div class="dashboard-layout">
-        <section class="dashboard-panel" aria-labelledby="trend-title">
-            <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; All stored readings &middot; UTC &middot; All reporting devices</p></div></div>
+        <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
+            <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
             <div class="trend-chart-wrap">
-                {% if trend.points %}
-                <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="trend-description">
-                    <title id="trend-description">{{ selected.label }} hourly averages across all stored readings. Missing hours are gaps. Values in {{ selected.unit }}.</title>
+                {% if recorded_trend.points %}
+                <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="recorded-trend-description">
+                    <title id="recorded-trend-description">{{ selected.label }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
+                    {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
+                    <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
+                    {% endfor %}
+                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
                     <path class="trend-axis" d="M60 25V210H760"/>
-                    <text x="52" y="35" text-anchor="end">{{ trend.high }}</text><text x="52" y="210" text-anchor="end">{{ trend.low }}</text>
-                    <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">{{ end.strftime('%m-%d %H:%M') }} UTC</text>
                     <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
                     <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
-                    {% for segment in trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
-                    {% for point in trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
+                    {% for segment in recorded_trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
+                    {% for point in recorded_trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
                 </svg>
-                <details class="trend-values"><summary>View hourly values</summary><table><thead><tr><th>Hour (UTC)</th><th>Average ({{ selected.unit }})</th></tr></thead><tbody>{% for timestamp, value in series %}<tr><td>{{ timestamp.strftime('%Y-%m-%d %H:00') }}</td><td>{{ reading(value) }}</td></tr>{% endfor %}</tbody></table></details>
+                <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th><th>{{ selected.label }} ({{ selected.unit }})</th></tr></thead><tbody>{% for point in recorded_trend.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td><td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
                 {% else %}
-                <div class="chart-empty-state"><strong>{{ 'Analytics unavailable' if database_error else 'No readings yet for this period' }}</strong><span>{{ selected.label }} trends will appear when readings are available.</span></div>
+                <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
                 {% endif %}
-            </div>
-            <div class="dashboard-stats">
-                {% for label, value in (('Minimum', selected.minimum), ('Average', selected.average), ('Maximum', selected.maximum)) %}
-                <div class="dashboard-stat"><span>{{ label }} (all stored)</span><strong>{{ reading(value) }} {{ selected.unit }}</strong></div>
-                {% endfor %}
-                <div class="dashboard-stat"><span>Valid readings (all stored)</span><strong>{{ '—' if database_error else selected.count }}</strong></div>
             </div>
         </section>
         <div class="dashboard-side-column">
