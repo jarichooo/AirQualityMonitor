@@ -261,7 +261,7 @@ SENSOR_CHART_SPECS = (
         base_high=5500.0,
         ticks=(0, 1000, 3000, 5000),
         threshold_summary="Normal \u2264 1,000 ppm \u00b7 Warning up to 5,000 ppm \u00b7 Critical above 5,000 ppm",
-        series=(("mq137_ppm", "Ammonia", "ppm", "#f59e0b"),),
+        series=(("mq137_ppm", "Ammonia", "ppm", "#38bdf8"),),
         thresholds=(
             ("normal", "Normal", 500.0),
             ("warning", "Warning", 1000.0),
@@ -324,9 +324,9 @@ SENSOR_CHART_SPECS = (
         ticks=(1, 10, 35, 150, 1000),
         threshold_summary="PM 1.0 warning > 10, critical > 35 \u00b7 PM 2.5 warning > 35, critical > 150 \u00b7 PM 10 warning > 150, critical > 1,000 \u00b5g/m\u00b3",
         series=(
-            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#34d399"),
-            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#38bdf8"),
-            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#fbbf24"),
+            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#22d3ee"),
+            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#818cf8"),
+            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#c084fc"),
         ),
         thresholds=(
             ("normal", "PM 1.0 Normal (10)", 10.0),
