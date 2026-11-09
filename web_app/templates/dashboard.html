@@ -132,7 +132,6 @@
                     <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (UTC)</text>
                     {% for s in chart.series_list %}
                     {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
-                    {% for point in s.points %}<circle class="trend-point" style="stroke: {{ s.color }};" cx="{{ point.x }}" cy="{{ point.y }}" r="4.5"><title>{{ point.series_label }} &middot; {{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ point.unit }}</title></circle>{% endfor %}
                     {% endfor %}
                 </svg>
                 <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">

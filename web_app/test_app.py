@@ -443,7 +443,7 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b'id="dashboard-notification-slot"', page.data)
             for col in ("mq137_ppm", "mq4_ppm", "temperature_c", "humidity_perc", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "co2_ppm"):
                 self.assertIn(f'id="chart-{col}"'.encode(), page.data)
-            self.assertIn(b"32.0", page.data)
+            self.assertNotIn(b"trend-point", page.data)
             self.assertNotIn(b"View hourly values", page.data)
             self.assertIn(b"2-hour forecast", page.data)
             self.assertIn(b'id="forecast-panel"', page.data)
