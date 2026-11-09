@@ -2,27 +2,10 @@
 {% macro reading(value) %}{{ '%.2f'|format(value) if value is not none else '—' }}{% endmacro %}
 {% block content %}
 <div class="dashboard-page">
-    <section class="dashboard-panel device-live-panel" aria-label="Live readings" data-device-socket>
-        <div class="dashboard-panel-heading device-live-heading">
-            <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status" hidden>Not connected</span></div>
-        </div>
-        <div class="device-live-setup">
-            <form class="device-connect-form" id="device-connect-form">
-                <label class="field" for="device-websocket-url"><span>Device address</span>
-                    <input id="device-websocket-url" name="device-websocket-url" type="url" value="ws://airqualitymonitor.local:81/" required autocomplete="url" spellcheck="false">
-                </label>
-                <button class="button button-primary" type="submit">Connect</button>
-            </form>
-            <div class="device-collection-block" role="group" aria-label="Data collection">
-                <div class="device-collection-controls">
-                    <button class="button button-secondary" id="device-pause-toggle" type="button" aria-describedby="device-collection-help" disabled>Waiting for device</button>
-                    <strong id="device-collection-state" class="device-collection-state" data-state="unknown" role="status" aria-live="polite">Status unknown</strong>
-                </div>
-                <p id="device-collection-help" class="device-live-time" role="status">Connect to check or change data collection.</p>
-                <p class="device-live-time">Last update: <time id="device-live-time">Waiting for readings</time></p>
-            </div>
-        </div>
-    </section>
+    <div class="device-top-bar" aria-label="Device controls" data-device-socket>
+        <span class="freshness-dot is-unavailable" id="device-live-dot" role="status" aria-label="Device connection status"></span>
+        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Pause readings</button>
+    </div>
     {% if database_error %}
     <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
     {% endif %}
@@ -101,4 +84,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-4') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}

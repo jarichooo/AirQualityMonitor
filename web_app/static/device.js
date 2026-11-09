@@ -12,6 +12,7 @@
     const collectionState = document.querySelector("#device-collection-state");
     const collectionHelp = document.querySelector("#device-collection-help");
     const storageKey = "henvironment-esp32-websocket";
+    const defaultEndpoint = "ws://airqualitymonitor.local:81/";
     let socket;
     let reconnectTimer;
     let reconnectDelay = 1000;
@@ -22,19 +23,27 @@
     const unknownControl = (message) => {
         clearTimeout(controlTimer);
         readingsPaused = null;
-        pauseButton.disabled = true;
-        pauseButton.textContent = "Waiting for device";
-        pauseButton.removeAttribute("aria-pressed");
-        collectionState.textContent = "Status unknown";
-        collectionState.dataset.state = "unknown";
-        collectionHelp.textContent = message;
+        if (pauseButton) {
+            pauseButton.disabled = true;
+            pauseButton.textContent = "Pause readings";
+            pauseButton.removeAttribute("aria-pressed");
+        }
+        if (collectionState) {
+            collectionState.textContent = "Status unknown";
+            collectionState.dataset.state = "unknown";
+        }
+        if (collectionHelp) collectionHelp.textContent = message;
     };
 
     const sendControl = (command) => {
         clearTimeout(controlTimer);
-        pauseButton.disabled = true;
-        pauseButton.textContent = command === "PAUSE" ? "Pausing…" : command === "RESUME" ? "Resuming…" : "Checking…";
-        collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
+        if (pauseButton) {
+            pauseButton.disabled = true;
+            pauseButton.textContent = command === "PAUSE" ? "Pausing…" : command === "RESUME" ? "Resuming…" : "Pause readings";
+        }
+        if (collectionHelp) {
+            collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
+        }
         controlTimer = setTimeout(() => {
             unknownControl("The device did not confirm the change. Click Connect to retry; check the device software if this keeps happening.");
         }, 8000);
@@ -46,14 +55,14 @@
     };
 
     try {
-        address.value = localStorage.getItem(storageKey) || address.value;
+        if (address) address.value = localStorage.getItem(storageKey) || address.value;
     } catch (_) {
         // The form still works when browser storage is disabled.
     }
 
     const showStatus = (message, state) => {
-        status.textContent = message;
-        dot.className = `freshness-dot ${state}`;
+        if (status) status.textContent = message;
+        if (dot) dot.className = `freshness-dot ${state}`;
     };
 
     const displayReading = (value) => {
@@ -65,14 +74,20 @@
         if (typeof message.paused !== "boolean") throw new Error("Invalid collection status");
         clearTimeout(controlTimer);
         readingsPaused = message.paused;
-        pauseButton.disabled = false;
-        pauseButton.textContent = readingsPaused ? "Resume readings" : "Pause readings";
-        pauseButton.setAttribute("aria-pressed", String(readingsPaused));
-        collectionState.textContent = readingsPaused ? "Paused" : "Collecting";
-        collectionState.dataset.state = readingsPaused ? "paused" : "running";
-        collectionHelp.textContent = readingsPaused
-            ? "Stored and live readings are paused. Click Resume readings to continue."
-            : "A new reading is sent every minute. Pausing stops uploads from this device.";
+        if (pauseButton) {
+            pauseButton.disabled = false;
+            pauseButton.textContent = readingsPaused ? "Resume readings" : "Pause readings";
+            pauseButton.setAttribute("aria-pressed", String(readingsPaused));
+        }
+        if (collectionState) {
+            collectionState.textContent = readingsPaused ? "Paused" : "Collecting";
+            collectionState.dataset.state = readingsPaused ? "paused" : "running";
+        }
+        if (collectionHelp) {
+            collectionHelp.textContent = readingsPaused
+                ? "Stored and live readings are paused. Click Resume readings to continue."
+                : "A new reading is sent every minute. Pausing stops uploads from this device.";
+        }
         showStatus(readingsPaused ? "Connected · Readings paused" : "Connected · Sending every minute", "is-current");
     };
 
@@ -88,11 +103,22 @@
             if (label) label.textContent = present && typeof reading[key] === "number" ? "Live reading" : "Sensor unavailable";
         });
         const date = reading.ts ? new Date(reading.ts) : new Date();
-        time.textContent = Number.isNaN(date.getTime()) ? "Invalid device timestamp" : date.toLocaleString();
+        if (time) {
+            time.textContent = Number.isNaN(date.getTime()) ? "Invalid device timestamp" : date.toLocaleString();
+        }
         if (readingsPaused === true) {
             unknownControl("The device sent a reading after confirming pause. Reconnect and check the device software.");
         }
         showStatus(`Connected${reading.device_id ? ` · ${reading.device_id}` : ""}`, "is-current");
+    };
+
+    const resolveEndpointUrl = () => {
+        if (address) return address.value.trim();
+        try {
+            return localStorage.getItem(storageKey) || defaultEndpoint;
+        } catch (_) {
+            return defaultEndpoint;
+        }
     };
 
     const connect = () => {
@@ -100,7 +126,7 @@
         manuallyClosed = false;
         let endpoint;
         try {
-            endpoint = new URL(address.value.trim());
+            endpoint = new URL(resolveEndpointUrl());
             if (!["ws:", "wss:"].includes(endpoint.protocol) || !endpoint.hostname) throw new Error();
         } catch (_) {
             showStatus("Enter a valid ws:// or wss:// address", "is-unavailable");
@@ -145,11 +171,11 @@
         });
     };
 
-    form.addEventListener("submit", (event) => {
+    form?.addEventListener("submit", (event) => {
         event.preventDefault();
         connect();
     });
-    pauseButton.addEventListener("click", () => {
+    pauseButton?.addEventListener("click", () => {
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
         sendControl(readingsPaused ? "RESUME" : "PAUSE");
     });
