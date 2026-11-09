@@ -123,6 +123,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .trend-threshold.is-normal { stroke: #34d399; }
 .trend-threshold.is-warning { stroke: #fbbf24; }
 .trend-threshold.is-critical { stroke: #f87171; }
+#chart-temperature_c .trend-threshold,
+#chart-pm1_ugm3 .trend-threshold {
+    display: none !important;
+}
 .sensor-trend .trend-threshold-label { font-size: 9.5px; font-weight: 600; letter-spacing: .01em; }
 .sensor-trend .trend-threshold-label.is-normal { fill: #34d399; }
 .sensor-trend .trend-threshold-label.is-warning { fill: #fbbf24; }

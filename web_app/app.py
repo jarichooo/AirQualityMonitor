@@ -362,16 +362,7 @@ SENSOR_CHART_SPECS = (
             ("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),
             ("humidity_perc", "Humidity", "%", "#c084fc"),
         ),
-        thresholds=(
-            ("critical", "Temp Crit", 18.0),
-            ("normal", "Temp Normal", 26.5),
-            ("warning", "Temp Warn", 32.0),
-            ("critical", "Temp Crit", 35.0),
-            ("warning", "Hum Warn", 50.0),
-            ("normal", "Hum Normal", 60.0),
-            ("warning", "Hum Warn", 70.0),
-            ("critical", "Hum Crit", 80.0),
-        ),
+        thresholds=(),
     ),
     dict(
         column="pm1_ugm3",
@@ -389,12 +380,7 @@ SENSOR_CHART_SPECS = (
             ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#818cf8"),
             ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#c084fc"),
         ),
-        thresholds=(
-            ("normal", "PM 1.0 Normal (10)", 10.0),
-            ("warning", "PM 2.5 Warn / PM 1.0 Crit (35)", 35.0),
-            ("warning", "PM 10 Warn / PM 2.5 Crit (150)", 150.0),
-            ("critical", "PM 10 Critical (1,000)", 1000.0),
-        ),
+        thresholds=(),
     ),
     dict(
         column="co2_ppm",
