@@ -34,6 +34,7 @@
                 <span class="severity-pill is-{{ ammonia.severity }}">{{ ammonia.badge }}</span>
             </div>
             <span class="metric-card-value"><strong>{{ reading(ammonia.value) }}</strong><small>{{ ammonia.unit }}</small>{{ trend_arrow(ammonia) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 1,000 ppm &middot; Warning up to 5,000 ppm &middot; Critical above 5,000 ppm</span>
         </a>
 
         <a class="metric-card is-{{ methane.severity }}{% if selected.column == 'mq4_ppm' %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor='mq4_ppm') }}"{% if selected.column == 'mq4_ppm' %} aria-current="true"{% endif %}>
@@ -42,6 +43,7 @@
                 <span class="severity-pill is-{{ methane.severity }}">{{ methane.badge }}</span>
             </div>
             <span class="metric-card-value"><strong>{{ reading(methane.value) }}</strong><small>{{ methane.unit }}</small>{{ trend_arrow(methane) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 10 ppm &middot; Warning up to 20 ppm &middot; Critical above 20 ppm</span>
         </a>
 
         <div class="metric-card metric-card-group is-{{ temp_humidity_group.severity }}{% if selected.column in ('temperature_c', 'humidity_perc') %} is-selected{% endif %}">
@@ -60,6 +62,7 @@
                     <span class="metric-subitem-value"><strong>{{ reading(humidity.value) }}</strong><small>{{ humidity.unit }}</small>{{ trend_arrow(humidity) }}</span>
                 </a>
             </div>
+            <span class="metric-card-thresholds">Normal 21&ndash;32 &deg;C (Critical &lt; 18 or &gt; 35 &deg;C) &middot; Humidity 50&ndash;70% (Critical &lt; 40% or &gt; 80%)</span>
         </div>
 
         <div class="metric-card metric-card-group is-{{ pm_group.severity }}{% if selected.column in ('pm1_ugm3', 'pm25_ugm3', 'pm10_ugm3') %} is-selected{% endif %}">
@@ -85,6 +88,7 @@
                     <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm10.unit }}</small>{{ trend_arrow(pm10) }}</span>
                 </a>
             </div>
+            <span class="metric-card-thresholds">Normal &le; 10 / 35 / 150 &micro;g/m&sup3; &middot; Critical &gt; 35 / 150 / 1,000 &micro;g/m&sup3; (PM 1.0 / 2.5 / 10)</span>
         </div>
 
         <a class="metric-card is-{{ co2.severity }}{% if selected.column == 'co2_ppm' %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor='co2_ppm') }}"{% if selected.column == 'co2_ppm' %} aria-current="true"{% endif %}>
@@ -93,6 +97,7 @@
                 <span class="severity-pill is-{{ co2.severity }}">{{ co2.badge }}</span>
             </div>
             <span class="metric-card-value"><strong>{{ reading(co2.value) }}</strong><small>{{ co2.unit }}</small>{{ trend_arrow(co2) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 2,500 ppm &middot; Warning up to 3,000 ppm &middot; Critical above 3,000 ppm</span>
         </a>
     </div>
     <div class="dashboard-layout">
