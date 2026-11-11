@@ -2,16 +2,6 @@
 
 {% block content %}
 <form class="data-page-form" id="data-filters" method="get">
-    <div class="page-heading">
-        <div class="page-heading-copy">
-            <h1>Data</h1>
-            <p>Review, filter, and export environmental sensor readings.</p>
-        </div>
-        {% if session.get('role') == 'admin' %}
-        <button class="button button-danger" id="delete-all-readings" type="button" aria-haspopup="dialog" aria-controls="delete-readings-dialog" disabled>Delete readings</button>
-        {% endif %}
-    </div>
-
     {% for category, message in get_flashed_messages(with_categories=true) %}
     <p class="data-notice data-notice-{{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
     {% endfor %}
@@ -19,29 +9,23 @@
         <div class="data-panel-heading">
             <div class="panel-heading-summary">
                 <div class="panel-heading-copy">
-                    <div class="panel-heading-title"><h2 id="sensor-readings-title">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
-                    <p>Latest measurements from the connected monitoring device.</p>
+                    <div class="panel-heading-title"><h2 id="sensor-readings-title" class="sr-only">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
                 </div>
             </div>
             <div class="panel-heading-tools">
-                <div class="date-filter">
-                    <span class="sr-only" id="date-range-label">Date range</span>
+                <div class="reading-filter-wrapper">
+                    <span class="sr-only" id="filter-label">Filter readings</span>
                     <div class="custom-select" data-custom-select>
-                        <button class="custom-select-trigger" id="date-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="date-range-label date-range-value">
-                            <span id="date-range-value">
-                                {% if filters.date_range == 'today' %}Today
-                                {% elif filters.date_range == '7d' %}Last 7 days
-                                {% elif filters.date_range == '30d' %}Last 30 days
-                                {% elif filters.date_range == 'custom' %}Custom
-                                {% else %}All records{% endif %}
-                            </span>
+                        <button class="custom-select-trigger" id="date-range-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="filter-label date-range-value">
+                            <span id="date-range-value">{{ active_filter_label|default('All readings') }}</span>
                             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5"/></svg>
                         </button>
-                        <div class="custom-select-menu" id="date-range-menu" role="listbox" aria-labelledby="date-range-label">
-                            {% for value, label in (('all', 'All records'), ('today', 'Today'), ('7d', 'Last 7 days'), ('30d', 'Last 30 days'), ('custom', 'Custom')) %}
-                            <button class="custom-select-option{% if filters.date_range == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if filters.date_range == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
+                        <div class="custom-select-menu" id="date-range-menu" role="listbox" aria-labelledby="filter-label">
+                            {% for value, label in filter_options %}
+                            <button class="custom-select-option{% if filters.filter == value %} is-selected{% endif %}" type="button" role="option" aria-selected="{{ 'true' if filters.filter == value else 'false' }}" data-value="{{ value }}">{{ label }}</button>
                             {% endfor %}
                         </div>
+                        <input id="reading-filter" type="hidden" name="filter" value="{{ filters.filter }}">
                         <input id="date-range" type="hidden" name="date_range" value="{{ filters.date_range }}">
                     </div>
                 </div>
@@ -49,9 +33,12 @@
                     <label class="field"><span>Start date</span><input type="date" name="start_date" value="{{ filters.start_date }}"></label>
                     <label class="field"><span>End date</span><input type="date" name="end_date" value="{{ filters.end_date }}"></label>
                 </div>
-                <a class="button button-primary export-button" id="export-button" href="{{ export_url }}" data-default-label="Export CSV">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span>Export CSV</span>
+                <a class="button button-primary export-button" id="export-button" href="{{ export_url }}" data-default-label="Export">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg><span>Export</span>
                 </a>
+                {% if session.get('role') == 'admin' %}
+                <button class="button button-danger" id="delete-all-readings" type="button" aria-haspopup="dialog" aria-controls="delete-readings-dialog" disabled>Delete records</button>
+                {% endif %}
                 <label class="field search-field">
                     <span class="sr-only">Search readings</span>
                     <span class="search-control">
@@ -78,32 +65,43 @@
         <div class="table-stage" id="table-stage">
             <div class="table-header-scroll" id="table-header-scroll" aria-hidden="true">
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ (table_headers|default(csv_headers))|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
                     <thead><tr>
-                        {% for header in csv_headers %}<th{% if not loop.first %} class="numeric"{% endif %}>{{ header }}</th>{% endfor %}
+                        {% for header in table_headers|default(csv_headers) %}<th{% if not loop.first %} class="numeric"{% endif %}>{{ header }}</th>{% endfor %}
+                        <th class="status-column-header">Status</th>
                     </tr></thead>
                 </table>
             </div>
             <div class="table-body-scroll" id="table-body-scroll" tabindex="0" role="region" aria-label="Sensor readings table. Scroll horizontally to view all columns.">
                 <div class="loading-state" id="loading-state" role="status" aria-live="polite" hidden>
                     <span class="sr-only">Loading sensor data</span>
-                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range(csv_headers|length) %}<span></span>{% endfor %}</div>{% endfor %}
+                    {% for _ in range(14) %}<div class="skeleton-row" aria-hidden="true">{% for _ in range((table_headers|default(csv_headers))|length + 1) %}<span></span>{% endfor %}</div>{% endfor %}
                 </div>
                 <table class="data-table">
-                    <colgroup><col class="timestamp-column"><col span="{{ csv_headers|length - 1 }}" class="sensor-column"></colgroup>
+                    <colgroup><col class="timestamp-column"><col span="{{ (table_headers|default(csv_headers))|length - 1 }}" class="sensor-column"><col class="status-column"></colgroup>
                     <thead class="table-a11y-head"><tr>
-                        {% for header in csv_headers %}<th>{{ header }}</th>{% endfor %}
+                        {% for header in table_headers|default(csv_headers) %}<th>{{ header }}</th>{% endfor %}
+                        <th>Status</th>
                     </tr></thead>
                     <tbody>
-                        {% for row in readings %}
+                        {% for row in reading_rows|default([]) %}
                         <tr>
-                            <td>{{ row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '—' }}</td>
-                            {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
+                            <td class="timestamp-cell" title="UTC: {{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '' }}">{{ row.formatted_time if row.formatted_time else (row.timestamp|pht_time if row.timestamp else '—') }}</td>
+                            {% if row.cells %}
+                                {% for cell in row.cells %}
+                                <td class="numeric cell-{{ cell.severity }} is-{{ cell.severity }}">{{ cell.value if cell.value is not none else '—' }}</td>
+                                {% endfor %}
+                            {% else %}
+                                {% for value in row.sensor_values|default([]) %}
+                                <td class="numeric">{{ value if value is not none else '—' }}</td>
+                                {% endfor %}
+                            {% endif %}
+                            <td class="status-cell"><span class="severity-pill is-{{ row.severity }}">{{ row.badge }}</span></td>
                         </tr>
                         {% else %}
-                        <tr><td class="empty-state" colspan="{{ csv_headers|length }}">
+                        <tr><td class="empty-state" colspan="{{ csv_headers|length + 1 }}">
                             <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
-                            {% if filters.date_range != 'all' or filters.q %}
+                            {% if filters.date_range != 'all' or filters.q or filters.filter != 'all' %}
                             <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>
                             {% else %}
                             <strong>No readings yet</strong><span>Sensor measurements will appear here after collection begins.</span>

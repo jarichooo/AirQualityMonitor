@@ -48,8 +48,11 @@ services:
       - "5000:5000"
     environment:
       FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-}
+    security_opt:
+      - apparmor:unconfined
     volumes:
       - ./add_users.py:/app/add_users.py:ro
+      - /run/dbus:/run/dbus
     depends_on:
       postgres_db:
         condition: service_healthy

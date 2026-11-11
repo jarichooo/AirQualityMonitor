@@ -37,14 +37,21 @@ class AppTestCase(unittest.TestCase):
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
             page = self.client.get("/data?date_range=all&per_page=25")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Timestamp (UTC)", page.data)
+            self.assertIn(b"Timestamp (PHT)", page.data)
+            self.assertIn(b"Sep 27, 2026, 01:50:25 PM", page.data)
+            self.assertIn(b'class="numeric cell-normal is-normal">31.5</td>', page.data)
+            self.assertIn(b'class="numeric cell-warning is-warning">12</td>', page.data)
             self.assertIn(b"31.5", page.data)
             self.assertIn(b"CO2 (ppm)", page.data)
             self.assertIn(b"420", page.data)
+            self.assertIn(b"Status", page.data)
+            self.assertIn(b"status-column", page.data)
+            self.assertIn(b"severity-pill is-warning", page.data)
+            self.assertIn(b"WARNING", page.data)
             self.assertIn(b"Sensor Readings", page.data)
             self.assertIn(b"data-custom-select", page.data)
             self.assertIn(b"panel-heading-tools", page.data)
-            self.assertIn(b"Export CSV", page.data)
+            self.assertIn(b"Export", page.data)
             self.assertNotIn(b"page-heading-actions", page.data)
             self.assertNotIn(b'name="per_page"', page.data)
             self.assertNotIn(b">Apply<", page.data)
@@ -66,6 +73,51 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"Ammonia (ppm)", page.data)
             self.assertNotIn(b"MQ135", page.data)
             self.assertNotIn(b"(raw)", page.data)
+
+    def test_data_table_status_column_severities(self):
+        self.login()
+        now = datetime(2026, 11, 9, 8, 0, 0, tzinfo=timezone.utc)
+        normal_row = (now, 25.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        warning_row = (now, 33.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        critical_row = (now, 36.0, 60.0, 800, 5.0, 20.0, 50.0, 5.0, 500.0)
+        with patch.object(application, "fetch_readings", return_value=([normal_row, warning_row, critical_row], 3, None)):
+            page = self.client.get("/data")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b'<th class="status-column-header">Status</th>', page.data)
+            self.assertIn(b'<span class="severity-pill is-normal">NORMAL</span>', page.data)
+            self.assertIn(b'<span class="severity-pill is-warning">WARNING</span>', page.data)
+            self.assertIn(b'<span class="severity-pill is-critical">CRITICAL</span>', page.data)
+            self.assertIn(b"Nov 9, 2026, 04:00:00 PM", page.data)
+            self.assertIn(b'class="numeric cell-normal is-normal">25.0</td>', page.data)
+            self.assertIn(b'class="numeric cell-warning is-warning">33.0</td>', page.data)
+            self.assertIn(b'class="numeric cell-critical is-critical">36.0</td>', page.data)
+
+    def test_reading_filters_and_clauses(self):
+        for key, clause in (
+            ("warning_critical", "temperature_c < 21"),
+            ("critical_only", "temperature_c < 18"),
+            ("ammonia", "mq137_ppm > 1000"),
+            ("methane", "mq4_ppm > 10"),
+            ("temperature", "temperature_c < 21"),
+            ("humidity", "humidity_perc < 50"),
+            ("co2", "co2_ppm > 2500"),
+            ("pm1", "pm1_ugm3 > 10"),
+            ("pm25", "pm25_ugm3 > 35"),
+            ("pm10", "pm10_ugm3 > 150"),
+        ):
+            f = application.parse_filters({"filter": key})
+            self.assertEqual(f["filter"], key)
+            where, _, _ = application.build_where_clause(f)
+            self.assertIn(clause, where)
+
+        self.login()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            page = self.client.get("/data?filter=critical_only")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"Critical only", page.data)
+            self.assertIn(b"MQ-137 Ammonia outside normal", page.data)
+            self.assertIn(b"MH-Z19E Carbon Dioxide outside normal", page.data)
+            self.assertIn(b'name="filter" value="critical_only"', page.data)
 
     def test_custom_date_validation(self):
         filters = application.parse_filters({
@@ -382,9 +434,9 @@ class AppTestCase(unittest.TestCase):
                 cursor.fetchall.return_value = []
                 page = self.client.get("/dashboard")
                 self.assertEqual(page.status_code, 200)
-                self.assertIn(expected, page.data)
+                self.assertIn(b'id="device-live-dot"', page.data)
                 if result[0]:
-                    self.assertIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
+                    self.assertNotIn(b"2026-10-01 10:00:00 to 2026-10-01 12:00:00", page.data)
                 connect.return_value.close.assert_called_once()
         with patch.object(application, "get_db_connection", side_effect=application.psycopg2.OperationalError):
             self.assertIn(b"Collection status is unavailable", self.client.get("/dashboard").data)
@@ -433,21 +485,27 @@ class AppTestCase(unittest.TestCase):
                                                    (latest, 32, "node-1")]]
             page = self.client.get("/dashboard?sensor=bad")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Live readings, trends, and forecasts", page.data)
-            self.assertIn(b"2026-10-04 05:36:00 to 2026-10-26 23:59:00", page.data)
-            self.assertIn(b"10-27 00:00 UTC", page.data)
+            self.assertNotIn(b"Live readings, trends, and forecasts", page.data)
+            self.assertNotIn(b"2026-10-04 05:36:00 to 2026-10-26 23:59:00", page.data)
+            self.assertNotIn(b"Hourly averages", page.data)
             self.assertNotIn(b"Last 24 hours (UTC)", page.data)
             self.assertIn(b"30.00", page.data)
-            self.assertIn(b"31.00", page.data)
-            self.assertIn(b"32.00", page.data)
+            self.assertIn(b"trend-threshold", page.data)
+            self.assertNotIn(b"trend-threshold-label", page.data)
+            self.assertIn(b'id="dashboard-notification-slot"', page.data)
+            for col in ("mq137_ppm", "mq4_ppm", "temperature_c", "humidity_perc", "pm1_ugm3", "pm25_ugm3", "pm10_ugm3", "co2_ppm"):
+                self.assertIn(f'id="chart-{col}"'.encode(), page.data)
+            self.assertNotIn(b"trend-point", page.data)
+            self.assertNotIn(b"View hourly values", page.data)
             self.assertIn(b"2-hour forecast", page.data)
             self.assertIn(b'id="forecast-panel"', page.data)
             self.assertIn(b"forecasts.js", page.data)
             self.assertNotIn(b"About these analytics", page.data)
             self.assertNotIn(b"analytics-notes-title", page.data)
             self.assertIn(b"<polyline", page.data)
-            self.assertIn(b"Temperature recorded readings", page.data)
-            self.assertIn(b"View recorded values", page.data)
+            self.assertIn(b'<h2 id="recorded-trend-title">Temperature and Humidity</h2>', page.data)
+            self.assertNotIn(b"Individual measurements", page.data)
+            self.assertNotIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
             self.assertIn("SELECT recorded_at, temperature_c, device_id", cursor.execute.call_args.args[0])
             self.assertEqual(cursor.execute.call_args_list[-3].args[1], (earliest, latest))
@@ -490,6 +548,67 @@ class AppTestCase(unittest.TestCase):
         font_dir = Path(__file__).parent / "static" / "fonts"
         for name in ("Regular", "Medium", "SemiBold", "Bold"):
             self.assertGreater((font_dir / f"Poppins-{name}.ttf").stat().st_size, 100_000)
+
+    def test_grouped_metric_cards_severity_and_trend_arrows(self):
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 754.6), "normal")
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 1500), "warning")
+        self.assertEqual(application.classify_sensor_reading("mq137_ppm", 5100), "critical")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 8), "normal")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 14.3), "warning")
+        self.assertEqual(application.classify_sensor_reading("mq4_ppm", 25), "critical")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 31.2), "normal")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 33.5), "warning")
+        self.assertEqual(application.classify_sensor_reading("temperature_c", 36.0), "critical")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 63), "normal")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 45), "warning")
+        self.assertEqual(application.classify_sensor_reading("humidity_perc", 85), "critical")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 1200), "normal")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 2689.3), "warning")
+        self.assertEqual(application.classify_sensor_reading("co2_ppm", 3100), "critical")
+        self.assertEqual(application.classify_sensor_reading("pm1_ugm3", 7.8), "normal")
+        self.assertEqual(application.classify_sensor_reading("pm25_ugm3", 48.6), "warning")
+        self.assertEqual(application.classify_sensor_reading("pm10_ugm3", 1111), "critical")
+        self.assertEqual(application.reading_direction(14.3, 10.0), "up")
+        self.assertEqual(application.reading_direction(63.0, 65.0), "down")
+        self.assertEqual(application.reading_direction(31.2, 31.2), "flat")
+        self.assertEqual(application.classify_reading_row(None), ("unavailable", "NO DATA"))
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 500, 5, 20, 50, 5, 200)),
+            ("normal", "NORMAL"),
+        )
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 500, 5, 20, 50, 15, 200)),
+            ("warning", "WARNING"),
+        )
+        self.assertEqual(
+            application.classify_reading_row((datetime.now(timezone.utc), 31.0, 60.0, 3200, 5, 20, 50, 5, 200)),
+            ("critical", "CRITICAL"),
+        )
+
+        self.login()
+        earliest = datetime(2026, 10, 1, 10, tzinfo=timezone.utc)
+        latest = datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
+        latest_row = (
+            latest,
+            31.2, 63.0, 2689.3, 7.8, 48.6, 1111.0, 14.3, 754.6,
+            30.0, 65.0, 2500.0, 7.8, 40.0, 900.0, 10.0, 800.0,
+        )
+        with patch.object(application, "get_db_connection") as connect:
+            cursor = connect.return_value.cursor.return_value.__enter__.return_value
+            cursor.fetchone.side_effect = [(2, earliest, latest), latest_row, (0, 0, 0, 2) * 8]
+            cursor.fetchall.return_value = []
+            page = self.client.get("/dashboard")
+            self.assertEqual(page.status_code, 200)
+            self.assertIn(b"Temperature and Humidity", page.data)
+            self.assertIn(b"Particulate matter", page.data)
+            self.assertIn(b"Carbon Dioxide", page.data)
+            self.assertIn(b"metric-card metric-card-group is-normal", page.data)
+            self.assertIn(b"metric-card metric-card-group is-critical", page.data)
+            self.assertIn(b"metric-trend-arrow is-up", page.data)
+            self.assertIn(b"metric-trend-arrow is-down", page.data)
+            self.assertIn(b"metric-card-stretch", page.data)
+            self.assertNotIn(b"Open graph", page.data)
+            self.assertIn(b"metric-card-thresholds", page.data)
 
 
 if __name__ == "__main__":

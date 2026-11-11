@@ -1,123 +1,174 @@
 {% extends "base.html" %}
 {% macro reading(value) %}{{ '%.2f'|format(value) if value is not none else '—' }}{% endmacro %}
+{% macro trend_arrow(metric) -%}
+{% if metric and metric.direction == 'up' -%}
+<span class="metric-trend-arrow is-up" title="Up from previous reading ({{ reading(metric.previous) }} {{ metric.unit }})" aria-label="Increased from previous reading">&uarr;</span>
+{%- elif metric and metric.direction == 'down' -%}
+<span class="metric-trend-arrow is-down" title="Down from previous reading ({{ reading(metric.previous) }} {{ metric.unit }})" aria-label="Decreased from previous reading">&darr;</span>
+{%- endif %}
+{%- endmacro %}
 {% block content %}
 <div class="dashboard-page">
-    <div class="page-heading dashboard-heading">
-        <div class="page-heading-copy"><h1>Dashboard</h1><p>Live readings, trends, and forecasts &middot; UTC</p></div>
-        <div class="dashboard-heading-tools">
-            <a class="button button-secondary" href="{{ url_for('dashboard', sensor=selected.column) }}">Refresh</a>
-            <a class="button button-primary" href="{{ url_for('data_page') }}">View readings</a>
-        </div>
+    <div class="device-top-bar" aria-label="Device controls" data-device-socket>
+        <span class="freshness-dot is-unavailable" id="device-live-dot" role="status" aria-label="Device connection status"></span>
+        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Disable IoT</button>
+        {% if role == 'admin' %}
+        <button class="button button-danger" id="server-shutdown-button" type="button" data-shutdown-url="{{ url_for('shutdown_server_api') }}" data-shutdown-token="{{ session.get('shutdown_token', '') }}">Shutdown server</button>
+        {% endif %}
     </div>
+    <div class="dashboard-notification-slot" id="dashboard-notification-slot" aria-label="Notification area"></div>
     {% if database_error %}
     <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
-    {% else %}
-    <p class="collection-summary"><strong>{{ total }}</strong> stored reading{% if total != 1 %}s{% endif %}{% if earliest and latest %} &middot; Recorded range (UTC): {{ earliest.strftime('%Y-%m-%d %H:%M:%S') }} to {{ latest.strftime('%Y-%m-%d %H:%M:%S') }}{% else %} &middot; No readings yet{% endif %}</p>
     {% endif %}
-    <section class="dashboard-panel device-live-panel" aria-labelledby="device-live-title" data-device-socket>
-        <div class="dashboard-panel-heading device-live-heading">
-            <div><h2 id="device-live-title">Live readings</h2><p>Current measurements from your device</p></div>
-            <div class="device-live-status" role="status" aria-live="polite"><span class="freshness-dot is-unavailable" id="device-live-dot"></span><span id="device-live-status">Not connected</span></div>
-        </div>
-        <div class="device-live-setup">
-            <form class="device-connect-form" id="device-connect-form">
-                <label class="field" for="device-websocket-url"><span>Device address</span>
-                    <input id="device-websocket-url" name="device-websocket-url" type="url" value="ws://airqualitymonitor.local:81/" required autocomplete="url" spellcheck="false">
-                </label>
-                <button class="button button-primary" type="submit">Connect</button>
-            </form>
-            <div class="device-collection-block" role="group" aria-label="Data collection">
-                <div class="device-collection-controls">
-                    <button class="button button-secondary" id="device-pause-toggle" type="button" aria-describedby="device-collection-help" disabled>Waiting for device</button>
-                    <strong id="device-collection-state" class="device-collection-state" data-state="unknown" role="status" aria-live="polite">Status unknown</strong>
-                </div>
-                <p id="device-collection-help" class="device-live-time" role="status">Connect to check or change data collection.</p>
-                <p class="device-live-time">Last update: <time id="device-live-time">Waiting for readings</time></p>
+    {% set ammonia = metrics_by_key['mq137_ppm'] %}
+    {% set methane = metrics_by_key['mq4_ppm'] %}
+    {% set temp = metrics_by_key['temperature_c'] %}
+    {% set humidity = metrics_by_key['humidity_perc'] %}
+    {% set pm1 = metrics_by_key['pm1_ugm3'] %}
+    {% set pm25 = metrics_by_key['pm25_ugm3'] %}
+    {% set pm10 = metrics_by_key['pm10_ugm3'] %}
+    {% set co2 = metrics_by_key['co2_ppm'] %}
+    <div class="dashboard-metrics dashboard-metrics-grouped" aria-label="Latest recorded sensor values">
+        <a class="metric-card is-{{ ammonia.severity }}{% if selected and selected.column == 'mq137_ppm' %} is-selected{% endif %}" href="#chart-mq137_ppm"{% if selected and selected.column == 'mq137_ppm' %} aria-current="true"{% endif %}>
+            <div class="metric-card-top">
+                <span class="metric-card-label">Ammonia</span>
+                <span class="severity-pill is-{{ ammonia.severity }}">{{ ammonia.badge }}</span>
             </div>
-        </div>
-        <div class="dashboard-metrics live-sensor-grid" aria-label="Live sensor readings">
-            {% for key, label, unit in live_sensors %}
-            <div class="metric-card">
-                <span class="metric-card-label">{{ label }}</span>
-                <span class="metric-card-value"><strong data-live-sensor="{{ key }}">—</strong><small>{{ unit }}</small></span>
-                <span class="metric-card-status" data-live-valid="{{ key }}">Waiting for readings</span>
-            </div>
-            {% endfor %}
-        </div>
-    </section>
-    <div class="dashboard-metrics" aria-label="Latest recorded sensor values">
-        {% for metric in metrics %}
-        <a class="metric-card{% if selected.column == metric.column %} is-selected{% endif %}" href="{{ url_for('dashboard', sensor=metric.column) }}"{% if selected.column == metric.column %} aria-current="true"{% endif %}>
-            <span class="metric-card-label">{{ metric.label }}</span>
-            <span class="metric-card-value"><strong>{{ reading(metric.value) }}</strong><small>{{ metric.unit }}</small></span>
-            <span class="metric-card-status">Latest stored reading</span>
+            <span class="metric-card-value"><strong>{{ reading(ammonia.value) }}</strong><small>{{ ammonia.unit }}</small>{{ trend_arrow(ammonia) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 1,000 ppm &middot; Warning up to 5,000 ppm &middot; Critical above 5,000 ppm</span>
         </a>
-        {% endfor %}
-    </div>
-    <section class="dashboard-panel" aria-labelledby="recorded-trend-title">
-        <div class="dashboard-panel-heading"><div><h2 id="recorded-trend-title">{{ selected.label }} recorded readings</h2><p>Individual measurements &middot; Latest recorded 60 minutes &middot; UTC &middot; Select a sensor card above to change the graph</p></div></div>
-        <div class="trend-chart-wrap">
-            {% if recorded_trend.points %}
-            <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="recorded-trend-description">
-                <title id="recorded-trend-description">{{ selected.label }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ selected.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
-                {% for y, value in ((30, recorded_trend.high), (120, (recorded_trend.high + recorded_trend.low) / 2), (210, recorded_trend.low)) %}
-                <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ '%.2f'|format(value) }}</text>
-                {% endfor %}
-                {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="238" text-anchor="middle">{{ label }}</text>{% endfor %}
-                <path class="trend-axis" d="M60 25V210H760"/>
-                <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
-                <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
-                {% for segment in recorded_trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
-                {% for point in recorded_trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="3"><title>{{ point.device }} &middot; {{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
-            </svg>
-            <details class="trend-values"><summary>View recorded values</summary><table><thead><tr><th>Time (UTC)</th><th>Device</th><th>{{ selected.label }} ({{ selected.unit }})</th></tr></thead><tbody>{% for point in recorded_trend.points %}<tr><td>{{ point.time }}</td><td>{{ point.device }}</td><td>{{ point.value }}</td></tr>{% endfor %}</tbody></table></details>
-            {% else %}
-            <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
-            {% endif %}
+
+        <a class="metric-card is-{{ methane.severity }}{% if selected and selected.column == 'mq4_ppm' %} is-selected{% endif %}" href="#chart-mq4_ppm"{% if selected and selected.column == 'mq4_ppm' %} aria-current="true"{% endif %}>
+            <div class="metric-card-top">
+                <span class="metric-card-label">Methane</span>
+                <span class="severity-pill is-{{ methane.severity }}">{{ methane.badge }}</span>
+            </div>
+            <span class="metric-card-value"><strong>{{ reading(methane.value) }}</strong><small>{{ methane.unit }}</small>{{ trend_arrow(methane) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 10 ppm &middot; Warning up to 20 ppm &middot; Critical above 20 ppm</span>
+        </a>
+
+        <div class="metric-card metric-card-group is-{{ temp_humidity_group.severity }}{% if selected and selected.column in ('temperature_c', 'humidity_perc') %} is-selected{% endif %}">
+            <a class="metric-card-stretch" href="#chart-temperature_c" aria-label="Scroll to Temperature and Humidity graph"></a>
+            <div class="metric-card-top">
+                <span class="metric-card-label">Temperature and Humidity</span>
+                <span class="severity-pill is-{{ temp_humidity_group.severity }}">{{ temp_humidity_group.badge }}</span>
+            </div>
+            <div class="metric-subgrid metric-subgrid-2">
+                <a class="metric-subitem{% if selected and selected.column == 'temperature_c' %} is-active{% endif %}" href="#chart-temperature_c"{% if selected and selected.column == 'temperature_c' %} aria-current="true"{% endif %}>
+                    <span class="metric-subitem-label is-{{ temp.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>TEMPERATURE</span>
+                    <span class="metric-subitem-value"><strong>{{ reading(temp.value) }}</strong><small>{{ temp.unit }}</small>{{ trend_arrow(temp) }}</span>
+                </a>
+                <a class="metric-subitem{% if selected and selected.column == 'humidity_perc' %} is-active{% endif %}" href="#chart-humidity_perc"{% if selected and selected.column == 'humidity_perc' %} aria-current="true"{% endif %}>
+                    <span class="metric-subitem-label is-{{ humidity.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>HUMIDITY</span>
+                    <span class="metric-subitem-value"><strong>{{ reading(humidity.value) }}</strong><small>{{ humidity.unit }}</small>{{ trend_arrow(humidity) }}</span>
+                </a>
+            </div>
+            <span class="metric-card-thresholds">Normal 21&ndash;32 &deg;C (Critical &lt; 18 or &gt; 35 &deg;C) &middot; Humidity 50&ndash;70% (Critical &lt; 40% or &gt; 80%)</span>
         </div>
-    </section>
-    <div class="dashboard-layout">
-        <section class="dashboard-panel" aria-labelledby="trend-title">
-            <div class="dashboard-panel-heading"><div><h2 id="trend-title">{{ selected.label }} trend</h2><p>Hourly averages &middot; All stored readings &middot; UTC &middot; All reporting devices</p></div></div>
+
+        <div class="metric-card metric-card-group is-{{ pm_group.severity }}{% if selected and selected.column in ('pm1_ugm3', 'pm25_ugm3', 'pm10_ugm3') %} is-selected{% endif %}">
+            <a class="metric-card-stretch" href="#chart-pm1_ugm3" aria-label="Scroll to Particulate matter graph"></a>
+            <div class="metric-card-top">
+                <span class="metric-card-label">Particulate matter</span>
+                <span class="severity-pill is-{{ pm_group.severity }}">{{ pm_group.badge }}</span>
+            </div>
+            <div class="metric-subgrid metric-subgrid-3">
+                <a class="metric-subitem{% if selected and selected.column == 'pm1_ugm3' %} is-active{% endif %}" href="#chart-pm1_ugm3"{% if selected and selected.column == 'pm1_ugm3' %} aria-current="true"{% endif %}>
+                    <span class="metric-subitem-label is-{{ pm1.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 1.0</span>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm1.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm1.unit }}</small>{{ trend_arrow(pm1) }}</span>
+                </a>
+                <a class="metric-subitem{% if selected and selected.column == 'pm25_ugm3' %} is-active{% endif %}" href="#chart-pm25_ugm3"{% if selected and selected.column == 'pm25_ugm3' %} aria-current="true"{% endif %}>
+                    <span class="metric-subitem-label is-{{ pm25.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 2.5</span>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm25.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm25.unit }}</small>{{ trend_arrow(pm25) }}</span>
+                </a>
+                <a class="metric-subitem{% if selected and selected.column == 'pm10_ugm3' %} is-active{% endif %}" href="#chart-pm10_ugm3"{% if selected and selected.column == 'pm10_ugm3' %} aria-current="true"{% endif %}>
+                    <span class="metric-subitem-label is-{{ pm10.severity }}"><span class="metric-status-dot" aria-hidden="true"></span>PM 10</span>
+                    <span class="metric-subitem-value"><strong>{{ reading(pm10.value) }}</strong></span>
+                    <span class="metric-subitem-meta"><small class="metric-subitem-unit">{{ pm10.unit }}</small>{{ trend_arrow(pm10) }}</span>
+                </a>
+            </div>
+            <span class="metric-card-thresholds">Normal &le; 10 / 35 / 150 &micro;g/m&sup3; &middot; Critical &gt; 35 / 150 / 1,000 &micro;g/m&sup3; (PM 1.0 / 2.5 / 10)</span>
+        </div>
+
+        <a class="metric-card is-{{ co2.severity }}{% if selected and selected.column == 'co2_ppm' %} is-selected{% endif %}" href="#chart-co2_ppm"{% if selected and selected.column == 'co2_ppm' %} aria-current="true"{% endif %}>
+            <div class="metric-card-top">
+                <span class="metric-card-label">Carbon Dioxide</span>
+                <span class="severity-pill is-{{ co2.severity }}">{{ co2.badge }}</span>
+            </div>
+            <span class="metric-card-value"><strong>{{ reading(co2.value) }}</strong><small>{{ co2.unit }}</small>{{ trend_arrow(co2) }}</span>
+            <span class="metric-card-thresholds">Normal &le; 2,500 ppm &middot; Warning up to 3,000 ppm &middot; Critical above 3,000 ppm</span>
+        </a>
+    </div>
+
+    <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts">
+        {% for chart in sensor_charts %}
+        {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
+        {% set desc_id = 'recorded-trend-description' if chart.is_selected else 'chart-desc-' ~ chart.column %}
+        <section class="dashboard-panel sensor-chart-panel" id="{{ chart.chart_id }}" aria-labelledby="{{ title_id }}">
+            {% for alias in chart.aliases %}<span id="{{ alias }}" class="chart-anchor-alias" aria-hidden="true"></span>{% endfor %}
+            <div class="dashboard-panel-heading">
+                <div>
+                    <h2 id="{{ title_id }}">{{ chart.title }}</h2>
+                </div>
+                <div class="chart-heading-meta">
+                    <span class="severity-pill is-{{ chart.severity }}">{{ chart.badge }}</span>
+                </div>
+            </div>
             <div class="trend-chart-wrap">
-                {% if trend.points %}
-                <svg class="sensor-trend" viewBox="-30 0 830 280" role="img" aria-labelledby="trend-description">
-                    <title id="trend-description">{{ selected.label }} hourly averages across all stored readings. Missing hours are gaps. Values in {{ selected.unit }}.</title>
+                <svg class="sensor-trend" viewBox="6 14 770 252" role="img" aria-labelledby="{{ desc_id }}">
+                    <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
+                    {% for y, tick_label in chart.y_ticks %}
+                    <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
+                    {% endfor %}
+                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="236" text-anchor="middle">{{ label }}</text>{% endfor %}
+                    {% for tline in chart.threshold_lines %}
+                    <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
+
+                    {% endfor %}
                     <path class="trend-axis" d="M60 25V210H760"/>
-                    <text x="52" y="35" text-anchor="end">{{ trend.high }}</text><text x="52" y="210" text-anchor="end">{{ trend.low }}</text>
-                    <text x="60" y="238">{{ start.strftime('%m-%d %H:%M') }}</text><text x="760" y="238" text-anchor="end">{{ end.strftime('%m-%d %H:%M') }} UTC</text>
-                    <text class="trend-axis-title" x="410" y="270" text-anchor="middle">Time (UTC)</text>
-                    <text class="trend-axis-title" x="-10" y="120" text-anchor="middle" transform="rotate(-90 -10 120)">{{ selected.label }} ({{ selected.unit }})</text>
-                    {% for segment in trend.segments %}<polyline class="trend-line" points="{{ segment }}"/>{% endfor %}
-                    {% for point in trend.points %}<circle class="trend-point" cx="{{ point.x }}" cy="{{ point.y }}" r="4"><title>{{ point.time }}: {{ point.value }} {{ selected.unit }}</title></circle>{% endfor %}
+                    <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (PHT)</text>
+                    {% for s in chart.series_list %}
+                    {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
+                    {% endfor %}
                 </svg>
-                <details class="trend-values"><summary>View hourly values</summary><table><thead><tr><th>Hour (UTC)</th><th>Average ({{ selected.unit }})</th></tr></thead><tbody>{% for timestamp, value in series %}<tr><td>{{ timestamp.strftime('%Y-%m-%d %H:00') }}</td><td>{{ reading(value) }}</td></tr>{% endfor %}</tbody></table></details>
-                {% else %}
-                <div class="chart-empty-state"><strong>{{ 'Analytics unavailable' if database_error else 'No readings yet for this period' }}</strong><span>{{ selected.label }} trends will appear when readings are available.</span></div>
+                <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
+                    {% for s in chart.series_list %}
+                    <li class="chart-series-item">
+                        <span class="chart-series-swatch" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
+                        <span class="chart-series-name">{{ s.label }}</span>
+                        {% if s.latest_value is not none %}
+                        <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% if not chart.points %}
+                <div class="chart-empty-state"><strong>{{ 'Recorded readings unavailable' if database_error else 'No recorded readings are available' }}</strong><span>Resume collection to gather readings, then use Refresh to update the graph.</span></div>
                 {% endif %}
             </div>
-            <div class="dashboard-stats">
-                {% for label, value in (('Minimum', selected.minimum), ('Average', selected.average), ('Maximum', selected.maximum)) %}
-                <div class="dashboard-stat"><span>{{ label }} (all stored)</span><strong>{{ reading(value) }} {{ selected.unit }}</strong></div>
-                {% endfor %}
-                <div class="dashboard-stat"><span>Valid readings (all stored)</span><strong>{{ '—' if database_error else selected.count }}</strong></div>
-            </div>
         </section>
-        <div class="dashboard-side-column">
-            <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" data-prediction-url="{{ url_for('predictions_api') }}" data-prediction-token="{{ session.get('prediction_token', '') }}" aria-busy="true">
-                <div class="forecast-actions" id="prediction-controls" hidden>
-                    <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
-                    <p id="prediction-status" role="status" aria-live="polite"></p>
+        {% endfor %}
+        <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" data-prediction-url="{{ url_for('predictions_api') }}" data-prediction-token="{{ session.get('prediction_token', '') }}" aria-busy="true">
+            <div class="dashboard-panel-heading">
+                <div>
+                    <h2>2-Hour Forecast</h2>
+                    <p class="chart-threshold-caption">AI-predicted sensor conditions and guidance for the next 2 hours</p>
                 </div>
-                <ul class="forecast-legend" aria-label="Prediction conditions">
-                    <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
-                    <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
-                    <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
-                </ul>
-                <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
-            </section>
-        </div>
+            </div>
+            <div class="forecast-actions" id="prediction-controls" hidden>
+                <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
+                <p id="prediction-status" role="status" aria-live="polite"></p>
+            </div>
+            <ul class="forecast-legend" aria-label="Prediction conditions">
+                <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
+                <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
+                <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+            </ul>
+            <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
+        </section>
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}

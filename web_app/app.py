@@ -4,6 +4,8 @@ import math
 import os
 import re
 import secrets
+import socket
+import struct
 from contextlib import closing
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
@@ -49,8 +51,33 @@ CSV_HEADERS = (
     "Methane (ppm)",
     "Ammonia (ppm)",
 )
+TABLE_HEADERS = (
+    "Timestamp (PHT)",
+    "Temp (°C)",
+    "Humidity (%)",
+    "CO2 (ppm)",
+    "PM1.0 (µg/m³)",
+    "PM2.5 (µg/m³)",
+    "PM10 (µg/m³)",
+    "Methane (ppm)",
+    "Ammonia (ppm)",
+)
 DATE_RANGES = {"all", "today", "7d", "30d", "custom"}
 PAGE_SIZES = {10, 25, 50, 100}
+READING_FILTERS = (
+    ("all", "All readings"),
+    ("warning_critical", "Warning and critical"),
+    ("critical_only", "Critical only"),
+    ("ammonia", "MQ-137 Ammonia outside normal"),
+    ("methane", "MQ-4 Methane outside normal"),
+    ("temperature", "Temperature outside normal"),
+    ("humidity", "Humidity outside normal"),
+    ("co2", "MH-Z19E Carbon Dioxide outside normal"),
+    ("pm1", "PM 1.0 outside normal"),
+    ("pm25", "PM 2.5 outside normal"),
+    ("pm10", "PM 10 outside normal"),
+)
+READING_FILTER_MAP = dict(READING_FILTERS)
 SENSORS = (
     ("temperature_c", "Temperature", "°C"),
     ("humidity_perc", "Humidity", "%"),
@@ -83,6 +110,109 @@ def parse_delete_cutoff(value):
     return datetime.strptime(value, timestamp_format).replace(tzinfo=timezone.utc)
 
 
+SEVERITY_RANK = {"unavailable": 0, "normal": 1, "warning": 2, "critical": 3}
+SEVERITY_BADGE = {
+    "normal": "NORMAL",
+    "warning": "WARNING",
+    "critical": "CRITICAL",
+    "unavailable": "NO DATA",
+}
+PHT = timezone(timedelta(hours=8))
+
+
+def to_pht(dt):
+    if not dt:
+        return dt
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(PHT)
+
+
+def format_pht_timestamp(dt):
+    """Convert UTC timestamp to Philippine Standard Time (PHT, UTC+8) in 12-hour format."""
+    if not dt:
+        return "—"
+    pht_dt = to_pht(dt)
+    return f"{pht_dt.strftime('%b')} {pht_dt.day}, {pht_dt.year}, {pht_dt.strftime('%I:%M:%S %p')}"
+
+
+app.jinja_env.filters["pht_time"] = format_pht_timestamp
+app.jinja_env.globals.update(to_pht=to_pht, format_pht_timestamp=format_pht_timestamp)
+
+
+def classify_sensor_reading(column, value):
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+        return "unavailable"
+    val = float(value)
+    if column == "temperature_c":
+        return "critical" if (val < 18 or val > 35) else ("warning" if (val < 21 or val > 32) else "normal")
+    if column == "humidity_perc":
+        if val < 0 or val > 100:
+            return "unavailable"
+        return "critical" if (val < 40 or val > 80) else ("warning" if (val < 50 or val > 70) else "normal")
+    if val < 0:
+        return "unavailable"
+    if column == "co2_ppm":
+        return "critical" if val > 3000 else ("warning" if val > 2500 else "normal")
+    if column == "pm1_ugm3":
+        return "critical" if val > 35 else ("warning" if val > 10 else "normal")
+    if column == "pm25_ugm3":
+        return "critical" if val > 150 else ("warning" if val > 35 else "normal")
+    if column == "pm10_ugm3":
+        return "critical" if val > 1000 else ("warning" if val > 150 else "normal")
+    if column == "mq4_ppm":
+        return "critical" if val > 20 else ("warning" if val > 10 else "normal")
+    if column == "mq137_ppm":
+        return "critical" if val > 5000 else ("warning" if val > 1000 else "normal")
+    return "unavailable"
+
+
+def reading_direction(value, previous_value):
+    if value is None or previous_value is None:
+        return None
+    try:
+        current, previous = float(value), float(previous_value)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(current) and math.isfinite(previous)):
+        return None
+    if current > previous:
+        return "up"
+    if current < previous:
+        return "down"
+    return "flat"
+
+
+def enrich_metrics(metrics):
+    for item in metrics:
+        severity = classify_sensor_reading(item["column"], item.get("value"))
+        item["severity"] = severity
+        item["badge"] = SEVERITY_BADGE[severity]
+        item["direction"] = reading_direction(item.get("value"), item.get("previous"))
+    return metrics
+
+
+def group_severity(items):
+    known = [item.get("severity") for item in items if item.get("severity") in {"normal", "warning", "critical"}]
+    severity = max(known, key=lambda sev: SEVERITY_RANK[sev]) if known else "unavailable"
+    return severity, SEVERITY_BADGE[severity]
+
+
+def classify_reading_row(row):
+    """Determine the worst severity across all sensor values in a data row."""
+    if not row or len(row) < 2:
+        return "unavailable", "NO DATA"
+    severities = [
+        classify_sensor_reading(col, val)
+        for col, val in zip(READING_COLUMNS[1:], row[1:])
+    ]
+    valid_severities = [s for s in severities if s != "unavailable"]
+    if not valid_severities:
+        return "unavailable", "NO DATA"
+    worst = max(valid_severities, key=lambda s: SEVERITY_RANK.get(s, 0))
+    return worst, SEVERITY_BADGE.get(worst, "NORMAL")
+
+
 def fetch_dashboard_data(sensor):
     """Measured analytics; saved forecasts are fetched separately by the panel."""
     now = datetime.now(timezone.utc)
@@ -101,7 +231,13 @@ def fetch_dashboard_data(sensor):
                 start = earliest.replace(minute=0, second=0, microsecond=0)
                 end = latest.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
                 recorded_start, recorded_end = latest - timedelta(hours=1), latest
-                cursor.execute(f"SELECT {', '.join(READING_COLUMNS)} FROM air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1")
+                lead_cols = ", ".join(f"LEAD({col}) OVER (ORDER BY recorded_at DESC, id DESC)" for col, _, _ in SENSORS)
+                cursor.execute(
+                    f"SELECT {', '.join(READING_COLUMNS)}, {lead_cols} FROM ("
+                    f"SELECT id, {', '.join(READING_COLUMNS)} FROM air_quality_logs "
+                    "ORDER BY recorded_at DESC, id DESC LIMIT 2"
+                    ") AS recent_two ORDER BY recorded_at DESC, id DESC LIMIT 1"
+                )
                 latest_row = cursor.fetchone()
                 aggregates = ", ".join(f"MIN({col}), AVG({col}), MAX({col}), COUNT({col})" for col, _, _ in SENSORS)
                 cursor.execute(f"SELECT {aggregates} FROM air_quality_logs WHERE recorded_at >= %s AND recorded_at <= %s",
@@ -112,7 +248,8 @@ def fetch_dashboard_data(sensor):
                                "WHERE recorded_at >= %s AND recorded_at <= %s "
                                "GROUP BY 1 ORDER BY 1", (earliest, latest))
                 series = cursor.fetchall()
-                cursor.execute(f"SELECT recorded_at, {sensor}, device_id FROM air_quality_logs "
+                all_sensor_cols = ", ".join(col for col, _, _ in SENSORS)
+                cursor.execute(f"SELECT recorded_at, {sensor}, device_id, {all_sensor_cols} FROM air_quality_logs "
                                "WHERE recorded_at >= %s AND recorded_at <= %s "
                                "ORDER BY device_id NULLS FIRST, recorded_at, id",
                                (recorded_start, recorded_end))
@@ -122,8 +259,9 @@ def fetch_dashboard_data(sensor):
                 low, average, high, count = summary[index * 4:index * 4 + 4]
                 metrics.append(dict(column=column, label=label, unit=unit,
                                     value=latest_row[index + 1] if latest_row else None,
+                                    previous=latest_row[index + 1 + len(SENSORS)] if latest_row and len(latest_row) > index + 1 + len(SENSORS) else None,
                                     minimum=low, average=average, maximum=high, count=count))
-    return dict(total=total, earliest=earliest, latest=latest, metrics=metrics, series=series,
+    return dict(total=total, earliest=earliest, latest=latest, metrics=enrich_metrics(metrics), series=series,
                 start=start, end=end, recorded_series=recorded_series,
                 recorded_start=recorded_start, recorded_end=recorded_end)
 
@@ -172,6 +310,214 @@ def build_trend(series, start, end=None, hourly=True):
     return dict(segments=segments, points=points, low=round(bottom, 2), high=round(top, 2))
 
 
+SENSOR_CHART_SPECS = (
+    dict(
+        column="mq137_ppm",
+        chart_id="chart-mq137_ppm",
+        aliases=(),
+        title="Ammonia",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=5500.0,
+        ticks=(0, 1000, 3000, 5000),
+        threshold_summary="Normal \u2264 1,000 ppm \u00b7 Warning up to 5,000 ppm \u00b7 Critical above 5,000 ppm",
+        series=(("mq137_ppm", "Ammonia", "ppm", "#38bdf8"),),
+        thresholds=(
+            ("normal", "Normal", 500.0),
+            ("warning", "Warning", 1000.0),
+            ("critical", "Critical", 5000.0),
+        ),
+    ),
+    dict(
+        column="mq4_ppm",
+        chart_id="chart-mq4_ppm",
+        aliases=(),
+        title="Methane",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=24.0,
+        ticks=(0, 5, 10, 15, 20),
+        threshold_summary="Normal \u2264 10 ppm \u00b7 Warning up to 20 ppm \u00b7 Critical above 20 ppm",
+        series=(("mq4_ppm", "Methane", "ppm", "#a78bfa"),),
+        thresholds=(
+            ("normal", "Normal", 5.0),
+            ("warning", "Warning", 10.0),
+            ("critical", "Critical", 20.0),
+        ),
+    ),
+    dict(
+        column="temperature_c",
+        chart_id="chart-temperature_c",
+        aliases=("chart-humidity_perc",),
+        title="Temperature and Humidity",
+        unit="\u00b0C / %",
+        scale="linear",
+        base_low=10.0,
+        base_high=90.0,
+        ticks=(18, 32, 50, 70, 80),
+        threshold_summary="Temp normal 21\u201332 \u00b0C (Crit < 18 or > 35 \u00b0C) \u00b7 Humidity normal 50\u201370% (Crit < 40% or > 80%)",
+        series=(
+            ("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),
+            ("humidity_perc", "Humidity", "%", "#c084fc"),
+        ),
+        thresholds=(),
+    ),
+    dict(
+        column="pm1_ugm3",
+        chart_id="chart-pm1_ugm3",
+        aliases=("chart-pm25_ugm3", "chart-pm10_ugm3"),
+        title="Particulate matter",
+        unit="\u00b5g/m\u00b3",
+        scale="log",
+        base_low=1.0,
+        base_high=1500.0,
+        ticks=(1, 10, 35, 150, 1000),
+        threshold_summary="PM 1.0 warning > 10, critical > 35 \u00b7 PM 2.5 warning > 35, critical > 150 \u00b7 PM 10 warning > 150, critical > 1,000 \u00b5g/m\u00b3",
+        series=(
+            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#22d3ee"),
+            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#818cf8"),
+            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#c084fc"),
+        ),
+        thresholds=(),
+    ),
+    dict(
+        column="co2_ppm",
+        chart_id="chart-co2_ppm",
+        aliases=(),
+        title="Carbon Dioxide",
+        unit="ppm",
+        scale="linear",
+        base_low=0.0,
+        base_high=3400.0,
+        ticks=(0, 1500, 2500, 3000),
+        threshold_summary="Normal \u2264 2,500 ppm \u00b7 Warning up to 3,000 ppm \u00b7 Critical above 3,000 ppm",
+        series=(("co2_ppm", "Carbon Dioxide", "ppm", "#a78bfa"),),
+        thresholds=(
+            ("normal", "Normal", 1500.0),
+            ("warning", "Warning", 2500.0),
+            ("critical", "Critical", 3000.0),
+        ),
+    ),
+)
+
+
+def _scale_y(value, bottom, top, scale):
+    if scale == "log":
+        lo = math.log10(max(1.0, bottom))
+        hi = math.log10(max(lo + 0.1, top))
+        val = math.log10(max(1.0, float(value)))
+        return 210 - (val - lo) / (hi - lo) * 180
+    return 210 - (float(value) - bottom) / (top - bottom) * 180
+
+
+def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by_key):
+    col_index = {col: idx for idx, (col, _, _) in enumerate(SENSORS)}
+    duration = (end - start) if end is not None else timedelta(hours=1)
+    if duration.total_seconds() <= 0:
+        duration = timedelta(hours=1)
+    max_gap = timedelta(minutes=2)
+    charts = []
+    for spec in SENSOR_CHART_SPECS:
+        scale = spec["scale"]
+        series_defs = spec["series"]
+        series_cols = {s[0] for s in series_defs}
+        all_valid = []
+        raw_by_col = {}
+        for col, _, _, _ in series_defs:
+            idx = col_index[col]
+            s_rows = []
+            for row in recorded_series:
+                if len(row) >= 3 + len(SENSORS):
+                    val = row[3 + idx]
+                elif col == selected_sensor and len(row) >= 2:
+                    val = row[1]
+                else:
+                    val = None
+                s_rows.append((row[0], val, row[2] if len(row) > 2 else None))
+            raw_by_col[col] = s_rows
+            all_valid.extend(float(r[1]) for r in s_rows if r[1] is not None and math.isfinite(float(r[1])))
+        bottom = spec["base_low"]
+        top = spec["base_high"]
+        if all_valid:
+            if min(all_valid) < bottom:
+                bottom = max(1.0 if scale == "log" else min(all_valid) - 2.0, min(all_valid) * 0.9)
+            if max(all_valid) > top:
+                top = max(all_valid) * 1.08
+        series_list = []
+        all_points = []
+        for col, s_label, s_unit, s_color in series_defs:
+            segments, points, segment = [], [], []
+            previous, previous_device = None, None
+            for timestamp, value, device in raw_by_col[col]:
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                if value is None or not math.isfinite(float(value)):
+                    if segment:
+                        segments.append(" ".join(segment))
+                    segment, previous = [], None
+                    continue
+                if previous is not None and (timestamp - previous > max_gap or device != previous_device):
+                    segments.append(" ".join(segment))
+                    segment = []
+                x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * 700
+                y = _scale_y(value, bottom, top, scale)
+                point = dict(
+                    x=round(x, 2),
+                    y=round(y, 2),
+                    time=timestamp.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                    value=round(float(value), 2),
+                    device=device or "Unspecified device",
+                    series_label=s_label,
+                    unit=s_unit,
+                )
+                points.append(point)
+                all_points.append(point)
+                segment.append(f"{point['x']},{point['y']}")
+                previous, previous_device = timestamp, device
+            if segment:
+                segments.append(" ".join(segment))
+            m = metrics_by_key.get(col, {})
+            series_list.append(dict(
+                column=col,
+                label=s_label,
+                unit=s_unit,
+                color=s_color,
+                segments=segments,
+                points=points,
+                latest_value=m.get("value"),
+                severity=m.get("severity", "unavailable"),
+            ))
+        threshold_lines = []
+        for kind, label_text, level_val in spec["thresholds"]:
+            if bottom <= level_val <= top:
+                ty = round(_scale_y(level_val, bottom, top, scale), 2)
+                threshold_lines.append(dict(kind=kind, label=label_text, value=level_val, y=ty))
+        y_ticks = []
+        for tick_val in spec["ticks"]:
+            if bottom <= tick_val <= top:
+                ty = round(_scale_y(tick_val, bottom, top, scale), 2)
+                y_ticks.append((ty, f"{tick_val:,}" if tick_val >= 1000 else str(tick_val)))
+        group_sev, group_badge = group_severity([metrics_by_key.get(col, {}) for col, _, _, _ in series_defs])
+        charts.append(dict(
+            column=spec["column"],
+            chart_id=spec["chart_id"],
+            aliases=spec["aliases"],
+            title=spec["title"],
+            unit=spec["unit"],
+            threshold_summary=spec["threshold_summary"],
+            severity=group_sev,
+            badge=group_badge,
+            is_selected=(selected_sensor in series_cols),
+            series_list=series_list,
+            points=all_points,
+            y_ticks=y_ticks,
+            threshold_lines=threshold_lines,
+        ))
+    return charts
+
+
 def get_db_connection():
     return psycopg2.connect(host=DB_HOST, database=DB_NAME, user=DB_USER,
                             password=DB_PASS, connect_timeout=5, options="-c timezone=UTC")
@@ -204,10 +550,33 @@ def parse_filters(args):
     if per_page not in PAGE_SIZES:
         per_page = 25
 
+    reading_filter = args.get("filter", "all").strip().lower()
+    filter_aliases = {
+        "mq137": "ammonia",
+        "mq137_ammonia": "ammonia",
+        "mq4_ammonia": "ammonia",
+        "mq4": "methane",
+        "mq4_methane": "methane",
+        "mq137_methane": "methane",
+        "temp": "temperature",
+        "hum": "humidity",
+        "co2_ppm": "co2",
+        "carbon_dioxide": "co2",
+        "pm1_0": "pm1",
+        "pm2_5": "pm25",
+        "pm10_0": "pm10",
+        "warning": "warning_critical",
+        "critical": "critical_only",
+    }
+    reading_filter = filter_aliases.get(reading_filter, reading_filter)
+    if reading_filter not in READING_FILTER_MAP:
+        reading_filter = "all"
+
     return {
         "date_range": date_range,
         "start_date": args.get("start_date", "").strip(),
         "end_date": args.get("end_date", "").strip(),
+        "filter": reading_filter,
         "q": args.get("q", "").strip()[:100],
         "page": parse_positive_int(args.get("page"), 1),
         "per_page": per_page,
@@ -251,6 +620,46 @@ def build_where_clause(filters):
             params.extend((start, end + timedelta(days=1)))
         except ValueError:
             error = "Choose a valid date range. The start date must not be after the end date."
+
+    reading_filter = filters.get("filter", "all")
+    if reading_filter in ("warning_critical", "warning"):
+        conditions.append(
+            "(temperature_c < 21 OR temperature_c > 32 "
+            "OR humidity_perc < 50 OR humidity_perc > 70 "
+            "OR co2_ppm > 2500 "
+            "OR pm1_ugm3 > 10 "
+            "OR pm25_ugm3 > 35 "
+            "OR pm10_ugm3 > 150 "
+            "OR mq4_ppm > 10 "
+            "OR mq137_ppm > 1000)"
+        )
+    elif reading_filter in ("critical_only", "critical"):
+        conditions.append(
+            "(temperature_c < 18 OR temperature_c > 35 "
+            "OR humidity_perc < 40 OR humidity_perc > 80 "
+            "OR co2_ppm > 3000 "
+            "OR pm1_ugm3 > 35 "
+            "OR pm25_ugm3 > 150 "
+            "OR pm10_ugm3 > 1000 "
+            "OR mq4_ppm > 20 "
+            "OR mq137_ppm > 5000)"
+        )
+    elif reading_filter == "ammonia":
+        conditions.append("mq137_ppm > 1000")
+    elif reading_filter == "methane":
+        conditions.append("mq4_ppm > 10")
+    elif reading_filter == "temperature":
+        conditions.append("(temperature_c < 21 OR temperature_c > 32)")
+    elif reading_filter == "humidity":
+        conditions.append("(humidity_perc < 50 OR humidity_perc > 70)")
+    elif reading_filter == "co2":
+        conditions.append("co2_ppm > 2500")
+    elif reading_filter == "pm1":
+        conditions.append("pm1_ugm3 > 10")
+    elif reading_filter == "pm25":
+        conditions.append("pm25_ugm3 > 35")
+    elif reading_filter == "pm10":
+        conditions.append("pm10_ugm3 > 150")
 
     if filters["q"]:
         searchable = ("recorded_at",) + READING_COLUMNS[1:]
@@ -329,9 +738,11 @@ def index():
 @login_required
 def dashboard():
     session.setdefault("prediction_token", secrets.token_hex(32))
-    sensor = request.args.get("sensor", "temperature_c")
-    if sensor not in {column for column, _, _ in SENSORS}:
-        sensor = "temperature_c"
+    if session.get("role") == "admin":
+        session.setdefault("shutdown_token", secrets.token_hex(32))
+    sensor_param = request.args.get("sensor")
+    sensor = sensor_param if sensor_param in {column for column, _, _ in SENSORS} else None
+    query_sensor = sensor or "temperature_c"
     now = datetime.now(timezone.utc)
     data = dict(total=None, earliest=None, latest=None, metrics=[dict(column=c, label=l, unit=u, value=None,
                 minimum=None, average=None, maximum=None, count=0) for c, l, u in SENSORS], series=[],
@@ -339,19 +750,114 @@ def dashboard():
                 recorded_start=now - timedelta(hours=1), recorded_end=now)
     database_error = False
     try:
-        data = fetch_dashboard_data(sensor)
+        data = fetch_dashboard_data(query_sensor)
     except psycopg2.Error:
         app.logger.exception("Unable to load collection summary")
         database_error = True
+    enrich_metrics(data["metrics"])
+    metrics_by_key = {m["column"]: m for m in data["metrics"]}
+    temp_humidity_severity, temp_humidity_badge = group_severity(
+        [metrics_by_key.get("temperature_c"), metrics_by_key.get("humidity_perc")]
+    )
+    pm_severity, pm_badge = group_severity(
+        [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
+    )
+    sensor_charts = build_sensor_charts(
+        data["recorded_series"], data["recorded_start"], data["recorded_end"], query_sensor, metrics_by_key
+    )
+    selected_metric = next((m for m in data["metrics"] if m["column"] == sensor), None) if sensor else None
     return render_template("dashboard.html", **shell_context("Dashboard"),
-                           **data, selected=next(m for m in data["metrics"] if m["column"] == sensor),
+                           sensor_charts=sensor_charts,
+                           metrics_by_key=metrics_by_key,
+                           temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
+                           pm_group=dict(severity=pm_severity, badge=pm_badge),
+                           **data, selected=selected_metric,
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
                            recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
                                                       data["recorded_end"], hourly=False),
                            recorded_ticks=[(60 + minute / 60 * 700,
-                                            (data["recorded_start"] + timedelta(minutes=minute)).strftime("%H:%M"))
+                                            to_pht(data["recorded_start"] + timedelta(minutes=minute)).strftime("%I:%M %p"))
                                            for minute in (0, 15, 30, 45, 60)],
                            live_sensors=LIVE_SENSORS)
+
+
+def _dbus_string_field(code, kind, value):
+    encoded = value.encode("utf-8")
+    return struct.pack("<B3sI", code, b"\x01" + kind.encode("ascii") + b"\x00", len(encoded)) + encoded + b"\x00"
+
+
+def _dbus_message(serial, path, interface, member, destination, signature="", body=b""):
+    fields = [
+        _dbus_string_field(1, "o", path),
+        _dbus_string_field(2, "s", interface),
+        _dbus_string_field(3, "s", member),
+        _dbus_string_field(6, "s", destination),
+    ]
+    if signature:
+        sig_bytes = signature.encode("ascii")
+        fields.append(struct.pack("<B3sB", 8, b"\x01g\x00", len(sig_bytes)) + sig_bytes + b"\x00")
+    array_buf = bytearray()
+    for index, field in enumerate(fields):
+        if index:
+            array_buf.extend(b"\x00" * ((-len(array_buf)) % 8))
+        array_buf.extend(field)
+    header = bytearray(struct.pack("<BBBBIII", ord("l"), 1, 0, 1, len(body), serial, len(array_buf)))
+    header.extend(array_buf)
+    header.extend(b"\x00" * ((-len(header)) % 8))
+    return bytes(header) + body
+
+
+def trigger_host_poweroff(socket_path=None):
+    bus_path = socket_path or os.environ.get("DBUS_SYSTEM_BUS_PATH", "/run/dbus/system_bus_socket")
+    family = getattr(socket, "AF_UNIX", None)
+    if family is None or not os.path.exists(bus_path):
+        raise OSError("System D-Bus socket is not available")
+    uid_hex = str(os.getuid() if hasattr(os, "getuid") else 0).encode("ascii").hex().encode("ascii")
+    with socket.socket(family, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5)
+        sock.connect(bus_path)
+        sock.sendall(b"\x00AUTH EXTERNAL " + uid_hex + b"\r\n")
+        reply = b""
+        while not reply.endswith(b"\r\n"):
+            chunk = sock.recv(256)
+            if not chunk:
+                raise OSError("D-Bus closed connection during authentication")
+            reply += chunk
+        if not reply.startswith(b"OK "):
+            raise OSError("D-Bus authentication rejected")
+        sock.sendall(b"BEGIN\r\n")
+        sock.sendall(_dbus_message(1, "/org/freedesktop/DBus", "org.freedesktop.DBus", "Hello", "org.freedesktop.DBus"))
+        sock.recv(4096)
+        sock.sendall(_dbus_message(
+            2, "/org/freedesktop/login1", "org.freedesktop.login1.Manager",
+            "PowerOff", "org.freedesktop.login1", "b", struct.pack("<I", 1),
+        ))
+        response = sock.recv(4096)
+        if len(response) >= 2 and response[1] == 3:
+            raise OSError("System poweroff was rejected by login1")
+
+
+@app.route("/api/system/shutdown", methods=["POST"])
+@login_required
+def shutdown_server_api():
+    if session.get("role") != "admin":
+        return jsonify(status="error", message="Administrator access is required."), 403
+    body = request.get_json(silent=True)
+    submitted = body.get("csrf_token") if isinstance(body, dict) else None
+    token = session.get("shutdown_token")
+    try:
+        valid_token = (isinstance(submitted, str) and bool(token)
+                       and secrets.compare_digest(token.encode(), submitted.encode()))
+    except UnicodeError:
+        valid_token = False
+    if not valid_token:
+        return jsonify(status="error", message="Invalid shutdown request token."), 400
+    try:
+        trigger_host_poweroff()
+    except OSError:
+        app.logger.exception("Unable to trigger host poweroff")
+        return jsonify(status="error", message="Unable to shut down the server from this environment."), 503
+    return jsonify(status="shutting_down", message="Server is shutting down."), 202
 
 
 @app.route("/api/forecasts")
@@ -461,6 +967,7 @@ def data_page():
         "date_range": filters["date_range"],
         "start_date": filters["start_date"],
         "end_date": filters["end_date"],
+        "filter": filters["filter"],
         "q": filters["q"],
         "per_page": filters["per_page"],
     }
@@ -478,12 +985,36 @@ def data_page():
     last_record = min(filters["page"] * filters["per_page"], total)
     export_args = {key: value for key, value in query_args.items() if key != "per_page"}
 
+    reading_rows = [
+        {
+            "timestamp": row[0],
+            "formatted_time": format_pht_timestamp(row[0]),
+            "cells": [
+                {
+                    "column": col,
+                    "value": val,
+                    "severity": classify_sensor_reading(col, val),
+                }
+                for col, val in zip(READING_COLUMNS[1:], row[1:])
+            ],
+            "sensor_values": row[1:],
+            "severity": classify_reading_row(row)[0],
+            "badge": classify_reading_row(row)[1],
+            "raw": row,
+        }
+        for row in readings
+    ]
+
     return render_template(
         "data.html",
         **shell_context("Data"),
         readings=readings,
+        reading_rows=reading_rows,
         csv_headers=CSV_HEADERS,
+        table_headers=TABLE_HEADERS,
         filters=filters,
+        filter_options=READING_FILTERS,
+        active_filter_label=READING_FILTER_MAP.get(filters["filter"], "All readings"),
         total=total,
         total_pages=total_pages,
         previous_url=previous_url,
