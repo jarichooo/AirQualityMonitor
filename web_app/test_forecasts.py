@@ -192,11 +192,27 @@ class ForecastTestCase(unittest.TestCase):
         with patch.object(application, "fetch_dashboard_data", return_value=dashboard_data):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
-        self.assertIn(b'id="forecast-panel"', page.data)
-        self.assertIn(b'aria-label="2-hour forecast"', page.data)
-        self.assertNotIn(b'id="forecast-title"', page.data)
-        self.assertNotIn(b"About these analytics", page.data)
-        self.assertNotIn(b"Predicted values &middot; separate from measured readings", page.data)
+        html = page.get_data(as_text=True)
+        self.assertIn('id="forecast-panel"', html)
+        self.assertIn('aria-label="2-hour forecast"', html)
+        self.assertNotIn('id="forecast-title"', html)
+        self.assertNotIn("About these analytics", html)
+        self.assertNotIn("Predicted values &middot; separate from measured readings", html)
+        self.assertNotIn('id="predict-now"', html)
+        self.assertNotIn('id="prediction-controls"', html)
+        self.assertNotIn("Predict now", html)
+        self.assertNotIn("data-prediction-url", html)
+        forecast_pos = html.index('id="forecast-panel"')
+        ammonia_pos = html.index('id="chart-mq137_ppm"')
+        methane_pos = html.index('id="chart-mq4_ppm"')
+        temp_pos = html.index('id="chart-temperature_c"')
+        pm_pos = html.index('id="chart-pm1_ugm3"')
+        co2_pos = html.index('id="chart-co2_ppm"')
+        self.assertLess(forecast_pos, ammonia_pos)
+        self.assertLess(ammonia_pos, methane_pos)
+        self.assertLess(methane_pos, temp_pos)
+        self.assertLess(temp_pos, pm_pos)
+        self.assertLess(pm_pos, co2_pos)
 
     def test_previous_guidance_survives_pending_error_and_stale_readings(self):
         now = datetime.now(timezone.utc)
@@ -254,11 +270,17 @@ class ForecastTestCase(unittest.TestCase):
 
     def test_browser_renderer_uses_text_only_for_model_output(self):
         source = (Path(__file__).parent / "static" / "forecasts.js").read_text(encoding="utf-8")
+        charts_source = (Path(__file__).parent / "static" / "charts.js").read_text(encoding="utf-8")
         self.assertIn("element.textContent = text", source)
         self.assertNotIn("innerHTML", source)
         self.assertIn("new AbortController()", source)
         self.assertIn("controller.abort(), 10000", source)
         self.assertIn("fingerprint !== renderedFingerprint", source)
+        self.assertNotIn("Predict now", source)
+        self.assertNotIn("predict-now", source)
+        self.assertIn("charts:updated", source)
+        self.assertIn("charts:updated", charts_source)
+        self.assertIn("20000", source)
 
 
 if __name__ == "__main__":

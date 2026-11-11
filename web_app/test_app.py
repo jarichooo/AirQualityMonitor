@@ -668,6 +668,64 @@ class AppTestCase(unittest.TestCase):
         self.assertNotIn("innerHTML", charts_js)
         self.assertIn("createElementNS", charts_js)
         self.assertIn("AbortController", charts_js)
+        self.assertIn("trend-axis-tick", charts_js)
+        self.assertIn("trend-axis-unit", charts_js)
+
+    def test_chart_axes_zoom_to_data_and_match_reference_layout(self):
+        start = datetime(2026, 11, 11, 10, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc)
+        rows = [
+            (start, None, "node-1", 30.8, 59.5, 1650.0, 4.5, 18.0, 42.0, 3.9, 880.0),
+            (start + timedelta(minutes=30), None, "node-1", 31.3, 60.3, 2420.0, 6.0, 22.0, 50.0, 11.4, 945.0),
+            (end, None, "node-1", 31.8, 61.5, 3172.0, 7.2, 26.0, 58.0, 19.9, 1016.0),
+        ]
+        metrics = [dict(column=c, label=l, unit=u, value=rows[-1][3 + i], severity="normal")
+                   for i, (c, l, u) in enumerate(application.SENSORS)]
+        metrics_by_key = {m["column"]: m for m in metrics}
+        charts = application.build_sensor_charts(rows, start, end, "temperature_c", metrics_by_key)
+        by_id = {c["chart_id"]: c for c in charts}
+
+        # Y-axis ticks span bottom (232) to top (24) and zoom around actual values instead of full scale.
+        ammonia = by_id["chart-mq137_ppm"]
+        self.assertEqual(ammonia["y_ticks"][0][0], application.CHART_PLOT_BOTTOM)
+        self.assertEqual(ammonia["y_ticks"][-1][0], application.CHART_PLOT_TOP)
+        self.assertGreater(int(ammonia["y_ticks"][0][1].replace(",", "")), 750)
+        self.assertLess(int(ammonia["y_ticks"][-1][1].replace(",", "")), 1200)
+
+        methane = by_id["chart-mq4_ppm"]
+        self.assertGreater(float(methane["y_ticks"][0][1]), 0.5)
+        self.assertLess(float(methane["y_ticks"][-1][1]), 24.0)
+        self.assertEqual(len({round(float(val), 1) for _, val in methane["y_ticks"]}), len(methane["y_ticks"]))
+
+        co2 = by_id["chart-co2_ppm"]
+        self.assertGreater(int(co2["y_ticks"][0][1].replace(",", "")), 1000)
+
+        pm = by_id["chart-pm1_ugm3"]
+        self.assertLess(int(pm["y_ticks"][-1][1].replace(",", "")), 400)
+
+        # Flat series use minimum span rather than collapsing to zero height.
+        flat_rows = [
+            (start, None, "node-1", 31.0, 60.0, 500.0, 5.0, 15.0, 30.0, 4.0, 200.0),
+            (end, None, "node-1", 31.0, 60.0, 500.0, 5.0, 15.0, 30.0, 4.0, 200.0),
+        ]
+        flat_charts = application.build_sensor_charts(flat_rows, start, end, "temperature_c", metrics_by_key)
+        flat_co2_ticks = flat_charts[4]["y_ticks"]
+        self.assertGreaterEqual(len(flat_co2_ticks), 3)
+        self.assertNotEqual(flat_co2_ticks[0][1], flat_co2_ticks[-1][1])
+
+        self.login()
+        fake_data = {
+            "total": 3, "earliest": start, "latest": end, "metrics": metrics,
+            "series": [], "start": start - timedelta(hours=23), "end": end,
+            "recorded_series": rows, "recorded_start": start, "recorded_end": end,
+        }
+        with patch.object(application, "fetch_dashboard_data", return_value=fake_data):
+            page = self.client.get("/dashboard")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b'viewBox="-18 14 798 252"', page.data)
+        self.assertIn(b"trend-axis-tick", page.data)
+        self.assertIn(b"trend-axis-unit", page.data)
+        self.assertIn(b'transform="rotate(-90 -4 128)"', page.data)
 
 
 if __name__ == "__main__":

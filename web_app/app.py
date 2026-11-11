@@ -318,6 +318,8 @@ SENSOR_CHART_SPECS = (
         title="Ammonia",
         unit="ppm",
         scale="linear",
+        min_span=20.0,
+        nonnegative=True,
         base_low=0.0,
         base_high=5500.0,
         ticks=(0, 1000, 3000, 5000),
@@ -336,6 +338,8 @@ SENSOR_CHART_SPECS = (
         title="Methane",
         unit="ppm",
         scale="linear",
+        min_span=1.5,
+        nonnegative=True,
         base_low=0.0,
         base_high=24.0,
         ticks=(0, 5, 10, 15, 20),
@@ -354,6 +358,8 @@ SENSOR_CHART_SPECS = (
         title="Temperature and Humidity",
         unit="\u00b0C / %",
         scale="linear",
+        min_span=4.0,
+        nonnegative=False,
         base_low=10.0,
         base_high=90.0,
         ticks=(18, 32, 50, 70, 80),
@@ -371,6 +377,8 @@ SENSOR_CHART_SPECS = (
         title="Particulate matter",
         unit="\u00b5g/m\u00b3",
         scale="log",
+        min_span=10.0,
+        nonnegative=True,
         base_low=1.0,
         base_high=1500.0,
         ticks=(1, 10, 35, 150, 1000),
@@ -389,6 +397,8 @@ SENSOR_CHART_SPECS = (
         title="Carbon Dioxide",
         unit="ppm",
         scale="linear",
+        min_span=40.0,
+        nonnegative=True,
         base_low=0.0,
         base_high=3400.0,
         ticks=(0, 1500, 2500, 3000),
@@ -402,14 +412,138 @@ SENSOR_CHART_SPECS = (
     ),
 )
 
+CHART_PLOT_TOP = 24.0
+CHART_PLOT_BOTTOM = 232.0
+CHART_PLOT_HEIGHT = CHART_PLOT_BOTTOM - CHART_PLOT_TOP
+LOG_TICK_CANDIDATES = (1, 2, 4, 10, 20, 40, 100, 200, 400, 1000, 2000, 4000, 10000)
+
 
 def _scale_y(value, bottom, top, scale):
     if scale == "log":
         lo = math.log10(max(1.0, bottom))
         hi = math.log10(max(lo + 0.1, top))
         val = math.log10(max(1.0, float(value)))
-        return 210 - (val - lo) / (hi - lo) * 180
-    return 210 - (float(value) - bottom) / (top - bottom) * 180
+        return CHART_PLOT_BOTTOM - (val - lo) / (hi - lo) * CHART_PLOT_HEIGHT
+    span = float(top) - float(bottom)
+    if span <= 0 or not math.isfinite(span):
+        return (CHART_PLOT_TOP + CHART_PLOT_BOTTOM) / 2.0
+    return CHART_PLOT_BOTTOM - (float(value) - bottom) / span * CHART_PLOT_HEIGHT
+
+
+def _nice_linear_step(span):
+    raw_step = span / 3.6
+    if raw_step <= 0 or not math.isfinite(raw_step):
+        return 1.0
+    magnitude = 10 ** math.floor(math.log10(raw_step))
+    scaled = raw_step / magnitude
+    candidates = (1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+    chosen = min(candidates, key=lambda c: abs(c - scaled))
+    return chosen * magnitude
+
+
+def _format_y_tick(value, span, step=None):
+    val = float(value)
+    if span >= 40 and (step is None or step >= 5):
+        return f"{int(round(val)):,}"
+    if span >= 3:
+        rounded = round(val, 1)
+        if abs(rounded - round(rounded)) < 1e-6:
+            return f"{int(round(rounded)):,}"
+        return f"{rounded:,.1f}"
+    rounded = round(val, 2)
+    if abs(rounded - round(rounded)) < 1e-6:
+        return f"{int(round(rounded)):,}"
+    whole, _, frac = f"{rounded:.2f}".partition(".")
+    frac = frac.rstrip("0")
+    whole_fmt = f"{int(whole):,}"
+    return f"{whole_fmt}.{frac}" if frac else whole_fmt
+
+
+def _compute_chart_y_scale(spec, all_valid):
+    """Fit zoomed-in Y bounds and evenly spaced reference ticks to the plotted data."""
+    scale = spec["scale"]
+    if not all_valid:
+        bottom = spec["base_low"]
+        top = spec["base_high"]
+        y_ticks = [
+            (round(_scale_y(tick_val, bottom, top, scale), 2), f"{tick_val:,}" if tick_val >= 1000 else str(tick_val))
+            for tick_val in spec["ticks"]
+            if bottom <= tick_val <= top
+        ]
+        return bottom, top, y_ticks
+
+    data_min = min(all_valid)
+    data_max = max(all_valid)
+    if scale == "log":
+        low_target = max(1.0, data_min * 0.72)
+        below = [tick for tick in LOG_TICK_CANDIDATES if tick <= low_target]
+        bottom = float(below[-1]) if below else 1.0
+        high_target = max(bottom * 2.5, data_max * 1.2)
+        above = [tick for tick in LOG_TICK_CANDIDATES if tick >= high_target]
+        top = float(above[0]) if above else max(high_target, data_max * 1.25)
+        decades = math.log10(max(1.0, top)) - math.log10(max(1.0, bottom))
+        candidates = LOG_TICK_CANDIDATES if decades <= 1.35 else (1, 4, 10, 40, 100, 400, 1000, 4000, 10000)
+        in_range = [tick for tick in candidates if bottom <= tick <= top]
+        if top not in in_range:
+            in_range.append(top)
+        y_ticks = []
+        last_y = None
+        for tick_val in in_range:
+            ty = round(_scale_y(tick_val, bottom, top, "log"), 2)
+            if last_y is not None and abs(last_y - ty) < 18.0:
+                continue
+            y_ticks.append((ty, f"{int(round(tick_val)):,}" if tick_val >= 1000 else _format_y_tick(tick_val, top - bottom)))
+            last_y = ty
+        return bottom, top, y_ticks
+
+    min_span = float(spec.get("min_span", 10.0))
+    spread = data_max - data_min
+    if spread < min_span:
+        center = (data_min + data_max) / 2.0
+        raw_low = center - min_span / 2.0
+        raw_high = center + min_span / 2.0
+        pad = min_span * 0.12
+    else:
+        raw_low = data_min
+        raw_high = data_max
+        pad = spread * 0.14
+
+    bottom = raw_low - pad
+    top = raw_high + pad
+    if spec.get("nonnegative", True) and bottom < 0.0:
+        bottom = 0.0
+        top = max(top, bottom + min_span)
+
+    span = top - bottom
+    step = _nice_linear_step(span)
+    if span >= 40 and step >= 5:
+        bottom = max(0.0, float(math.floor(bottom))) if spec.get("nonnegative", True) else float(math.floor(bottom))
+        top = float(math.ceil(top))
+    elif span >= 3:
+        bottom = round(bottom - 0.04, 1)
+        if spec.get("nonnegative", True) and bottom < 0.0:
+            bottom = 0.0
+        top = round(top + 0.04, 1)
+    if top <= bottom:
+        top = bottom + min_span
+    span = top - bottom
+    step = _nice_linear_step(span)
+
+    tick_values = [bottom]
+    cursor = bottom + step
+    while cursor < top:
+        ty = _scale_y(cursor, bottom, top, "linear")
+        if (ty - CHART_PLOT_TOP) < 18.0:
+            break
+        tick_values.append(cursor)
+        cursor += step
+    tick_values.append(top)
+
+    y_ticks = [
+        (round(_scale_y(val, bottom, top, "linear"), 2), _format_y_tick(val, span, step))
+        for val in tick_values
+    ]
+    return bottom, top, y_ticks
 
 
 def _parse_utc_timestamp(value):
@@ -500,13 +634,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                     if len(clean_vals) == len(f_vals):
                         forecast_by_col[col] = clean_vals
                         all_valid.extend(clean_vals)
-        bottom = spec["base_low"]
-        top = spec["base_high"]
-        if all_valid:
-            if min(all_valid) < bottom:
-                bottom = max(1.0 if scale == "log" else min(all_valid) - 2.0, min(all_valid) * 0.9)
-            if max(all_valid) > top:
-                top = max(all_valid) * 1.08
+        bottom, top, y_ticks = _compute_chart_y_scale(spec, all_valid)
         series_list = []
         all_points = []
         for col, s_label, s_unit, s_color in series_defs:
@@ -581,11 +709,6 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
             if bottom <= level_val <= top:
                 ty = round(_scale_y(level_val, bottom, top, scale), 2)
                 threshold_lines.append(dict(kind=kind, label=label_text, value=level_val, y=ty))
-        y_ticks = []
-        for tick_val in spec["ticks"]:
-            if bottom <= tick_val <= top:
-                ty = round(_scale_y(tick_val, bottom, top, scale), 2)
-                y_ticks.append((ty, f"{tick_val:,}" if tick_val >= 1000 else str(tick_val)))
         group_sev, group_badge = group_severity([metrics_by_key.get(col, {}) for col, _, _, _ in series_defs])
         charts.append(dict(
             column=spec["column"],
