@@ -180,11 +180,19 @@ def history_hash(rows, model=predictor):
 def fetch_active_devices(conn, now):
     with conn.cursor() as cursor:
         cursor.execute(
-            "SELECT DISTINCT device_id FROM public.air_quality_logs "
-            "WHERE device_id IS NOT NULL AND btrim(device_id) <> '' AND recorded_at >= %s",
+            "SELECT DISTINCT COALESCE(NULLIF(btrim(device_id), ''), 'henvironment-sensor') "
+            "FROM public.air_quality_logs WHERE recorded_at >= %s",
             (now - timedelta(seconds=FRESHNESS_SECONDS),),
         )
-        return [row[0] for row in cursor.fetchall()]
+        active = [row[0] for row in cursor.fetchall()]
+        if active:
+            return active
+        cursor.execute(
+            "SELECT COALESCE(NULLIF(btrim(device_id), ''), 'henvironment-sensor') "
+            "FROM public.air_quality_logs ORDER BY recorded_at DESC, id DESC LIMIT 1"
+        )
+        latest = cursor.fetchone()
+        return [latest[0]] if latest else []
 
 
 def fetch_history(conn, device_id, model=predictor):
@@ -232,14 +240,32 @@ def classify(policy, predictions):
         return unavailable_severity(predictions), f"POLICY_INVALID: {exc}"
 
 
+def validate_series(series, model):
+    if not isinstance(series, dict) or set(series) != set(model.TARGET_COLUMNS):
+        raise ContractError("Predicted series keys do not match target columns")
+    validated = {}
+    for column, values in series.items():
+        if not isinstance(values, list) or len(values) != model.HORIZON_MINUTES:
+            raise ContractError(f"Predicted series for {column} does not match forecast horizon")
+        cleaned = []
+        for value in values:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ContractError(f"Nonfinite forecast series value for {column}")
+            cleaned.append(float(value))
+        validated[column] = cleaned
+    return validated
+
+
 def save_forecast(conn, record):
+    predicted_series = record.get("predicted_series")
     with conn.cursor() as cursor:
         cursor.execute(
             """INSERT INTO public.air_quality_forecasts AS current_forecast
                (device_id, forecast_id, input_row_id, input_cutoff_at, target_at,
                 generated_at, model_version, status, reason, predicted_values,
-                severity, explanation_status, explanation, policy_sha256, source_hash)
-               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                severity, explanation_status, explanation, policy_sha256, source_hash,
+                predicted_series)
+               VALUES (%s, %s::uuid, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                ON CONFLICT (device_id) DO UPDATE SET
                  forecast_id = EXCLUDED.forecast_id,
                  input_row_id = EXCLUDED.input_row_id,
@@ -250,6 +276,7 @@ def save_forecast(conn, record):
                  status = EXCLUDED.status,
                  reason = EXCLUDED.reason,
                  predicted_values = EXCLUDED.predicted_values,
+                 predicted_series = EXCLUDED.predicted_series,
                  severity = EXCLUDED.severity,
                  explanation_status = EXCLUDED.explanation_status,
                  explanation = EXCLUDED.explanation,
@@ -269,6 +296,7 @@ def save_forecast(conn, record):
                 Json(record["predicted_values"]), Json(record["severity"]),
                 record["explanation_status"], record["explanation"],
                 record["policy_sha256"], record["source_hash"],
+                Json(predicted_series) if predicted_series is not None else None,
             ),
         )
     conn.commit()
@@ -316,7 +344,7 @@ def invalidate_forecast(conn, reason, device_id=None, status="unavailable"):
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE public.air_quality_forecasts SET status = %s, reason = %s, "
-            "predicted_values = %s, severity = %s, explanation_status = %s, "
+            "predicted_values = %s, predicted_series = NULL, severity = %s, explanation_status = %s, "
             f"explanation = NULL, last_guidance = NULL WHERE {where}", params,
         )
     conn.commit()
@@ -326,13 +354,28 @@ def invalidate_stale_forecasts(conn, now):
     with conn.cursor() as cursor:
         cursor.execute(
             "UPDATE public.air_quality_forecasts AS forecast SET status = 'unavailable', "
-            "reason = 'Latest reading is stale', predicted_values = %s, severity = %s, "
+            "reason = 'Latest reading is stale', predicted_values = %s, predicted_series = NULL, severity = %s, "
             "explanation_status = 'unavailable', explanation = NULL "
             "WHERE forecast.status = 'available' AND NOT EXISTS ("
             "SELECT 1 FROM public.air_quality_logs AS source "
             "WHERE source.id = forecast.input_row_id "
             "AND source.device_id = forecast.device_id AND source.recorded_at >= %s)",
             (Json({}), Json({}), now - timedelta(seconds=FRESHNESS_SECONDS)),
+        )
+    conn.commit()
+
+
+def invalidate_deleted_forecasts(conn):
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "UPDATE public.air_quality_forecasts AS forecast SET status = 'unavailable', "
+            "reason = 'Source readings were deleted', predicted_values = %s, predicted_series = NULL, "
+            "severity = %s, explanation_status = 'unavailable', explanation = NULL "
+            "WHERE forecast.status = 'available' AND NOT EXISTS ("
+            "SELECT 1 FROM public.air_quality_logs AS source "
+            "WHERE source.id = forecast.input_row_id "
+            "AND COALESCE(NULLIF(btrim(source.device_id), ''), 'henvironment-sensor') = forecast.device_id)",
+            (Json({}), Json({})),
         )
     conn.commit()
 
@@ -395,7 +438,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
     return explanation
 
 
-def process_device(conn, device_id, model=predictor, now=None, policy_result=None, qwen=call_qwen):
+def process_device(conn, device_id, model=predictor, now=None, policy_result=None, qwen=call_qwen, explain=True):
     fixed_now = now
     rows = fetch_history(conn, device_id, model)
     now = now or utc_now()
@@ -412,17 +455,24 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
     conn.commit()
     policy, policy_error = policy_result if policy_result is not None else load_policy_result()
 
+    has_trajectory = callable(getattr(model, "predict_trajectory", None))
+    has_series = bool(
+        current and isinstance(current.get("predicted_series"), dict)
+        and set(current["predicted_series"]) == set(model.TARGET_COLUMNS)
+    )
     same_numeric = bool(
         current and current["status"] == "available"
         and current["source_hash"] == source_hash
         and current["model_version"] == model.MODEL_VERSION
+        and (has_series or not has_trajectory)
     )
     if same_numeric:
         predictions = validate_prediction(dict(current["predicted_values"]), model)
         forecast_id = str(current["forecast_id"])
         target_at = current["target_at"]
-        if not policy_error and current["policy_sha256"] == policy.sha256 and current["explanation_status"] == "available":
-            return "duplicate"
+        if not policy_error and current["policy_sha256"] == policy.sha256:
+            if not explain or current["explanation_status"] == "available":
+                return "duplicate"
         if not policy_error:
             severity, policy_error = classify(policy, predictions)
         if policy_error:
@@ -436,9 +486,25 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
                 )
                 save_forecast(conn, record)
             return "policy_error"
+        if not explain:
+            record = dict(current)
+            record.update(
+                forecast_id=forecast_id, reason=None, severity=severity,
+                explanation_status="unavailable", explanation=None,
+                policy_sha256=policy.sha256, predicted_values=predictions,
+            )
+            save_forecast(conn, record)
+            return "created"
         set_policy_pending(conn, device_id, forecast_id, severity, policy.sha256)
     else:
-        predictions = validate_prediction(model.predict(prepared_rows), model)
+        if has_trajectory:
+            predicted_series = validate_series(model.predict_trajectory(prepared_rows), model)
+            predictions = validate_prediction(
+                {column: predicted_series[column][-1] for column in model.TARGET_COLUMNS}, model
+            )
+        else:
+            predicted_series = None
+            predictions = validate_prediction(model.predict(prepared_rows), model)
         target_at = prepared_rows[-1]["recorded_at"] + timedelta(minutes=model.HORIZON_MINUTES)
         forecast_id = str(uuid.uuid4())
         if policy_error:
@@ -446,7 +512,7 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
             explanation_status = "error"
         else:
             severity, policy_error = classify(policy, predictions)
-            explanation_status = "error" if policy_error else "pending"
+            explanation_status = "error" if policy_error else ("pending" if explain else "unavailable")
         save_forecast(conn, {
             "device_id": device_id,
             "forecast_id": forecast_id,
@@ -458,6 +524,7 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
             "status": "available",
             "reason": policy_error,
             "predicted_values": predictions,
+            "predicted_series": predicted_series,
             "severity": severity,
             "explanation_status": explanation_status,
             "explanation": None,
@@ -466,6 +533,8 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
         })
         if policy_error:
             return "policy_error"
+        if not explain:
+            return "created"
 
     try:
         policy_text = policy.text
@@ -486,7 +555,7 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
 
 
 def run_once(connection_factory=database_connection, model=predictor, now=None, qwen=call_qwen,
-             simulation=None, previous_simulations=(), reset_simulation=False):
+             simulation=None, previous_simulations=(), reset_simulation=False, explain=True):
     if reset_simulation and simulation is None:
         raise ContractError("reset_simulation requires a simulation profile")
     cycle_now = now or utc_now()
@@ -520,12 +589,17 @@ def run_once(connection_factory=database_connection, model=predictor, now=None, 
         elif previous_simulations:
             raise ContractError("previous_simulations requires a simulation profile")
         policy_result = load_policy_result()
-        invalidate_stale_forecasts(conn, cycle_now)
+        invalidate_deleted_forecasts(conn)
         devices = [seeded["device_id"]] if simulation is not None else fetch_active_devices(conn, cycle_now)
         conn.commit()
         for device_id in devices:
             try:
-                results[device_id] = process_device(conn, device_id, model, now, policy_result, qwen)
+                if explain:
+                    results[device_id] = process_device(conn, device_id, model, now, policy_result, qwen)
+                else:
+                    results[device_id] = process_device(
+                        conn, device_id, model, now, policy_result, qwen, explain=False
+                    )
             except (ContractError, predictor.ModelUnavailable) as exc:
                 conn.rollback()
                 invalidate_forecast(conn, str(exc), device_id)
@@ -596,6 +670,19 @@ def run_manual_once(connection_factory=database_connection, model=predictor, now
         return {job["device_id"]: result}
 
 
+def run_live_once(state, connection_factory=database_connection, model=predictor, now=None,
+                  qwen=call_qwen, clock=time.monotonic):
+    """Run any queued Qwen explanation request and refresh numeric GRU forecasts every minute."""
+    manual_results = run_manual_once(connection_factory, model, now, qwen=qwen)
+    last_gru_at = state.get("last_gru_at")
+    if last_gru_at is not None and (clock() - last_gru_at) < POLL_SECONDS:
+        return manual_results
+    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=False)
+    if not auto_results.get("_worker", "").startswith("skipped:"):
+        state["last_gru_at"] = clock()
+    return {**auto_results, **manual_results}
+
+
 def _failed_results(results):
     return any(isinstance(result, str) and result.startswith(("unavailable:", "error:"))
                for result in results.values())
@@ -661,6 +748,8 @@ def main(argv=None):
     parser.add_argument("--init-db", action="store_true", help="create the forecast table and query index")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--manual", action="store_true", help="only predict when the dashboard queues a request")
+    mode.add_argument("--live", action="store_true",
+                      help="refresh numeric GRU forecasts every minute and run Qwen on button requests")
     mode.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
                         help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)
@@ -677,15 +766,18 @@ def main(argv=None):
         if args.simulate == "series":
             return run_series(args.once)
         first_cycle = True
+        live_state = {"last_gru_at": None}
         while True:
             started = time.monotonic()
             try:
                 if args.manual:
                     results = run_manual_once()
+                elif args.live:
+                    results = run_live_once(live_state)
                 else:
                     results = run_once(simulation=args.simulate, reset_simulation=first_cycle) if args.simulate else run_once()
                 first_cycle = False
-                if results or not args.manual:
+                if results or (not args.manual and not args.live):
                     print(json.dumps({"at": utc_now().isoformat(), "devices": results}), flush=True)
                 if args.simulate and results.get("_worker", "").startswith("unavailable:"):
                     return 1
@@ -699,7 +791,7 @@ def main(argv=None):
                     return 1
             if args.once:
                 return int(_failed_results(results))
-            time.sleep(1 if args.manual else max(0, POLL_SECONDS - (time.monotonic() - started)))
+            time.sleep(1 if (args.manual or args.live) else max(0, POLL_SECONDS - (time.monotonic() - started)))
     except KeyboardInterrupt:
         return 130
 

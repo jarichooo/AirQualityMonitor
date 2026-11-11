@@ -132,6 +132,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .sensor-trend .trend-threshold-label.is-warning { fill: #fbbf24; }
 .sensor-trend .trend-threshold-label.is-critical { fill: #f87171; }
 .trend-line { fill: none; stroke: var(--secondary); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgb(56 189 248 / 30%)); }
+.trend-line.is-forecast { stroke-width: 2.8; stroke-dasharray: 7 6; stroke-linecap: round; opacity: 0.94; }
 .trend-point { fill: var(--canvas); stroke: var(--secondary); stroke-width: 2.5; transition: r 140ms ease, fill 140ms ease, stroke-width 140ms ease; }
 .trend-point:hover { r: 7px; fill: var(--secondary); stroke: #fff; stroke-width: 2; }
 .chart-series-legend {
@@ -162,6 +163,11 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     height: 3px;
     border-radius: 999px;
     background: var(--series-color, var(--secondary));
+}
+.chart-series-swatch.is-forecast {
+    height: 2px;
+    border-radius: 0;
+    background: repeating-linear-gradient(90deg, var(--series-color, var(--secondary)) 0 5px, transparent 5px 8px);
 }
 .chart-series-swatch::after {
     position: absolute;

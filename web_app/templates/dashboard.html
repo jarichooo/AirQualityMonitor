@@ -102,7 +102,7 @@
         </a>
     </div>
 
-    <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts">
+    <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts" data-charts-url="{{ url_for('charts_api') }}">
         {% for chart in sensor_charts %}
         {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
         {% set desc_id = 'recorded-trend-description' if chart.is_selected else 'chart-desc-' ~ chart.column %}
@@ -117,7 +117,7 @@
                 </div>
             </div>
             <div class="trend-chart-wrap">
-                <svg class="sensor-trend" viewBox="6 14 770 252" role="img" aria-labelledby="{{ desc_id }}">
+                <svg class="sensor-trend" viewBox="6 14 788 252" role="img" aria-labelledby="{{ desc_id }}">
                     <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                     {% for y, tick_label in chart.y_ticks %}
                     <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
@@ -131,6 +131,7 @@
                     <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (PHT)</text>
                     {% for s in chart.series_list %}
                     {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
+                    {% for fsegment in s.forecast_segments %}<polyline class="trend-line is-forecast" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}44);" points="{{ fsegment }}"/>{% endfor %}
                     {% endfor %}
                 </svg>
                 <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
@@ -142,6 +143,12 @@
                         <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
                         {% endif %}
                     </li>
+                    {% if s.forecast_segments %}
+                    <li class="chart-series-item is-forecast">
+                        <span class="chart-series-swatch is-forecast" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
+                        <span class="chart-series-name">{{ s.label }} forecast</span>
+                    </li>
+                    {% endif %}
                     {% endfor %}
                 </ul>
                 {% if not chart.points %}
@@ -171,4 +178,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='7') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='1') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='8') }}" defer></script>{% endblock %}

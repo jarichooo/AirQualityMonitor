@@ -39,7 +39,9 @@
             ? "Loading…"
             : forecast.explanation_status === "error" && forecast.status === "available"
                 ? "Could not load the advice. Try again after a new reading arrives."
-                : "No advice yet.";
+                : forecast.status === "available"
+                    ? "No advice yet. Click Predict now to generate guidance."
+                    : "No advice yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);
         } else if (forecast.last_guidance) {
@@ -47,7 +49,9 @@
                 ? "New readings are needed."
                 : forecast.explanation_status === "pending"
                     ? "Updating… Showing the previous output."
-                    : "Could not update. Showing the previous output.";
+                    : forecast.explanation_status === "error"
+                        ? "Could not update. Showing the previous output."
+                        : "Live forecast updated. Click Predict now to refresh AI advice.";
             addText(article, "p", update);
             addText(article, "p", forecast.last_guidance.text);
         } else {

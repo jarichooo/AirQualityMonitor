@@ -201,8 +201,7 @@ def _load_forecaster():
     return runtime, forecaster
 
 
-def predict(history_rows):
-    """Return all eight sensor values exactly 120 sampling steps ahead."""
+def _forecast_frame(history_rows):
     times, values = _validate_rows(history_rows)
     runtime, forecaster = _load_forecaster()
     try:
@@ -220,8 +219,25 @@ def predict(history_rows):
     if (list(forecast.columns) != list(MODEL_COLUMNS) or len(forecast) != HORIZON_MINUTES
             or forecast.index[-1] != expected_target):
         raise ModelUnavailable("Model returned an unexpected forecast shape or horizon")
+    return forecast
 
+
+def predict(history_rows):
+    """Return all eight sensor values exactly 120 sampling steps ahead."""
+    forecast = _forecast_frame(history_rows)
     endpoint = [float(value) for value in forecast.iloc[-1].tolist()]
     if not all(math.isfinite(value) for value in endpoint):
         raise ModelUnavailable("Model returned a nonfinite forecast")
     return dict(zip(TARGET_COLUMNS, endpoint))
+
+
+def predict_trajectory(history_rows):
+    """Return all eight sensor forecasts at every minute across steps +1 through +120."""
+    forecast = _forecast_frame(history_rows)
+    trajectory = {}
+    for model_col, target_col in zip(MODEL_COLUMNS, TARGET_COLUMNS):
+        values = [float(value) for value in forecast[model_col].tolist()]
+        if len(values) != HORIZON_MINUTES or not all(math.isfinite(value) for value in values):
+            raise ModelUnavailable("Model returned a nonfinite forecast")
+        trajectory[target_col] = values
+    return trajectory
