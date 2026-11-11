@@ -43,12 +43,22 @@
 
             (chart.y_ticks || []).forEach(([y, tickLabel]) => {
                 nodes.push(svgEl("path", { class: "trend-grid", d: `M60 ${y}H760` }));
-                nodes.push(svgEl("text", { x: 52, y: Number(y) + 4, "text-anchor": "end" }, tickLabel));
+                nodes.push(svgEl("line", { class: "trend-axis-tick", x1: 55, y1: y, x2: 60, y2: y }));
+                nodes.push(svgEl("text", { class: "trend-tick-label", x: 51, y: Number(y) + 4, "text-anchor": "end" }, tickLabel));
             });
 
-            (ticks || []).forEach(([x, label]) => {
-                nodes.push(svgEl("path", { class: "trend-grid", d: `M${x} 30V210` }));
-                nodes.push(svgEl("text", { x, y: 236, "text-anchor": "middle" }, label));
+            (ticks || []).forEach(([x, label], idx, arr) => {
+                const xNum = Number(x);
+                nodes.push(svgEl("path", { class: "trend-grid", d: `M${x} 24V232` }));
+                nodes.push(svgEl("line", { class: "trend-axis-tick", x1: x, y1: 232, x2: x, y2: 237 }));
+                const isFirst = idx === 0 && xNum <= 65;
+                const isLast = idx === arr.length - 1 && xNum >= 755;
+                nodes.push(svgEl("text", {
+                    class: "trend-tick-label",
+                    x: isFirst ? 62 : x,
+                    y: 254,
+                    "text-anchor": isFirst ? "start" : (isLast ? "end" : "middle"),
+                }, label));
             });
 
             (chart.threshold_lines || []).forEach((tline) => {
@@ -59,8 +69,16 @@
                 }));
             });
 
-            nodes.push(svgEl("path", { class: "trend-axis", d: "M60 25V210H760" }));
-            nodes.push(svgEl("text", { class: "trend-axis-title", x: 410, y: 258, "text-anchor": "middle" }, "Time (PHT)"));
+            nodes.push(svgEl("path", { class: "trend-axis", d: "M60 24V232H760" }));
+            if (chart.unit) {
+                nodes.push(svgEl("text", {
+                    class: "trend-axis-unit",
+                    x: -4,
+                    y: 128,
+                    "text-anchor": "middle",
+                    transform: "rotate(-90 -4 128)",
+                }, chart.unit));
+            }
 
             (chart.series_list || []).forEach((series) => {
                 const color = safeColor(series.color);
@@ -140,6 +158,16 @@
     let renderedFingerprint = null;
     let refreshTimer;
 
+    const notifyUpdated = (payload) => {
+        if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
+        document.dispatchEvent(new CustomEvent("charts:updated", {
+            detail: {
+                hasForecast: Boolean(payload.has_forecast),
+                forecastEnd: payload.forecast_end || null,
+            },
+        }));
+    };
+
     const scheduleRefresh = (delay) => {
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(refresh, delay);
@@ -170,8 +198,10 @@
             if (payload.configured && Array.isArray(payload.charts)) {
                 const fingerprint = JSON.stringify(payload);
                 if (fingerprint !== renderedFingerprint) {
+                    const hadRendered = renderedFingerprint !== null;
                     payload.charts.forEach((chart) => updateChartPanel(chart, payload.ticks, payload));
                     renderedFingerprint = fingerprint;
+                    if (hadRendered) notifyUpdated(payload);
                 }
             }
         } catch (error) {

@@ -33,31 +33,12 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 async function run() {
     const panel = new Element("section");
     panel.dataset.forecastUrl = "/api/forecasts";
-    panel.dataset.predictionUrl = "/api/predictions";
-    panel.dataset.predictionToken = "prediction-token";
     const results = new Element("div");
-    const predictionControls = new Element("div");
-    predictionControls.hidden = true;
-    const predictButton = new Element("button");
-    predictButton.disabled = true;
-    const predictionStatus = new Element("p");
     const listeners = {};
     const payloads = [];
     let intervalCallback;
     let refreshDelay;
     let fetchCount = 0;
-    let predictionState = {
-        configured: true, status: "completed", request_id: "request-1", device_id: "sim-farm-good",
-        input_row_id: 120, cooldown_seconds: 12, message: "Prediction complete.", can_predict: false,
-    };
-    let postResponse = {
-        status: 202,
-        payload: {
-            configured: true, status: "queued", request_id: "request-2", device_id: "sim-farm-good",
-            input_row_id: 121, cooldown_seconds: 60, message: "Prediction queued.", can_predict: false,
-        },
-    };
-    let postCount = 0;
 
     const document = {
         hidden: false,
@@ -65,9 +46,6 @@ async function run() {
         getElementById: (id) => ({
             "forecast-panel": panel,
             "forecast-results": results,
-            "prediction-controls": predictionControls,
-            "predict-now": predictButton,
-            "prediction-status": predictionStatus,
         }[id] || null),
         addEventListener: (type, callback) => { listeners[type] = callback; },
     };
@@ -85,7 +63,7 @@ async function run() {
         redirected: false,
         json: async () => payload,
     });
-    const prediction = (label, severity) => ({ label, severity, value: 12.5, unit: "ppm" });
+    const prediction = (label, severity, value = 12.5) => ({ label, severity, value, unit: "ppm" });
     const forecast = (device_id, scenario, severity, overrides = {}) => ({
         device_id,
         forecast_id: `${device_id}-forecast`,
@@ -118,17 +96,10 @@ async function run() {
         URL,
         console,
         document,
-        fetch: async (url, options = {}) => {
+        fetch: async () => {
             fetchCount += 1;
-            if (url === "/api/predictions") {
-                if (options.method === "POST") {
-                    postCount += 1;
-                    assert.deepEqual(JSON.parse(options.body), { csrf_token: "prediction-token" });
-                    return response(postResponse.payload, postResponse.status);
-                }
-                return response(predictionState);
-            }
-            const payload = payloads.shift();
+            const entry = payloads.shift();
+            const payload = typeof entry === "function" ? await entry() : entry;
             if (payload instanceof Error) throw payload;
             return response(payload);
         },
@@ -138,11 +109,7 @@ async function run() {
     await settle();
 
     assert.equal(panel.attributes["aria-busy"], "false");
-    assert.equal(refreshDelay, 3000);
-    assert.equal(predictionControls.hidden, false);
-    assert.equal(predictButton.disabled, true);
-    assert.equal(predictButton.textContent, "Predict now");
-    assert.match(predictionStatus.textContent, /12 seconds/);
+    assert.equal(refreshDelay, 20000);
     assert.equal(withClass(results, "forecast-legend").length, 0);
     assert.equal(withClass(results, "is-normal").some((node) => /Normal/.test(node.textContent)), true);
     assert.equal(withClass(results, "is-warning").some((node) => /Warning/.test(node.textContent)), true);
@@ -151,89 +118,10 @@ async function run() {
     assert.equal(withClass(results, "is-unavailable").some((node) => /Unavailable/.test(node.textContent)), true);
     assert.equal(descendants(results).some((node) => node.tagName === "IMG"), false);
     assert.match(results.textContent, /<img src=x onerror=alert\(1\)>/);
-    assert.doesNotMatch(results.textContent, /Device sim-farm|Simulated input|Input through|Forecast target|Forecasts are model estimates/);
+    assert.doesNotMatch(results.textContent, /Device sim-farm|Simulated input|Input through|Forecast target|Forecasts are model estimates|Predict now/);
     for (const card of withClass(results, "forecast-card")) {
         assert.ok(card.textContent.indexOf("Predicted values in 2 hours") < card.textContent.indexOf("Review the forecast."));
     }
-
-    predictionState = {
-        ...predictionState, status: "idle", request_id: null, input_row_id: 121,
-        cooldown_seconds: 0, message: "Ready to predict.", can_predict: true,
-    };
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictButton.disabled, false);
-    assert.match(predictionStatus.textContent, /Ready to predict/);
-
-    predictButton.listeners.click();
-    predictButton.listeners.click();
-    assert.equal(predictButton.disabled, true);
-    assert.equal(predictButton.textContent, "Predicting…");
-    await settle();
-    await settle();
-    assert.equal(postCount, 1);
-    assert.match(predictionStatus.textContent, /queued/i);
-
-    predictionState = {
-        ...predictionState, status: "running", request_id: "request-2",
-        message: "Generating prediction and guidance.", can_predict: false,
-    };
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictButton.disabled, true);
-    assert.equal(predictButton.textContent, "Predicting…");
-
-    predictionState = {
-        ...predictionState, status: "completed", cooldown_seconds: 8,
-        message: "Prediction complete.", can_predict: false,
-    };
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictButton.disabled, true);
-    assert.match(predictionStatus.textContent, /8 seconds/);
-
-    predictionState = {
-        ...predictionState, status: "error", cooldown_seconds: 8,
-        message: "The last prediction failed. Wait 8 seconds before predicting again.", can_predict: false,
-    };
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictButton.disabled, true);
-    assert.match(predictionStatus.textContent, /last prediction failed/);
-    assert.match(predictionStatus.textContent, /8 seconds/);
-
-    predictionState = {
-        ...predictionState, status: "idle", input_row_id: 122, cooldown_seconds: 0,
-        message: "A new reading is ready.", can_predict: true,
-    };
-    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal")] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictButton.disabled, false);
-
-    postResponse = {
-        status: 429,
-        payload: {
-            ...predictionState, status: "completed", cooldown_seconds: 30,
-            message: "Please wait before predicting again.", can_predict: false,
-        },
-    };
-    predictButton.listeners.click();
-    await settle();
-    await settle();
-    assert.equal(postCount, 2);
-    assert.equal(predictButton.disabled, true);
-    assert.match(predictionStatus.textContent, /30 seconds/);
-    predictionState = postResponse.payload;
 
     const progression = [
         forecast("sim-farm-good", "Good", "normal", {
@@ -285,11 +173,32 @@ async function run() {
         await settle();
         await settle();
         assert.match(results.textContent, /Previous advice: check ventilation/);
-        assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target/);
+        assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target|Predict now/);
         if (status === "unavailable") assert.equal(withClass(results, "forecast-value").length, 0);
         assert.match(results.textContent, status === "pending" ? /Updating…/ : status === "error" ? /Could not update/ : /New readings are needed/);
-        assert.equal(refreshDelay, 3000);
+        assert.equal(refreshDelay, status === "pending" ? 3000 : 20000);
     }
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+        explanation_status: "unavailable", explanation: null, last_guidance: savedGuidance,
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.match(results.textContent, /Live forecast updated\. Showing the previous advice/);
+    assert.doesNotMatch(results.textContent, /Predict now/);
+    assert.equal(refreshDelay, 20000);
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
+        explanation_status: "unavailable", explanation: null,
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.match(results.textContent, /No advice yet\./);
+    assert.doesNotMatch(results.textContent, /Predict now/);
+    assert.equal(refreshDelay, 20000);
+
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation_status: "pending", explanation: null,
     })] });
@@ -309,7 +218,7 @@ async function run() {
         assert.match(results.textContent, /Try again after a new reading arrives/);
         assert.doesNotMatch(results.textContent, /Qwen|Ollama|forecast worker|logs/i);
         assert.equal(withClass(results, "forecast-value").length, 1);
-        assert.equal(refreshDelay, 3000);
+        assert.equal(refreshDelay, 20000);
     }
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -323,7 +232,7 @@ async function run() {
     await settle();
     assert.match(results.textContent, /Previous advice: check ventilation/);
     assert.match(panel.textContent, /Could not refresh forecasts/);
-    assert.equal(refreshDelay, 3000);
+    assert.equal(refreshDelay, 15000);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation: "New completed guidance.", last_guidance: savedGuidance,
@@ -334,7 +243,29 @@ async function run() {
     assert.match(results.textContent, /New completed guidance/);
     assert.doesNotMatch(results.textContent, /Previous advice/);
     assert.doesNotMatch(panel.textContent, /Could not refresh/);
-    assert.equal(refreshDelay, 3000);
+    assert.equal(refreshDelay, 20000);
+
+    assert.equal(typeof listeners["charts:updated"], "function");
+    let releaseFirstFetch;
+    payloads.push(() => new Promise((resolve) => {
+        releaseFirstFetch = () => resolve({
+            configured: true,
+            forecasts: [forecast("sim-farm-mid", "Warning", "warning", { predictions: [prediction("Ammonia", "warning", 18.75)] })],
+        });
+    }));
+    payloads.push({
+        configured: true,
+        forecasts: [forecast("sim-farm-mid", "Warning", "warning", { predictions: [prediction("Ammonia", "critical", 42.25)] })],
+    });
+    listeners["charts:updated"]();
+    await settle();
+    listeners["charts:updated"]();
+    releaseFirstFetch();
+    await settle();
+    await settle();
+    await settle();
+    assert.match(results.textContent, /42\.25 ppm/);
+
     payloads.push({ configured: true, forecasts: [] });
     intervalCallback();
     await settle();
@@ -342,37 +273,21 @@ async function run() {
     assert.doesNotMatch(results.textContent, /New completed guidance/);
     assert.match(results.textContent, /No results yet/);
 
-    predictionState = {
-        configured: false, status: "error", request_id: null, device_id: null,
-        input_row_id: null, cooldown_seconds: 0, message: "Manual prediction is unavailable.", can_predict: false,
-    };
-    payloads.push({ configured: true, forecasts: [] });
-    intervalCallback();
-    await settle();
-    await settle();
-    assert.equal(predictionControls.hidden, true);
-    assert.equal(predictButton.disabled, true);
-    assert.equal(predictionStatus.textContent, "");
-
     assert.equal(typeof listeners.visibilitychange, "function");
     document.hidden = true;
     const previousFetchCount = fetchCount;
     intervalCallback();
     await settle();
     assert.equal(fetchCount, previousFetchCount);
-    predictionState = {
-        configured: true, status: "idle", request_id: null, device_id: "sim-farm-mid",
-        input_row_id: 123, cooldown_seconds: 0, message: "Ready to predict.", can_predict: true,
-    };
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning")] });
     document.hidden = false;
     listeners.visibilitychange();
     await settle();
     await settle();
-    assert.equal(fetchCount, previousFetchCount + 2);
+    assert.equal(fetchCount, previousFetchCount + 1);
     assert.match(results.textContent, /Review the forecast/);
-    assert.equal(refreshDelay, 3000);
-    console.log("PASS: forecast rendering and manual prediction button states, cooldown, single-submit, polling, and text-only rendering.");
+    assert.equal(refreshDelay, 20000);
+    console.log("PASS: forecast rendering without predict button, chart-synced updates, polling, and text-only rendering.");
 }
 
 run().catch((error) => {

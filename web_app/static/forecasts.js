@@ -1,9 +1,6 @@
 (() => {
     const panel = document.getElementById("forecast-panel");
     const results = document.getElementById("forecast-results");
-    const predictionControls = document.getElementById("prediction-controls");
-    const predictButton = document.getElementById("predict-now");
-    const predictionStatus = document.getElementById("prediction-status");
     if (!panel || !results) return;
 
     const addText = (parent, tag, text, className = "") => {
@@ -39,9 +36,7 @@
             ? "Loading…"
             : forecast.explanation_status === "error" && forecast.status === "available"
                 ? "Could not load the advice. Try again after a new reading arrives."
-                : forecast.status === "available"
-                    ? "No advice yet. Click Predict now to generate guidance."
-                    : "No advice yet.";
+                : "No advice yet.";
         if (forecast.explanation) {
             addText(article, "p", forecast.explanation);
         } else if (forecast.last_guidance) {
@@ -51,7 +46,7 @@
                     ? "Updating… Showing the previous output."
                     : forecast.explanation_status === "error"
                         ? "Could not update. Showing the previous output."
-                        : "Live forecast updated. Click Predict now to refresh AI advice.";
+                        : "Live forecast updated. Showing the previous advice.";
             addText(article, "p", update);
             addText(article, "p", forecast.last_guidance.text);
         } else {
@@ -79,43 +74,25 @@
     };
 
     let loading = false;
-    let submitting = false;
-    let predictionConfigured = false;
+    let pendingRefresh = false;
     let renderedFingerprint = null;
     let refreshTimer;
     const refreshNotice = addText(panel, "p", "");
     refreshNotice.setAttribute("role", "status");
-    const renderPredictionState = (payload) => {
-        if (!predictionControls || !predictButton || !predictionStatus) return false;
-        if (!payload?.configured) {
-            predictionConfigured = false;
-            predictionControls.hidden = true;
-            predictButton.disabled = true;
-            predictionStatus.textContent = "";
-            return false;
-        }
-        predictionConfigured = true;
-        predictionControls.hidden = false;
-        const busy = ["queued", "running"].includes(payload.status);
-        const cooldown = Math.max(0, Number(payload.cooldown_seconds) || 0);
-        predictButton.textContent = busy || submitting ? "Predicting…" : "Predict now";
-        predictButton.disabled = submitting || busy || cooldown > 0 || !payload.can_predict || !panel.dataset.predictionToken;
-        predictionStatus.textContent = busy
-            ? payload.message || "Prediction is being generated."
-            : cooldown > 0 && payload.status !== "error"
-                ? `Prediction available in ${cooldown} second${cooldown === 1 ? "" : "s"}.`
-                : payload.message || (payload.can_predict ? "Ready to predict the latest readings." : "");
-        return true;
-    };
     const scheduleRefresh = (delay) => {
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(refresh, delay);
     };
     const refresh = async () => {
-        if (loading || document.hidden) return;
+        if (document.hidden) return;
+        if (loading) {
+            pendingRefresh = true;
+            return;
+        }
         window.clearTimeout(refreshTimer);
         loading = true;
-        let refreshDelay = 60000;
+        pendingRefresh = false;
+        let refreshDelay = 20000;
         panel.setAttribute("aria-busy", "true");
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 10000);
@@ -148,71 +125,18 @@
             refreshNotice.textContent = "Could not refresh forecasts. Showing the last loaded results.";
             refreshDelay = 15000;
         }
-        if (panel.dataset.predictionUrl) {
-            try {
-                const predictionResponse = await fetch(panel.dataset.predictionUrl, {
-                    credentials: "same-origin",
-                    headers: { Accept: "application/json" },
-                    cache: "no-store",
-                    signal: controller.signal,
-                });
-                if (predictionResponse.redirected && new URL(predictionResponse.url).pathname === "/login") {
-                    window.location.assign(predictionResponse.url);
-                    window.clearTimeout(timeout);
-                    loading = false;
-                    panel.setAttribute("aria-busy", "false");
-                    return;
-                }
-                if (!predictionResponse.ok) throw new Error(`Prediction status failed: ${predictionResponse.status}`);
-                if (renderPredictionState(await predictionResponse.json())) refreshDelay = 3000;
-            } catch (error) {
-                if (predictionConfigured && predictButton && predictionStatus) {
-                    predictButton.disabled = true;
-                    predictionStatus.textContent = "Could not check prediction availability.";
-                }
-                refreshDelay = Math.min(refreshDelay, 15000);
-            }
-        }
         window.clearTimeout(timeout);
         loading = false;
         panel.setAttribute("aria-busy", "false");
+        if (pendingRefresh && !document.hidden) {
+            pendingRefresh = false;
+            refresh();
+            return;
+        }
         scheduleRefresh(refreshDelay);
     };
 
-    predictButton?.addEventListener("click", async () => {
-        if (submitting || predictButton.disabled) return;
-        submitting = true;
-        window.clearTimeout(refreshTimer);
-        predictButton.disabled = true;
-        predictButton.textContent = "Predicting…";
-        predictionStatus.textContent = "Starting prediction…";
-        const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 10000);
-        try {
-            const response = await fetch(panel.dataset.predictionUrl, {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { Accept: "application/json", "Content-Type": "application/json" },
-                body: JSON.stringify({ csrf_token: panel.dataset.predictionToken }),
-                cache: "no-store",
-                signal: controller.signal,
-            });
-            if (response.redirected && new URL(response.url).pathname === "/login") {
-                window.location.assign(response.url);
-                return;
-            }
-            const payload = await response.json();
-            submitting = false;
-            renderPredictionState(payload);
-        } catch (error) {
-            predictionStatus.textContent = "Could not start the prediction. Try again.";
-        } finally {
-            window.clearTimeout(timeout);
-            submitting = false;
-            scheduleRefresh(3000);
-        }
-    });
-
     refresh();
+    document.addEventListener("charts:updated", () => refresh());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 })();

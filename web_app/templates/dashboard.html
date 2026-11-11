@@ -103,6 +103,20 @@
     </div>
 
     <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts" data-charts-url="{{ url_for('charts_api') }}">
+        <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" aria-busy="true">
+            <div class="dashboard-panel-heading">
+                <div>
+                    <h2>2-Hour Forecast</h2>
+                    <p class="chart-threshold-caption">AI-predicted sensor conditions and guidance for the next 2 hours</p>
+                </div>
+            </div>
+            <ul class="forecast-legend" aria-label="Prediction conditions">
+                <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
+                <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
+                <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+            </ul>
+            <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
+        </section>
         {% for chart in sensor_charts %}
         {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
         {% set desc_id = 'recorded-trend-description' if chart.is_selected else 'chart-desc-' ~ chart.column %}
@@ -117,18 +131,18 @@
                 </div>
             </div>
             <div class="trend-chart-wrap">
-                <svg class="sensor-trend" viewBox="6 14 788 252" role="img" aria-labelledby="{{ desc_id }}">
+                <svg class="sensor-trend" viewBox="-18 14 798 252" role="img" aria-labelledby="{{ desc_id }}">
                     <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                     {% for y, tick_label in chart.y_ticks %}
-                    <path class="trend-grid" d="M60 {{ y }}H760"/><text x="52" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
+                    <path class="trend-grid" d="M60 {{ y }}H760"/><line class="trend-axis-tick" x1="55" y1="{{ y }}" x2="60" y2="{{ y }}"/><text class="trend-tick-label" x="51" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
                     {% endfor %}
-                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 30V210"/><text x="{{ x }}" y="236" text-anchor="middle">{{ label }}</text>{% endfor %}
+                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 24V232"/><line class="trend-axis-tick" x1="{{ x }}" y1="232" x2="{{ x }}" y2="237"/><text class="trend-tick-label" x="{{ 62 if loop.first and x <= 65 else x }}" y="254" text-anchor="{{ 'start' if loop.first and x <= 65 else ('end' if loop.last and x >= 755 else 'middle') }}">{{ label }}</text>{% endfor %}
                     {% for tline in chart.threshold_lines %}
                     <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
 
                     {% endfor %}
-                    <path class="trend-axis" d="M60 25V210H760"/>
-                    <text class="trend-axis-title" x="410" y="258" text-anchor="middle">Time (PHT)</text>
+                    <path class="trend-axis" d="M60 24V232H760"/>
+                    <text class="trend-axis-unit" x="-4" y="128" text-anchor="middle" transform="rotate(-90 -4 128)">{{ chart.unit }}</text>
                     {% for s in chart.series_list %}
                     {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
                     {% for fsegment in s.forecast_segments %}<polyline class="trend-line is-forecast" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}44);" points="{{ fsegment }}"/>{% endfor %}
@@ -157,25 +171,7 @@
             </div>
         </section>
         {% endfor %}
-        <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" data-prediction-url="{{ url_for('predictions_api') }}" data-prediction-token="{{ session.get('prediction_token', '') }}" aria-busy="true">
-            <div class="dashboard-panel-heading">
-                <div>
-                    <h2>2-Hour Forecast</h2>
-                    <p class="chart-threshold-caption">AI-predicted sensor conditions and guidance for the next 2 hours</p>
-                </div>
-            </div>
-            <div class="forecast-actions" id="prediction-controls" hidden>
-                <button class="button button-primary" id="predict-now" type="button" aria-describedby="prediction-status" disabled>Predict now</button>
-                <p id="prediction-status" role="status" aria-live="polite"></p>
-            </div>
-            <ul class="forecast-legend" aria-label="Prediction conditions">
-                <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
-                <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
-                <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
-            </ul>
-            <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
-        </section>
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='1') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='8') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='9') }}" defer></script>{% endblock %}
