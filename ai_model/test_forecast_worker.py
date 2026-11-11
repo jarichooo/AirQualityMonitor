@@ -730,6 +730,95 @@ class ForecastWorkerTest(unittest.TestCase):
         self.model.predict.assert_not_called()
         save.assert_not_called()
 
+    def test_auto_gru_saves_series_without_qwen_then_manual_triggers_qwen_without_regru(self):
+        trajectory_model = SimpleNamespace(
+            MODEL_VERSION="test-v1",
+            LOOKBACK_SAMPLES=2,
+            FEATURE_COLUMNS=("temperature_c",),
+            TARGET_COLUMNS=("temperature_c",),
+            SAMPLE_INTERVAL_SECONDS=60,
+            CADENCE_TOLERANCE_SECONDS=0,
+            HORIZON_MINUTES=120,
+            predict=Mock(side_effect=AssertionError("predict_trajectory should be preferred")),
+            predict_trajectory=Mock(return_value={"temperature_c": [30.0 + i * 0.05 for i in range(120)]}),
+        )
+        qwen = Mock(return_value="Temperature forecast hits warning band.")
+        saved_records = []
+
+        def fake_save(_conn, record):
+            saved_records.append(record)
+
+        with (
+            patch.object(worker, "acquire_worker_lock", return_value=True),
+            patch.object(worker, "invalidate_deleted_forecasts"),
+            patch.object(worker, "fetch_active_devices", return_value=["esp32-1"]),
+            patch.object(worker, "fetch_history", return_value=self.rows),
+            patch.object(worker, "fetch_current_forecast", return_value=None),
+            patch.object(worker, "load_policy_result", return_value=(self.policy, None)),
+            patch.object(worker, "save_forecast", side_effect=fake_save),
+            patch.object(worker, "update_explanation") as update_expl,
+        ):
+            auto_result = worker.run_once(lambda: self.conn, trajectory_model, self.now, qwen=qwen, explain=False)
+
+        self.assertEqual(auto_result, {"esp32-1": "created"})
+        qwen.assert_not_called()
+        update_expl.assert_not_called()
+        self.assertEqual(len(saved_records), 1)
+        saved = saved_records[0]
+        self.assertEqual(saved["explanation_status"], "unavailable")
+        self.assertEqual(len(saved["predicted_series"]["temperature_c"]), 120)
+        self.assertAlmostEqual(saved["predicted_values"]["temperature_c"], 30.0 + 119 * 0.05)
+
+        manual_conn = MagicMock()
+        manual_conn.cursor.return_value.__enter__.return_value.fetchone.return_value = {
+            "request_id": "req-1", "device_id": "esp32-1"
+        }
+        trajectory_model.predict_trajectory.reset_mock()
+        with (
+            patch.object(worker, "acquire_worker_lock", return_value=True),
+            patch.object(worker, "fetch_history", return_value=self.rows),
+            patch.object(worker, "fetch_current_forecast", return_value=saved),
+            patch.object(worker, "load_policy_result", return_value=(self.policy, None)),
+            patch.object(worker, "set_policy_pending") as set_pending,
+            patch.object(worker, "update_explanation") as update_expl,
+        ):
+            manual_result = worker.run_manual_once(lambda: manual_conn, trajectory_model, self.now, qwen=qwen)
+
+        self.assertEqual(manual_result, {"esp32-1": "explanation_retried"})
+        trajectory_model.predict_trajectory.assert_not_called()
+        set_pending.assert_called_once()
+        qwen.assert_called_once()
+        update_expl.assert_called_once_with(
+            manual_conn, "esp32-1", saved["forecast_id"], "available", "Temperature forecast hits warning band."
+        )
+
+    def test_run_live_once_runs_auto_gru_every_minute_and_polls_manual(self):
+        state = {"last_gru_at": None}
+        times = iter([100.0, 130.0, 160.0, 160.0])
+        with (
+            patch.object(worker, "run_manual_once", side_effect=[{}, {"esp32-1": "explanation_retried"}, {}]) as manual,
+            patch.object(worker, "run_once", return_value={"esp32-1": "created"}) as auto,
+        ):
+            first = worker.run_live_once(state, clock=lambda: next(times))
+            second = worker.run_live_once(state, clock=lambda: next(times))
+            third = worker.run_live_once(state, clock=lambda: next(times))
+        self.assertEqual(first, {"esp32-1": "created"})
+        self.assertEqual(second, {"esp32-1": "explanation_retried"})
+        self.assertEqual(third, {"esp32-1": "created"})
+        self.assertEqual(manual.call_count, 3)
+        self.assertEqual(auto.call_count, 2)
+        for call_obj in auto.call_args_list:
+            self.assertFalse(call_obj.kwargs["explain"])
+
+    def test_fetch_active_devices_falls_back_to_latest_stored_device_when_idle(self):
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = []
+        cursor.fetchone.return_value = ("esp32-demo",)
+        self.assertEqual(worker.fetch_active_devices(connection, self.now), ["esp32-demo"])
+        self.assertEqual(cursor.execute.call_count, 2)
+        self.assertIn("ORDER BY recorded_at DESC, id DESC LIMIT 1", cursor.execute.call_args.args[0])
+
 
 if __name__ == "__main__":
     unittest.main()

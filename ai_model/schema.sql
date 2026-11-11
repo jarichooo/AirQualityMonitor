@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS public.air_quality_forecasts (
 );
 
 ALTER TABLE public.air_quality_forecasts ADD COLUMN IF NOT EXISTS last_guidance JSONB;
+ALTER TABLE public.air_quality_forecasts ADD COLUMN IF NOT EXISTS predicted_series JSONB;
 
 UPDATE public.air_quality_forecasts
 SET last_guidance = jsonb_build_object(

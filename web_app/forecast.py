@@ -67,6 +67,7 @@ def _unavailable(row, reason, explanation_status, explanation):
         "status": "unavailable",
         "reason": reason,
         "predictions": [],
+        "series": {},
         "explanation_status": explanation_status,
         "explanation": explanation,
         "policy_sha256": row[13] if isinstance(row[13], str) else None,
@@ -123,11 +124,17 @@ def serialize_forecast(row, sensors, now=None):
         return _unavailable(row, reason or "The forecast contains no valid sensor predictions.", "unavailable", None)
 
     result = _unavailable(row, reason, explanation_status, explanation)
+    raw_series = row[16] if len(row) > 16 and isinstance(row[16], dict) else {}
+    validated_series = {}
+    for key, _, _ in sensors:
+        raw_values = raw_series.get(key)
+        if isinstance(raw_values, list) and len(raw_values) == 120 and all(_valid_sensor_value(key, value) for value in raw_values):
+            validated_series[key] = [float(value) for value in raw_values]
     if any(prediction["severity"] == "unavailable" for prediction in predictions):
         result.update(explanation_status="unavailable", explanation=None)
     else:
         result["last_guidance"] = _last_guidance(row, now)
-    result.update(status="available", predictions=predictions)
+    result.update(status="available", predictions=predictions, series=validated_series)
     return result
 
 
@@ -135,7 +142,7 @@ def fetch_latest_forecasts(connection, sensors, now=None):
     columns = ", ".join(f"forecast.{column}" for column in FORECAST_COLUMNS)
     with connection.cursor() as cursor:
         cursor.execute(
-            f"SELECT {columns}, source.recorded_at FROM public.air_quality_forecasts AS forecast "
+            f"SELECT {columns}, source.recorded_at, forecast.predicted_series FROM public.air_quality_forecasts AS forecast "
             "JOIN public.air_quality_logs AS source ON source.id = forecast.input_row_id "
             "AND (source.device_id = forecast.device_id OR (source.device_id IS NULL AND forecast.device_id = 'henvironment-sensor')) "
             "AND (source.recorded_at = forecast.input_cutoff_at "

@@ -260,6 +260,12 @@ class PredictorArtifactTests(unittest.TestCase):
             self.assertIs(type(actual[column]), float)
             self.assertAlmostEqual(actual[column], expected[column], delta=0.001)
 
+        trajectory = predictor.predict_trajectory(prepared)
+        self.assertEqual(set(trajectory), set(predictor.TARGET_COLUMNS))
+        for column in predictor.TARGET_COLUMNS:
+            self.assertEqual(len(trajectory[column]), predictor.HORIZON_MINUTES)
+            self.assertAlmostEqual(trajectory[column][-1], expected[column], delta=0.001)
+
 
 if __name__ == "__main__":
     unittest.main()

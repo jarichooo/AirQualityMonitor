@@ -610,6 +610,65 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"Open graph", page.data)
             self.assertIn(b"metric-card-thresholds", page.data)
 
+    def test_charts_extend_with_two_hour_dashed_forecast_and_api_charts(self):
+        start = datetime(2026, 11, 11, 10, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 11, 11, 11, 0, tzinfo=timezone.utc)
+        rows = [
+            (start, None, "node-1", 400.0, 5.0, 31.0, 60.0, 8.0, 20.0, 50.0, 800.0),
+            (end, None, "node-1", 450.0, 6.0, 31.5, 62.0, 9.0, 22.0, 55.0, 900.0),
+        ]
+        metrics = [dict(column=c, label=l, unit=u, value=rows[-1][3 + i], severity="normal")
+                   for i, (c, l, u) in enumerate(application.SENSORS)]
+        metrics_by_key = {m["column"]: m for m in metrics}
+        forecast = {
+            "status": "available",
+            "device_id": "node-1",
+            "input_cutoff_at": end.isoformat(),
+            "target_at": (end + timedelta(hours=2)).isoformat(),
+            "series": {
+                col: [rows[-1][3 + i] + step * (10.0 if col == "mq137_ppm" else 0.1) for step in range(1, 121)]
+                for i, (col, _, _) in enumerate(application.SENSORS)
+            },
+        }
+        charts = application.build_sensor_charts(rows, start, end, "temperature_c", metrics_by_key, forecast=forecast)
+        ammonia_chart = charts[0]
+        ammonia_series = ammonia_chart["series_list"][0]
+        self.assertEqual(len(ammonia_series["forecast_segments"]), 1)
+        last_recorded_pt = f"{ammonia_series['points'][-1]['x']},{ammonia_series['points'][-1]['y']}"
+        forecast_pts = ammonia_series["forecast_segments"][0].split()
+        self.assertEqual(len(forecast_pts), 121)
+        self.assertEqual(forecast_pts[0], last_recorded_pt)
+        self.assertEqual(forecast_pts[-1].split(",")[0], "760.0")
+        ticks = application.build_chart_ticks(start, end + timedelta(hours=2), has_forecast=True)
+        self.assertEqual(len(ticks), 7)
+        self.assertEqual(ticks[0][0], 60.0)
+        self.assertEqual(ticks[-1][0], 760.0)
+
+        self.login()
+        fake_data = {
+            "total": 2, "earliest": start, "latest": end, "metrics": metrics,
+            "series": [], "start": start - timedelta(hours=23), "end": end,
+            "recorded_series": rows, "recorded_start": start, "recorded_end": end,
+        }
+        with (
+            patch.object(application, "fetch_dashboard_data", return_value=fake_data),
+            patch.object(application, "get_db_connection"),
+            patch.object(application, "fetch_latest_forecasts", return_value=[forecast]),
+        ):
+            response = self.client.get("/api/charts")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["configured"])
+        self.assertTrue(payload["has_forecast"])
+        self.assertEqual(len(payload["ticks"]), 7)
+        self.assertEqual(len(payload["charts"]), 5)
+        self.assertTrue(all(chart["series_list"][0]["forecast_segments"] for chart in payload["charts"]))
+
+        charts_js = (Path(__file__).parent / "static" / "charts.js").read_text(encoding="utf-8")
+        self.assertNotIn("innerHTML", charts_js)
+        self.assertIn("createElementNS", charts_js)
+        self.assertIn("AbortController", charts_js)
+
 
 if __name__ == "__main__":
     unittest.main()

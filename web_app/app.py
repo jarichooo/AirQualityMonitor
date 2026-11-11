@@ -412,9 +412,63 @@ def _scale_y(value, bottom, top, scale):
     return 210 - (float(value) - bottom) / (top - bottom) * 180
 
 
-def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by_key):
+def _parse_utc_timestamp(value):
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def _resolve_chart_forecast(forecast, end):
+    if end is None or not isinstance(forecast, dict) or forecast.get("status") != "available":
+        return None
+    series = forecast.get("series")
+    if not isinstance(series, dict) or not series:
+        return None
+    cutoff = _parse_utc_timestamp(forecast.get("input_cutoff_at"))
+    target = _parse_utc_timestamp(forecast.get("target_at"))
+    end_utc = _parse_utc_timestamp(end)
+    if cutoff is None or target is None or end_utc is None:
+        return None
+    if target <= cutoff or target <= end_utc or cutoff < end_utc - timedelta(minutes=15):
+        return None
+    return dict(cutoff=cutoff, target=target, device_id=forecast.get("device_id"), series=series)
+
+
+def build_chart_ticks(start, end, has_forecast=False):
+    if start is None or end is None:
+        return []
+    start_utc = _parse_utc_timestamp(start)
+    end_utc = _parse_utc_timestamp(end)
+    if start_utc is None or end_utc is None:
+        return []
+    if not has_forecast:
+        return [
+            (60 + minute / 60 * 700, to_pht(start_utc + timedelta(minutes=minute)).strftime("%I:%M %p"))
+            for minute in (0, 15, 30, 45, 60)
+        ]
+    total_seconds = (end_utc - start_utc).total_seconds()
+    if total_seconds <= 0:
+        total_seconds = 3600.0
+    steps = 6
+    return [
+        (
+            round(60 + step / steps * 700, 2),
+            to_pht(start_utc + timedelta(seconds=total_seconds * step / steps)).strftime("%I:%M %p"),
+        )
+        for step in range(steps + 1)
+    ]
+
+
+def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by_key, forecast=None):
     col_index = {col: idx for idx, (col, _, _) in enumerate(SENSORS)}
-    duration = (end - start) if end is not None else timedelta(hours=1)
+    active_forecast = _resolve_chart_forecast(forecast, end)
+    chart_end = active_forecast["target"] if active_forecast else end
+    duration = (chart_end - start) if (start is not None and chart_end is not None) else timedelta(hours=1)
     if duration.total_seconds() <= 0:
         duration = timedelta(hours=1)
     max_gap = timedelta(minutes=2)
@@ -425,6 +479,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
         series_cols = {s[0] for s in series_defs}
         all_valid = []
         raw_by_col = {}
+        forecast_by_col = {}
         for col, _, _, _ in series_defs:
             idx = col_index[col]
             s_rows = []
@@ -438,6 +493,13 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 s_rows.append((row[0], val, row[2] if len(row) > 2 else None))
             raw_by_col[col] = s_rows
             all_valid.extend(float(r[1]) for r in s_rows if r[1] is not None and math.isfinite(float(r[1])))
+            if active_forecast:
+                f_vals = active_forecast["series"].get(col)
+                if isinstance(f_vals, list) and f_vals:
+                    clean_vals = [float(v) for v in f_vals if v is not None and math.isfinite(float(v))]
+                    if len(clean_vals) == len(f_vals):
+                        forecast_by_col[col] = clean_vals
+                        all_valid.extend(clean_vals)
         bottom = spec["base_low"]
         top = spec["base_high"]
         if all_valid:
@@ -450,6 +512,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
         for col, s_label, s_unit, s_color in series_defs:
             segments, points, segment = [], [], []
             previous, previous_device = None, None
+            anchor, preferred_anchor = None, None
             for timestamp, value, device in raw_by_col[col]:
                 if timestamp.tzinfo is None:
                     timestamp = timestamp.replace(tzinfo=timezone.utc)
@@ -475,9 +538,32 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 points.append(point)
                 all_points.append(point)
                 segment.append(f"{point['x']},{point['y']}")
+                anchor = (timestamp, point["x"], point["y"])
+                if active_forecast and device == active_forecast.get("device_id"):
+                    preferred_anchor = anchor
                 previous, previous_device = timestamp, device
             if segment:
                 segments.append(" ".join(segment))
+            forecast_segments = []
+            f_vals = forecast_by_col.get(col)
+            if active_forecast and f_vals:
+                cutoff = active_forecast["cutoff"]
+                chosen_anchor = preferred_anchor or anchor
+                f_segment = []
+                if chosen_anchor is not None:
+                    anchor_ts, anchor_x, anchor_y = chosen_anchor
+                    f_segment.append(f"{anchor_x},{anchor_y}")
+                else:
+                    anchor_ts = None
+                for step_idx, f_val in enumerate(f_vals, start=1):
+                    step_ts = cutoff + timedelta(minutes=step_idx)
+                    if anchor_ts is not None and step_ts <= anchor_ts:
+                        continue
+                    fx = round(60 + (step_ts - start).total_seconds() / duration.total_seconds() * 700, 2)
+                    fy = round(_scale_y(f_val, bottom, top, scale), 2)
+                    f_segment.append(f"{fx},{fy}")
+                if len(f_segment) >= 2:
+                    forecast_segments.append(" ".join(f_segment))
             m = metrics_by_key.get(col, {})
             series_list.append(dict(
                 column=col,
@@ -485,6 +571,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 unit=s_unit,
                 color=s_color,
                 segments=segments,
+                forecast_segments=forecast_segments,
                 points=points,
                 latest_value=m.get("value"),
                 severity=m.get("severity", "unavailable"),
@@ -775,9 +862,7 @@ def dashboard():
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
                            recorded_trend=build_trend(data["recorded_series"], data["recorded_start"],
                                                       data["recorded_end"], hourly=False),
-                           recorded_ticks=[(60 + minute / 60 * 700,
-                                            to_pht(data["recorded_start"] + timedelta(minutes=minute)).strftime("%I:%M %p"))
-                                           for minute in (0, 15, 30, 45, 60)],
+                           recorded_ticks=build_chart_ticks(data["recorded_start"], data["recorded_end"]),
                            live_sensors=LIVE_SENSORS)
 
 
@@ -858,6 +943,80 @@ def shutdown_server_api():
         app.logger.exception("Unable to trigger host poweroff")
         return jsonify(status="error", message="Unable to shut down the server from this environment."), 503
     return jsonify(status="shutting_down", message="Server is shutting down."), 202
+
+
+@app.route("/api/charts")
+@login_required
+def charts_api():
+    query_sensor = request.args.get("sensor") or "temperature_c"
+    try:
+        data = fetch_dashboard_data(query_sensor)
+    except psycopg2.Error:
+        app.logger.exception("Unable to load dashboard charts")
+        response = jsonify(configured=False, charts=[], message="Charts are temporarily unavailable.")
+        response.status_code = 503
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    enrich_metrics(data["metrics"])
+    metrics_by_key = {m["column"]: m for m in data["metrics"]}
+    active_forecast = None
+    try:
+        with closing(get_db_connection()) as conn:
+            forecasts = fetch_latest_forecasts(conn, SENSORS)
+        active_forecast = forecasts[0] if forecasts else None
+    except psycopg2.Error as error:
+        if not (isinstance(error, psycopg2.errors.UndefinedTable) or error.pgcode in {"42P01", "42703"}):
+            app.logger.exception("Unable to load chart forecasts")
+
+    chart_forecast = _resolve_chart_forecast(active_forecast, data["recorded_end"])
+    chart_end = chart_forecast["target"] if chart_forecast else data["recorded_end"]
+    sensor_charts = build_sensor_charts(
+        data["recorded_series"], data["recorded_start"], data["recorded_end"],
+        query_sensor, metrics_by_key, forecast=active_forecast,
+    )
+    ticks = build_chart_ticks(data["recorded_start"], chart_end, has_forecast=bool(chart_forecast))
+    serialized_charts = [
+        dict(
+            chart_id=chart["chart_id"],
+            column=chart["column"],
+            title=chart["title"],
+            unit=chart["unit"],
+            severity=chart["severity"],
+            badge=chart["badge"],
+            has_points=bool(chart["points"] or any(s["forecast_segments"] for s in chart["series_list"])),
+            y_ticks=chart["y_ticks"],
+            threshold_lines=chart["threshold_lines"],
+            series_list=[
+                dict(
+                    column=s["column"],
+                    label=s["label"],
+                    unit=s["unit"],
+                    color=s["color"],
+                    segments=s["segments"],
+                    forecast_segments=s["forecast_segments"],
+                    latest_value=s["latest_value"],
+                    severity=s["severity"],
+                )
+                for s in chart["series_list"]
+            ],
+        )
+        for chart in sensor_charts
+    ]
+    recorded_end = data["recorded_end"]
+    forecast_end = chart_forecast["target"] if chart_forecast else recorded_end
+    payload = dict(
+        configured=True,
+        has_forecast=bool(chart_forecast),
+        recorded_start=data["recorded_start"].isoformat() if data["recorded_start"] else None,
+        recorded_end=recorded_end.isoformat() if recorded_end else None,
+        forecast_end=forecast_end.isoformat() if forecast_end else None,
+        ticks=[[x, label] for x, label in ticks],
+        charts=serialized_charts,
+    )
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/api/forecasts")
