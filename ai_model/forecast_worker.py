@@ -387,19 +387,46 @@ def acquire_worker_lock(conn):
 
 
 def call_qwen(predictions, severity, policy_text, target_at):
+    pht = timezone(timedelta(hours=8))
+    target_utc = target_at.astimezone(timezone.utc)
+    target_pht = target_utc.astimezone(pht)
+    flagged = {
+        column: {"value": round(float(value), 2), "category": severity.get(column)}
+        for column, value in sorted(predictions.items())
+        if severity.get(column) in {"critical", "warning"}
+        and not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
+    }
+    normal_channels = sorted(col for col, cat in severity.items() if cat == "normal")
+    unavailable_channels = sorted(col for col, cat in severity.items() if cat not in {"critical", "warning", "normal"})
+    data_lines = [
+        f"Target time: {target_pht.strftime('%I:%M %p').lstrip('0')} PHT ({target_utc.isoformat()})",
+    ]
+    if flagged:
+        data_lines.append(f"Elevated forecast channels: {json.dumps(flagged, sort_keys=True)}")
+        data_lines.append(f"Remaining normal channels ({len(normal_channels)}): {json.dumps(normal_channels)}")
+    else:
+        sample = {
+            col: round(float(predictions[col]), 2)
+            for col in normal_channels[:3]
+            if col in predictions and not isinstance(predictions[col], bool)
+            and isinstance(predictions[col], (int, float)) and math.isfinite(float(predictions[col]))
+        }
+        data_lines.append(f"All monitored channels are forecast normal ({len(normal_channels)}): {json.dumps(normal_channels)}")
+        if sample:
+            data_lines.append(f"Sample predicted values: {json.dumps(sample, sort_keys=True)}")
+    if unavailable_channels:
+        data_lines.append(f"Unavailable channels: {json.dumps(unavailable_channels)}")
     prompt = (
-        "Use the trusted policy below to explain this two-hour forecast in 3-5 clear sentences of plain English (about 80-130 words). "
-        "Cover all critical and warning channels with their exact supplied predicted values, units, severity categories, and applicable policy thresholds, "
-        "summarize whether the remaining monitored channels stay normal (or identify any unavailable coverage), "
-        "and provide practical next checks supported by the policy (such as comparing live readings, verifying sensor validity, "
-        "and inspecting airflow, moisture, ventilation, or equipment operation). "
-        "Do not list every normal number individually since full values are already displayed separately. "
-        "If you mention a supplied value or category, keep it unchanged. Clearly call it a forecast, include the target time, "
-        "do not claim any action occurred, and do not invent fan settings, chemical treatments, or guaranteed outcomes.\n\n"
+        "Use the trusted policy below to write concise forecast guidance in 2-3 clear sentences of plain English (45-75 words). "
+        "Lead with any critical or warning channels using their exact predicted value, unit, category, and plain-English threshold limit "
+        "(for example 'above 80% warning limit; normal 50-70%'), or state that monitored sensors remain normal when none are elevated. "
+        "Summarize remaining normal channels together in one short phrase without listing every individual normal reading, "
+        "mention unavailable coverage if any, and end with 1 short sentence of practical checks supported by the policy "
+        "(such as live readings, sensor validity, airflow, ventilation, or equipment). "
+        "Clearly call it a forecast with its target time, keep supplied values unchanged, never claim an action already occurred, "
+        "never output inequality syntax like '<=' or 'OR', and never mention what the policy omits.\n\n"
         f"Trusted policy:\n{policy_text}\n\n"
-        f"Target time (UTC): {target_at.astimezone(timezone.utc).isoformat()}\n"
-        f"Forecast: {json.dumps(predictions, sort_keys=True)}\n"
-        f"Categories: {json.dumps(severity, sort_keys=True)}"
+        + "\n".join(data_lines)
     )
     payload = json.dumps({
         "model": os.environ.get("OLLAMA_MODEL", "qwen2.5:3b"),
@@ -408,7 +435,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 512, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 384, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")
