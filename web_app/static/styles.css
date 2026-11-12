@@ -250,6 +250,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     font-size: 13px;
     line-height: 1.55;
 }
+.prediction-banner-text + .prediction-banner-text { margin-top: 6px; }
 .prediction-banner-text.is-muted { color: var(--muted); }
 
 .dashboard-heading { align-items: center; margin-bottom: 0; }
