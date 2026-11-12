@@ -34,6 +34,9 @@ async function run() {
     const panel = new Element("section");
     panel.dataset.forecastUrl = "/api/forecasts";
     const results = new Element("div");
+    const guidanceBanner = new Element("section");
+    guidanceBanner.className = "dashboard-notification-slot";
+    const guidanceResults = new Element("div");
     const listeners = {};
     const payloads = [];
     let intervalCallback;
@@ -46,6 +49,8 @@ async function run() {
         getElementById: (id) => ({
             "forecast-panel": panel,
             "forecast-results": results,
+            "dashboard-notification-slot": guidanceBanner,
+            "forecast-guidance-results": guidanceResults,
         }[id] || null),
         addEventListener: (type, callback) => { listeners[type] = callback; },
     };
@@ -118,10 +123,10 @@ async function run() {
     assert.equal(withClass(results, "is-unavailable").some((node) => /Unavailable/.test(node.textContent)), true);
     assert.equal(descendants(results).some((node) => node.tagName === "IMG"), false);
     assert.match(results.textContent, /<img src=x onerror=alert\(1\)>/);
-    assert.doesNotMatch(results.textContent, /Device sim-farm|Simulated input|Input through|Forecast target|Forecasts are model estimates|Predict now/);
-    for (const card of withClass(results, "forecast-card")) {
-        assert.ok(card.textContent.indexOf("Predicted values in 2 hours") < card.textContent.indexOf("Review the forecast."));
-    }
+    assert.doesNotMatch(results.textContent, /Review the forecast|Device sim-farm|Simulated input|Input through|Forecast target|Forecasts are model estimates|Predict now/);
+    assert.match(guidanceResults.textContent, /Review the forecast/);
+    assert.equal(descendants(guidanceResults).some((node) => node.tagName === "IMG"), false);
+    assert.equal(guidanceBanner.className, "dashboard-notification-slot is-critical");
 
     const progression = [
         forecast("sim-farm-good", "Good", "normal", {
@@ -144,7 +149,9 @@ async function run() {
     const cards = withClass(results, "forecast-card");
     assert.equal(cards.length, 1);
     assert.equal(withClass(cards[0], "forecast-value")[0].className.includes("is-warning"), true);
-    assert.match(cards[0].textContent, /Review the forecast/);
+    assert.doesNotMatch(cards[0].textContent, /Review the forecast/);
+    assert.match(guidanceResults.textContent, /Review the forecast/);
+    assert.equal(guidanceBanner.className, "dashboard-notification-slot is-warning");
     assert.deepEqual(progression.map((item) => item.device_id), ["sim-farm-good", "sim-farm-mid"]);
     assert.doesNotMatch(results.textContent, /Simulation stage completed|Guidance is unavailable|sim-farm-good/);
 
@@ -157,6 +164,8 @@ async function run() {
     await settle();
     assert.equal(withClass(results, "forecast-card").length, 0);
     assert.equal(results.textContent, "No results yet.");
+    assert.equal(guidanceResults.textContent, "No advice yet.");
+    assert.equal(guidanceBanner.className, "dashboard-notification-slot");
     assert.doesNotMatch(results.textContent, /stale|Simulation stage completed|Device/);
 
     const savedGuidance = {
@@ -172,10 +181,11 @@ async function run() {
         intervalCallback();
         await settle();
         await settle();
-        assert.match(results.textContent, /Previous advice: check ventilation/);
-        assert.doesNotMatch(results.textContent, /2026-10-30|Previous forecast target|Predict now/);
+        assert.match(guidanceResults.textContent, /Previous advice: check ventilation/);
+        assert.doesNotMatch(results.textContent, /Previous advice/);
+        assert.doesNotMatch(guidanceResults.textContent, /2026-10-30|Previous forecast target|Predict now/);
         if (status === "unavailable") assert.equal(withClass(results, "forecast-value").length, 0);
-        assert.match(results.textContent, status === "pending" ? /Updating…/ : status === "error" ? /Could not update/ : /New readings are needed/);
+        assert.match(guidanceResults.textContent, status === "pending" ? /Updating…/ : status === "error" ? /Could not update/ : /New readings are needed/);
         assert.equal(refreshDelay, status === "pending" ? 3000 : 20000);
     }
 
@@ -185,8 +195,9 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /Live forecast updated\. Showing the previous advice/);
-    assert.doesNotMatch(results.textContent, /Predict now/);
+    assert.match(guidanceResults.textContent, /Live forecast updated\. Showing the previous advice/);
+    assert.doesNotMatch(results.textContent, /Previous advice/);
+    assert.doesNotMatch(guidanceResults.textContent, /Predict now/);
     assert.equal(refreshDelay, 20000);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -195,8 +206,9 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /No advice yet\./);
-    assert.doesNotMatch(results.textContent, /Predict now/);
+    assert.match(guidanceResults.textContent, /No advice yet\./);
+    assert.doesNotMatch(results.textContent, /No advice yet/);
+    assert.doesNotMatch(guidanceResults.textContent, /Predict now/);
     assert.equal(refreshDelay, 20000);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -205,7 +217,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /Loading…/);
+    assert.match(guidanceResults.textContent, /Loading…/);
     assert.equal(refreshDelay, 3000);
     for (const reason of ["QWEN_TIMEOUT", "QWEN_UNAVAILABLE"]) {
         payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -214,9 +226,9 @@ async function run() {
         intervalCallback();
         await settle();
         await settle();
-        assert.match(results.textContent, /Could not load the advice/);
-        assert.match(results.textContent, /Try again after a new reading arrives/);
-        assert.doesNotMatch(results.textContent, /Qwen|Ollama|forecast worker|logs/i);
+        assert.match(guidanceResults.textContent, /Could not load the advice/);
+        assert.match(guidanceResults.textContent, /Try again after a new reading arrives/);
+        assert.doesNotMatch(guidanceResults.textContent, /Qwen|Ollama|forecast worker|logs/i);
         assert.equal(withClass(results, "forecast-value").length, 1);
         assert.equal(refreshDelay, 20000);
     }
@@ -230,7 +242,7 @@ async function run() {
     payloads.push(new Error("Offline"));
     intervalCallback();
     await settle();
-    assert.match(results.textContent, /Previous advice: check ventilation/);
+    assert.match(guidanceResults.textContent, /Previous advice: check ventilation/);
     assert.match(panel.textContent, /Could not refresh forecasts/);
     assert.equal(refreshDelay, 15000);
 
@@ -240,8 +252,9 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(results.textContent, /New completed guidance/);
-    assert.doesNotMatch(results.textContent, /Previous advice/);
+    assert.match(guidanceResults.textContent, /New completed guidance/);
+    assert.doesNotMatch(guidanceResults.textContent, /Previous advice/);
+    assert.doesNotMatch(results.textContent, /New completed guidance/);
     assert.doesNotMatch(panel.textContent, /Could not refresh/);
     assert.equal(refreshDelay, 20000);
 
@@ -270,8 +283,9 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.doesNotMatch(results.textContent, /New completed guidance/);
+    assert.doesNotMatch(guidanceResults.textContent, /New completed guidance/);
     assert.match(results.textContent, /No results yet/);
+    assert.match(guidanceResults.textContent, /No advice yet/);
 
     assert.equal(typeof listeners.visibilitychange, "function");
     document.hidden = true;
@@ -285,9 +299,9 @@ async function run() {
     await settle();
     await settle();
     assert.equal(fetchCount, previousFetchCount + 1);
-    assert.match(results.textContent, /Review the forecast/);
+    assert.match(guidanceResults.textContent, /Review the forecast/);
     assert.equal(refreshDelay, 20000);
-    console.log("PASS: forecast rendering without predict button, chart-synced updates, polling, and text-only rendering.");
+    console.log("PASS: forecast values and top banner guidance rendering, chart-synced updates, polling, and text-only rendering.");
 }
 
 run().catch((error) => {
