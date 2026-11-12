@@ -503,7 +503,7 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"About these analytics", page.data)
             self.assertNotIn(b"analytics-notes-title", page.data)
             self.assertIn(b"<polyline", page.data)
-            self.assertIn(b'<h2 id="recorded-trend-title">Temperature and Humidity</h2>', page.data)
+            self.assertIn(b'<h2 id="recorded-trend-title">Temperature</h2>', page.data)
             self.assertNotIn(b"Individual measurements", page.data)
             self.assertNotIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
@@ -599,10 +599,12 @@ class AppTestCase(unittest.TestCase):
             cursor.fetchall.return_value = []
             page = self.client.get("/dashboard")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Temperature and Humidity", page.data)
+            self.assertIn(b"Temperature", page.data)
+            self.assertIn(b"Humidity", page.data)
+            self.assertNotIn(b"Temperature and Humidity", page.data)
             self.assertIn(b"Particulate matter", page.data)
             self.assertIn(b"Carbon Dioxide", page.data)
-            self.assertIn(b"metric-card metric-card-group is-normal", page.data)
+            self.assertIn(b"metric-card is-normal", page.data)
             self.assertIn(b"metric-card metric-card-group is-critical", page.data)
             self.assertIn(b"metric-trend-arrow is-up", page.data)
             self.assertIn(b"metric-trend-arrow is-down", page.data)
@@ -661,7 +663,10 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(payload["configured"])
         self.assertTrue(payload["has_forecast"])
         self.assertEqual(len(payload["ticks"]), 7)
-        self.assertEqual(len(payload["charts"]), 5)
+        self.assertEqual(len(payload["charts"]), 6)
+        charts_by_id = {chart["chart_id"]: chart for chart in payload["charts"]}
+        self.assertEqual(charts_by_id["chart-temperature_c"]["unit"], "\u00b0C")
+        self.assertEqual(charts_by_id["chart-humidity_perc"]["unit"], "%")
         self.assertTrue(all(chart["series_list"][0]["forecast_segments"] for chart in payload["charts"]))
 
         charts_js = (Path(__file__).parent / "static" / "charts.js").read_text(encoding="utf-8")
@@ -700,6 +705,16 @@ class AppTestCase(unittest.TestCase):
         co2 = by_id["chart-co2_ppm"]
         self.assertGreater(int(co2["y_ticks"][0][1].replace(",", "")), 1000)
 
+        temp = by_id["chart-temperature_c"]
+        self.assertEqual(temp["title"], "Temperature")
+        self.assertEqual(temp["unit"], "\u00b0C")
+        self.assertEqual([s["column"] for s in temp["series_list"]], ["temperature_c"])
+
+        humidity = by_id["chart-humidity_perc"]
+        self.assertEqual(humidity["title"], "Humidity")
+        self.assertEqual(humidity["unit"], "%")
+        self.assertEqual([s["column"] for s in humidity["series_list"]], ["humidity_perc"])
+
         pm = by_id["chart-pm1_ugm3"]
         self.assertLess(int(pm["y_ticks"][-1][1].replace(",", "")), 400)
 
@@ -709,7 +724,7 @@ class AppTestCase(unittest.TestCase):
             (end, None, "node-1", 31.0, 60.0, 500.0, 5.0, 15.0, 30.0, 4.0, 200.0),
         ]
         flat_charts = application.build_sensor_charts(flat_rows, start, end, "temperature_c", metrics_by_key)
-        flat_co2_ticks = flat_charts[4]["y_ticks"]
+        flat_co2_ticks = next(c["y_ticks"] for c in flat_charts if c["chart_id"] == "chart-co2_ppm")
         self.assertGreaterEqual(len(flat_co2_ticks), 3)
         self.assertNotEqual(flat_co2_ticks[0][1], flat_co2_ticks[-1][1])
 

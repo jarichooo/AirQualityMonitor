@@ -211,6 +211,7 @@ class ForecastTestCase(unittest.TestCase):
         self.assertNotIn('id="prediction-controls"', html)
         self.assertNotIn("Predict now", html)
         self.assertNotIn("data-prediction-url", html)
+        self.assertNotIn("Temperature and Humidity", html)
         banner_pos = html.index('id="dashboard-notification-slot"')
         guidance_pos = html.index('id="forecast-guidance-results"')
         metrics_pos = html.index('dashboard-metrics-grouped')
@@ -218,6 +219,7 @@ class ForecastTestCase(unittest.TestCase):
         ammonia_pos = html.index('id="chart-mq137_ppm"')
         methane_pos = html.index('id="chart-mq4_ppm"')
         temp_pos = html.index('id="chart-temperature_c"')
+        humidity_pos = html.index('id="chart-humidity_perc"')
         pm_pos = html.index('id="chart-pm1_ugm3"')
         co2_pos = html.index('id="chart-co2_ppm"')
         self.assertLess(banner_pos, guidance_pos)
@@ -226,7 +228,8 @@ class ForecastTestCase(unittest.TestCase):
         self.assertLess(forecast_pos, ammonia_pos)
         self.assertLess(ammonia_pos, methane_pos)
         self.assertLess(methane_pos, temp_pos)
-        self.assertLess(temp_pos, pm_pos)
+        self.assertLess(temp_pos, humidity_pos)
+        self.assertLess(humidity_pos, pm_pos)
         self.assertLess(pm_pos, co2_pos)
 
     def test_previous_guidance_survives_pending_error_and_stale_readings(self):

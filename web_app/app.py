@@ -354,21 +354,44 @@ SENSOR_CHART_SPECS = (
     dict(
         column="temperature_c",
         chart_id="chart-temperature_c",
-        aliases=("chart-humidity_perc",),
-        title="Temperature and Humidity",
-        unit="\u00b0C / %",
+        aliases=(),
+        title="Temperature",
+        unit="\u00b0C",
         scale="linear",
-        min_span=4.0,
+        min_span=3.0,
         nonnegative=False,
-        base_low=10.0,
-        base_high=90.0,
-        ticks=(18, 32, 50, 70, 80),
-        threshold_summary="Temp normal 21\u201332 \u00b0C (Crit < 18 or > 35 \u00b0C) \u00b7 Humidity normal 50\u201370% (Crit < 40% or > 80%)",
-        series=(
-            ("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),
-            ("humidity_perc", "Humidity", "%", "#c084fc"),
+        base_low=15.0,
+        base_high=38.0,
+        ticks=(18, 21, 32, 35),
+        threshold_summary="Normal 21\u201332 \u00b0C \u00b7 Warning 18\u201321 or 32\u201335 \u00b0C \u00b7 Critical < 18 or > 35 \u00b0C",
+        series=(("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),),
+        thresholds=(
+            ("critical", "Critical low", 18.0),
+            ("warning", "Warning low", 21.0),
+            ("warning", "Warning high", 32.0),
+            ("critical", "Critical high", 35.0),
         ),
-        thresholds=(),
+    ),
+    dict(
+        column="humidity_perc",
+        chart_id="chart-humidity_perc",
+        aliases=(),
+        title="Humidity",
+        unit="%",
+        scale="linear",
+        min_span=6.0,
+        nonnegative=True,
+        base_low=35.0,
+        base_high=90.0,
+        ticks=(40, 50, 70, 80),
+        threshold_summary="Normal 50\u201370% \u00b7 Warning 40\u201350% or 70\u201380% \u00b7 Critical < 40% or > 80%",
+        series=(("humidity_perc", "Humidity", "%", "#c084fc"),),
+        thresholds=(
+            ("critical", "Critical low", 40.0),
+            ("warning", "Warning low", 50.0),
+            ("warning", "Warning high", 70.0),
+            ("critical", "Critical high", 80.0),
+        ),
     ),
     dict(
         column="pm1_ugm3",
@@ -966,9 +989,6 @@ def dashboard():
         database_error = True
     enrich_metrics(data["metrics"])
     metrics_by_key = {m["column"]: m for m in data["metrics"]}
-    temp_humidity_severity, temp_humidity_badge = group_severity(
-        [metrics_by_key.get("temperature_c"), metrics_by_key.get("humidity_perc")]
-    )
     pm_severity, pm_badge = group_severity(
         [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
     )
@@ -979,7 +999,6 @@ def dashboard():
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            sensor_charts=sensor_charts,
                            metrics_by_key=metrics_by_key,
-                           temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
                            pm_group=dict(severity=pm_severity, badge=pm_badge),
                            **data, selected=selected_metric,
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
