@@ -9,12 +9,15 @@
 {%- endmacro %}
 {% block content %}
 <div class="dashboard-page">
-    <div class="device-top-bar" aria-label="Device controls" data-device-socket>
-        <span class="freshness-dot is-unavailable" id="device-live-dot" role="status" aria-label="Device connection status"></span>
-        <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Disable IoT</button>
-        {% if role == 'admin' %}
-        <button class="button button-danger" id="server-shutdown-button" type="button" data-shutdown-url="{{ url_for('shutdown_server_api') }}" data-shutdown-token="{{ session.get('shutdown_token', '') }}">Shutdown server</button>
-        {% endif %}
+    <div class="dashboard-topbar">
+        <h1 class="page-brand-title">Henvironment</h1>
+        <div class="device-top-bar" aria-label="Device controls" data-device-socket>
+            <span class="freshness-dot is-unavailable" id="device-live-dot" role="status" aria-label="Device connection status"></span>
+            <button class="button button-secondary" id="device-pause-toggle" type="button" disabled>Disable IoT</button>
+            {% if role == 'admin' %}
+            <button class="button button-danger" id="server-shutdown-button" type="button" data-shutdown-url="{{ url_for('shutdown_server_api') }}" data-shutdown-token="{{ session.get('shutdown_token', '') }}">Shutdown server</button>
+            {% endif %}
+        </div>
     </div>
     <section class="dashboard-notification-slot" id="dashboard-notification-slot" aria-label="Forecast" aria-live="polite">
         <div class="prediction-banner-header">

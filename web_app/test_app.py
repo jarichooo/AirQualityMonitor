@@ -25,6 +25,7 @@ class AppTestCase(unittest.TestCase):
             connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
             dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b'<h1 class="page-brand-title">Henvironment</h1>', dashboard.data)
         self.assertIn(b"Good day", dashboard.data)
         self.assertIn(b"Methane", dashboard.data)
         self.assertIn(b"Ammonia", dashboard.data)
@@ -37,6 +38,7 @@ class AppTestCase(unittest.TestCase):
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
             page = self.client.get("/data?date_range=all&per_page=25")
             self.assertEqual(page.status_code, 200)
+            self.assertIn(b'<h1 class="page-brand-title">Henvironment</h1>', page.data)
             self.assertIn(b"Timestamp (PHT)", page.data)
             self.assertIn(b"Sep 27, 2026, 01:50:25 PM", page.data)
             self.assertIn(b'class="numeric cell-normal is-normal">31.5</td>', page.data)

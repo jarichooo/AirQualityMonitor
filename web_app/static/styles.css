@@ -266,12 +266,36 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .dashboard-range-field { width: 164px; flex: 0 0 164px; }
 .dashboard-metrics { display: grid; min-width: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
 .dashboard-panel.device-live-panel { display: grid; gap: 16px; padding: 20px; }
+.dashboard-topbar {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
+    flex-wrap: wrap;
+}
+.data-topbar {
+    display: flex;
+    flex: 0 0 auto;
+    min-width: 0;
+    align-items: center;
+    margin-bottom: 14px;
+}
+.page-brand-title {
+    margin: 0;
+    color: #f8fafc;
+    font-size: clamp(22px, 1.9vw, 27px);
+    font-weight: 700;
+    letter-spacing: -.03em;
+    line-height: 1.15;
+}
 .device-top-bar {
     display: inline-flex;
     align-self: flex-end;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
+    margin-left: auto;
     padding: 6px 8px 6px 14px;
     border: 1px solid rgb(255 255 255 / 8%);
     border-radius: 13px;
