@@ -50,14 +50,23 @@
         return article;
     };
 
+    const summarizeForecast = (forecast) => {
+        if (forecast.status !== "available" || !Array.isArray(forecast.predictions) || !forecast.predictions.length) {
+            return null;
+        }
+        const critical = forecast.predictions.filter((p) => p?.severity === "critical").map((p) => p.label).filter(Boolean);
+        const warning = forecast.predictions.filter((p) => p?.severity === "warning").map((p) => p.label).filter(Boolean);
+        const normal = forecast.predictions.filter((p) => p?.severity === "normal");
+        const elevated = [];
+        if (critical.length) elevated.push(`critical levels for ${critical.join(", ")}`);
+        if (warning.length) elevated.push(`warning levels for ${warning.join(", ")}`);
+        if (elevated.length) return `2-hour forecast predicts ${elevated.join("; ")}.`;
+        return normal.length ? "2-hour forecast predicts normal levels across monitored sensors." : null;
+    };
+
     const renderForecastGuidance = (forecast) => {
         const item = document.createElement("div");
         item.className = "prediction-banner-item";
-        const guidanceFallback = forecast.explanation_status === "pending"
-            ? "Loading…"
-            : forecast.explanation_status === "error" && forecast.status === "available"
-                ? "Could not load the advice. Try again after a new reading arrives."
-                : "No advice yet.";
         if (forecast.explanation) {
             addText(item, "p", forecast.explanation, "prediction-banner-text");
         } else if (forecast.last_guidance) {
@@ -67,11 +76,20 @@
                     ? "Updating… Showing the previous output."
                     : forecast.explanation_status === "error"
                         ? "Could not update. Showing the previous output."
-                        : "Live forecast updated. Showing the previous advice.";
+                        : "Live forecast updated. Showing the previous output.";
             addText(item, "p", update, "prediction-banner-status");
             addText(item, "p", forecast.last_guidance.text, "prediction-banner-text");
+        } else if (forecast.explanation_status === "pending") {
+            addText(item, "p", "Loading forecast…", "prediction-banner-text is-muted");
+        } else if (forecast.explanation_status === "error" && forecast.status === "available") {
+            addText(item, "p", "Could not load the forecast summary. Try again after a new reading arrives.", "prediction-banner-text is-muted");
         } else {
-            addText(item, "p", guidanceFallback, "prediction-banner-text is-muted");
+            const summary = summarizeForecast(forecast);
+            if (summary) {
+                addText(item, "p", summary, "prediction-banner-text");
+            } else {
+                addText(item, "p", "No forecast yet.", "prediction-banner-text is-muted");
+            }
         }
         return item;
     };
@@ -94,7 +112,7 @@
         if (!forecasts.length) {
             if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
             addText(results, "p", "No results yet.");
-            if (guidanceResults) addText(guidanceResults, "p", "No advice yet.", "prediction-banner-text is-muted");
+            if (guidanceResults) addText(guidanceResults, "p", "No forecast yet.", "prediction-banner-text is-muted");
             return;
         }
         const numericForecasts = forecasts.filter((forecast) => forecast.status === "available" && forecast.predictions?.length);

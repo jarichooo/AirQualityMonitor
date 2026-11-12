@@ -164,7 +164,7 @@ async function run() {
     await settle();
     assert.equal(withClass(results, "forecast-card").length, 0);
     assert.equal(results.textContent, "No results yet.");
-    assert.equal(guidanceResults.textContent, "No advice yet.");
+    assert.equal(guidanceResults.textContent, "No forecast yet.");
     assert.equal(guidanceBanner.className, "dashboard-notification-slot");
     assert.doesNotMatch(results.textContent, /stale|Simulation stage completed|Device/);
 
@@ -195,7 +195,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(guidanceResults.textContent, /Live forecast updated\. Showing the previous advice/);
+    assert.match(guidanceResults.textContent, /Live forecast updated\. Showing the previous output/);
     assert.doesNotMatch(results.textContent, /Previous advice/);
     assert.doesNotMatch(guidanceResults.textContent, /Predict now/);
     assert.equal(refreshDelay, 20000);
@@ -206,10 +206,46 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(guidanceResults.textContent, /No advice yet\./);
-    assert.doesNotMatch(results.textContent, /No advice yet/);
+    assert.match(guidanceResults.textContent, /2-hour forecast predicts warning levels for Ammonia\./);
+    assert.equal(withClass(guidanceResults, "is-muted").length, 0);
+    assert.doesNotMatch(results.textContent, /2-hour forecast predicts|No forecast yet|No advice yet/);
     assert.doesNotMatch(guidanceResults.textContent, /Predict now/);
     assert.equal(refreshDelay, 20000);
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-bad", "Critical", "critical", {
+        explanation_status: "unavailable",
+        explanation: null,
+        predictions: [
+            prediction("Ammonia", "critical", 30),
+            prediction("Methane", "warning", 15),
+            prediction("CO2", "normal", 500),
+        ],
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.equal(guidanceResults.textContent, "2-hour forecast predicts critical levels for Ammonia; warning levels for Methane.");
+    assert.equal(guidanceBanner.className, "dashboard-notification-slot is-critical");
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-good", "Good", "normal", {
+        explanation_status: "unavailable", explanation: null,
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.equal(guidanceResults.textContent, "2-hour forecast predicts normal levels across monitored sensors.");
+    assert.equal(guidanceBanner.className, "dashboard-notification-slot is-normal");
+
+    payloads.push({ configured: true, forecasts: [forecast("sim-farm-unknown", null, "not-a-category", {
+        explanation_status: "unavailable",
+        explanation: null,
+        predictions: [prediction("Ammonia", "not-a-category")],
+    })] });
+    intervalCallback();
+    await settle();
+    await settle();
+    assert.equal(guidanceResults.textContent, "No forecast yet.");
+    assert.equal(withClass(guidanceResults, "is-muted").length, 1);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
         explanation_status: "pending", explanation: null,
@@ -217,7 +253,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.match(guidanceResults.textContent, /Loading…/);
+    assert.match(guidanceResults.textContent, /Loading forecast…/);
     assert.equal(refreshDelay, 3000);
     for (const reason of ["QWEN_TIMEOUT", "QWEN_UNAVAILABLE"]) {
         payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
@@ -226,7 +262,7 @@ async function run() {
         intervalCallback();
         await settle();
         await settle();
-        assert.match(guidanceResults.textContent, /Could not load the advice/);
+        assert.match(guidanceResults.textContent, /Could not load the forecast summary/);
         assert.match(guidanceResults.textContent, /Try again after a new reading arrives/);
         assert.doesNotMatch(guidanceResults.textContent, /Qwen|Ollama|forecast worker|logs/i);
         assert.equal(withClass(results, "forecast-value").length, 1);
@@ -285,7 +321,7 @@ async function run() {
     await settle();
     assert.doesNotMatch(guidanceResults.textContent, /New completed guidance/);
     assert.match(results.textContent, /No results yet/);
-    assert.match(guidanceResults.textContent, /No advice yet/);
+    assert.match(guidanceResults.textContent, /No forecast yet/);
 
     assert.equal(typeof listeners.visibilitychange, "function");
     document.hidden = true;
@@ -301,7 +337,7 @@ async function run() {
     assert.equal(fetchCount, previousFetchCount + 1);
     assert.match(guidanceResults.textContent, /Review the forecast/);
     assert.equal(refreshDelay, 20000);
-    console.log("PASS: forecast values and top banner guidance rendering, chart-synced updates, polling, and text-only rendering.");
+    console.log("PASS: forecast values and top banner summary rendering, chart-synced updates, polling, and text-only rendering.");
 }
 
 run().catch((error) => {

@@ -16,11 +16,11 @@
         <button class="button button-danger" id="server-shutdown-button" type="button" data-shutdown-url="{{ url_for('shutdown_server_api') }}" data-shutdown-token="{{ session.get('shutdown_token', '') }}">Shutdown server</button>
         {% endif %}
     </div>
-    <section class="dashboard-notification-slot" id="dashboard-notification-slot" aria-label="2-hour forecast guidance" aria-live="polite">
+    <section class="dashboard-notification-slot" id="dashboard-notification-slot" aria-label="2-hour forecast summary" aria-live="polite">
         <div class="prediction-banner-header">
-            <span class="prediction-banner-kicker">2-Hour Forecast Guidance</span>
+            <span class="prediction-banner-kicker">2-Hour Forecast</span>
         </div>
-        <div class="prediction-banner-body" id="forecast-guidance-results"><p class="prediction-banner-text is-muted">Loading forecast guidance…</p></div>
+        <div class="prediction-banner-body" id="forecast-guidance-results"><p class="prediction-banner-text is-muted">Loading forecast…</p></div>
     </section>
     {% if database_error %}
     <div class="feedback-state feedback-error" role="alert"><div><h3>Collection status is unavailable</h3><p>We could not load the database summary. Try refreshing this page.</p></div></div>
@@ -179,4 +179,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='10') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='11') }}" defer></script>{% endblock %}
