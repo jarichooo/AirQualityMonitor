@@ -197,11 +197,16 @@
         return [overview, checks];
     };
 
+    const addParagraphs = (parent, text, className = "") => {
+        const blocks = String(text).split(/\r?\n+/).map((line) => line.trim()).filter(Boolean);
+        (blocks.length ? blocks : [String(text)]).forEach((block) => addText(parent, "p", block, className));
+    };
+
     const renderForecastGuidance = (forecast) => {
         const item = document.createElement("div");
         item.className = "prediction-banner-item";
         if (forecast.explanation) {
-            addText(item, "p", forecast.explanation, "prediction-banner-text");
+            addParagraphs(item, forecast.explanation, "prediction-banner-text");
         } else if (forecast.last_guidance) {
             const update = forecast.status !== "available"
                 ? "New readings are needed."
@@ -211,7 +216,7 @@
                         ? "Could not update. Showing the previous output."
                         : "Live forecast updated. Showing the previous output.";
             addText(item, "p", update, "prediction-banner-status");
-            addText(item, "p", forecast.last_guidance.text, "prediction-banner-text");
+            addParagraphs(item, forecast.last_guidance.text, "prediction-banner-text");
         } else if (forecast.explanation_status === "pending") {
             addText(item, "p", "Loading forecast…", "prediction-banner-text is-muted");
         } else if (forecast.explanation_status === "error" && forecast.status === "available") {

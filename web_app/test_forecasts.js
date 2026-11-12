@@ -338,14 +338,17 @@ async function run() {
     assert.equal(refreshDelay, 15000);
 
     payloads.push({ configured: true, forecasts: [forecast("sim-farm-mid", "Warning", "warning", {
-        explanation: "New completed guidance.", last_guidance: savedGuidance,
+        explanation: "Humidity is forecast to reach 85.49%.\n\nInspect ventilation and airflow.",
+        last_guidance: savedGuidance,
     })] });
     intervalCallback();
     await settle();
     await settle();
-    assert.match(guidanceResults.textContent, /New completed guidance/);
+    assert.equal(withClass(guidanceResults, "prediction-banner-text").length, 2);
+    assert.match(guidanceResults.textContent, /Humidity is forecast to reach 85\.49%/);
+    assert.match(guidanceResults.textContent, /Inspect ventilation and airflow/);
     assert.doesNotMatch(guidanceResults.textContent, /Previous advice/);
-    assert.doesNotMatch(results.textContent, /New completed guidance/);
+    assert.doesNotMatch(results.textContent, /Humidity is forecast to reach/);
     assert.doesNotMatch(panel.textContent, /Could not refresh/);
     assert.equal(refreshDelay, 20000);
 
@@ -374,7 +377,7 @@ async function run() {
     intervalCallback();
     await settle();
     await settle();
-    assert.doesNotMatch(guidanceResults.textContent, /New completed guidance/);
+    assert.doesNotMatch(guidanceResults.textContent, /Inspect ventilation and airflow|Review the forecast/);
     assert.match(results.textContent, /No results yet/);
     assert.match(guidanceResults.textContent, /No forecast yet/);
 

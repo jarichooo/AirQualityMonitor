@@ -665,9 +665,9 @@ class ForecastWorkerTest(unittest.TestCase):
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["options"]["num_ctx"], 4096)
-        self.assertEqual(payload["options"]["num_predict"], 384)
-        self.assertIn("at most 50 words", payload["prompt"])
-        self.assertIn("Do not list every reading", payload["prompt"])
+        self.assertEqual(payload["options"]["num_predict"], 512)
+        self.assertIn("80-130 words", payload["prompt"])
+        self.assertIn("Do not list every normal number individually", payload["prompt"])
         self.assertEqual(payload["keep_alive"], "15m")
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
 
@@ -808,7 +808,7 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(manual.call_count, 3)
         self.assertEqual(auto.call_count, 2)
         for call_obj in auto.call_args_list:
-            self.assertFalse(call_obj.kwargs["explain"])
+            self.assertTrue(call_obj.kwargs["explain"])
 
     def test_fetch_active_devices_falls_back_to_latest_stored_device_when_idle(self):
         connection = MagicMock()

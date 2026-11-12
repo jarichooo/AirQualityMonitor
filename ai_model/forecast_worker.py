@@ -388,11 +388,14 @@ def acquire_worker_lock(conn):
 
 def call_qwen(predictions, severity, policy_text, target_at):
     prompt = (
-        "Use the trusted policy below to explain this two-hour forecast in 1-2 short sentences of plain English. "
-        "Use at most 50 words and mention only the two most concerning channels. "
-        "Do not list every reading; the numbers are already displayed separately. "
+        "Use the trusted policy below to explain this two-hour forecast in 3-5 clear sentences of plain English (about 80-130 words). "
+        "Cover all critical and warning channels with their exact supplied predicted values, units, severity categories, and applicable policy thresholds, "
+        "summarize whether the remaining monitored channels stay normal (or identify any unavailable coverage), "
+        "and provide practical next checks supported by the policy (such as comparing live readings, verifying sensor validity, "
+        "and inspecting airflow, moisture, ventilation, or equipment operation). "
+        "Do not list every normal number individually since full values are already displayed separately. "
         "If you mention a supplied value or category, keep it unchanged. Clearly call it a forecast, include the target time, "
-        "do not claim any action occurred, and only recommend checks supported by the policy.\n\n"
+        "do not claim any action occurred, and do not invent fan settings, chemical treatments, or guaranteed outcomes.\n\n"
         f"Trusted policy:\n{policy_text}\n\n"
         f"Target time (UTC): {target_at.astimezone(timezone.utc).isoformat()}\n"
         f"Forecast: {json.dumps(predictions, sort_keys=True)}\n"
@@ -405,7 +408,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 384, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 512, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")
@@ -672,12 +675,12 @@ def run_manual_once(connection_factory=database_connection, model=predictor, now
 
 def run_live_once(state, connection_factory=database_connection, model=predictor, now=None,
                   qwen=call_qwen, clock=time.monotonic):
-    """Run any queued Qwen explanation request and refresh numeric GRU forecasts every minute."""
+    """Run any queued Qwen explanation request and refresh live GRU forecasts and Qwen guidance every minute."""
     manual_results = run_manual_once(connection_factory, model, now, qwen=qwen)
     last_gru_at = state.get("last_gru_at")
     if last_gru_at is not None and (clock() - last_gru_at) < POLL_SECONDS:
         return manual_results
-    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=False)
+    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=True)
     if not auto_results.get("_worker", "").startswith("skipped:"):
         state["last_gru_at"] = clock()
     return {**auto_results, **manual_results}
@@ -749,7 +752,7 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--manual", action="store_true", help="only predict when the dashboard queues a request")
     mode.add_argument("--live", action="store_true",
-                      help="refresh numeric GRU forecasts every minute and run Qwen on button requests")
+                      help="refresh live GRU forecasts and Qwen guidance every minute, plus manual requests")
     mode.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
                         help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)
