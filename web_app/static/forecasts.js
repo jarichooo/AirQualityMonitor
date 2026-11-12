@@ -1,6 +1,8 @@
 (() => {
     const panel = document.getElementById("forecast-panel");
     const results = document.getElementById("forecast-results");
+    const guidanceBanner = document.getElementById("dashboard-notification-slot");
+    const guidanceResults = document.getElementById("forecast-guidance-results") || guidanceBanner;
     if (!panel || !results) return;
 
     const addText = (parent, tag, text, className = "") => {
@@ -12,33 +14,52 @@
     };
     const severityLabel = (value) => ({ normal: "Normal", warning: "Warning", critical: "Critical", unavailable: "Classification unavailable" }[value] || "Unavailable");
     const severityClass = (value) => ["normal", "warning", "critical"].includes(value) ? value : "unavailable";
+    const severityRank = { unavailable: 0, normal: 1, warning: 2, critical: 3 };
 
-    const renderForecast = (forecast) => {
-        const article = document.createElement("article");
-        article.className = `forecast-card is-${forecast.status === "available" ? "available" : "unavailable"}`;
-        if (forecast.status === "available" && forecast.predictions?.length) {
-            const heading = addText(article, "h3", "Predicted values in 2 hours");
-            const list = document.createElement("dl");
-            list.setAttribute("aria-labelledby", heading.id = `forecast-values-${forecast.forecast_id || forecast.device_id}`);
+    const highestSeverity = (forecasts) => {
+        let best = null;
+        forecasts.forEach((forecast) => {
+            if (forecast.status !== "available" || !Array.isArray(forecast.predictions)) return;
             forecast.predictions.forEach((prediction) => {
-                addText(list, "dt", prediction.label);
-                const value = addText(
-                    list,
-                    "dd",
-                    `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`,
-                    `forecast-value is-${severityClass(prediction.severity)}`,
-                );
-                value.setAttribute("aria-label", `${prediction.label}: ${value.textContent}`);
+                const candidate = severityClass(prediction.severity);
+                if (candidate !== "unavailable" && (!best || severityRank[candidate] > severityRank[best])) {
+                    best = candidate;
+                }
             });
-            article.append(list);
-        }
+        });
+        return best;
+    };
+
+    const renderForecastValues = (forecast) => {
+        const article = document.createElement("article");
+        article.className = "forecast-card is-available";
+        const heading = addText(article, "h3", "Predicted values in 2 hours");
+        const list = document.createElement("dl");
+        list.setAttribute("aria-labelledby", heading.id = `forecast-values-${forecast.forecast_id || forecast.device_id}`);
+        forecast.predictions.forEach((prediction) => {
+            addText(list, "dt", prediction.label);
+            const value = addText(
+                list,
+                "dd",
+                `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`,
+                `forecast-value is-${severityClass(prediction.severity)}`,
+            );
+            value.setAttribute("aria-label", `${prediction.label}: ${value.textContent}`);
+        });
+        article.append(list);
+        return article;
+    };
+
+    const renderForecastGuidance = (forecast) => {
+        const item = document.createElement("div");
+        item.className = "prediction-banner-item";
         const guidanceFallback = forecast.explanation_status === "pending"
             ? "Loading…"
             : forecast.explanation_status === "error" && forecast.status === "available"
                 ? "Could not load the advice. Try again after a new reading arrives."
                 : "No advice yet.";
         if (forecast.explanation) {
-            addText(article, "p", forecast.explanation);
+            addText(item, "p", forecast.explanation, "prediction-banner-text");
         } else if (forecast.last_guidance) {
             const update = forecast.status !== "available"
                 ? "New readings are needed."
@@ -47,30 +68,48 @@
                     : forecast.explanation_status === "error"
                         ? "Could not update. Showing the previous output."
                         : "Live forecast updated. Showing the previous advice.";
-            addText(article, "p", update);
-            addText(article, "p", forecast.last_guidance.text);
+            addText(item, "p", update, "prediction-banner-status");
+            addText(item, "p", forecast.last_guidance.text, "prediction-banner-text");
         } else {
-            addText(article, "p", guidanceFallback);
+            addText(item, "p", guidanceFallback, "prediction-banner-text is-muted");
         }
-        return article;
+        return item;
     };
 
     const render = (payload) => {
         results.replaceChildren();
+        guidanceResults?.replaceChildren();
         if (!payload.configured) {
-            addText(results, "p", payload.message || "Forecasting is not configured yet.");
+            if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
+            const message = payload.message || "Forecasting is not configured yet.";
+            addText(results, "p", message);
+            if (guidanceResults) addText(guidanceResults, "p", message, "prediction-banner-text is-muted");
             return;
         }
-        const forecasts = (payload.forecasts || []).filter((forecast) =>
-            (forecast.status === "available" && forecast.predictions?.length) || forecast.explanation || forecast.last_guidance?.text
-        );
+        const forecasts = (payload.forecasts || [])
+            .filter((forecast) =>
+                (forecast.status === "available" && forecast.predictions?.length) || forecast.explanation || forecast.last_guidance?.text
+            )
+            .sort((left, right) => Number(right.status === "available") - Number(left.status === "available"));
         if (!forecasts.length) {
+            if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
             addText(results, "p", "No results yet.");
+            if (guidanceResults) addText(guidanceResults, "p", "No advice yet.", "prediction-banner-text is-muted");
             return;
         }
-        forecasts
-            .sort((left, right) => Number(right.status === "available") - Number(left.status === "available"))
-            .forEach((forecast) => results.append(renderForecast(forecast)));
+        const numericForecasts = forecasts.filter((forecast) => forecast.status === "available" && forecast.predictions?.length);
+        if (numericForecasts.length) {
+            numericForecasts.forEach((forecast) => results.append(renderForecastValues(forecast)));
+        } else {
+            addText(results, "p", "No results yet.");
+        }
+        if (guidanceBanner) {
+            const level = highestSeverity(forecasts);
+            guidanceBanner.className = level ? `dashboard-notification-slot is-${level}` : "dashboard-notification-slot";
+        }
+        if (guidanceResults) {
+            forecasts.forEach((forecast) => guidanceResults.append(renderForecastGuidance(forecast)));
+        }
     };
 
     let loading = false;

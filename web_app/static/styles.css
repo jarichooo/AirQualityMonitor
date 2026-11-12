@@ -199,14 +199,58 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .page-dashboard .main-content, body.page-dashboard { height: auto; overflow: auto; }
 .dashboard-page { display: flex; min-width: 0; min-height: 0; flex-direction: column; gap: 18px; }
 
-/* Reserved rectangular notification banner space between top bar and the 5 squares */
+/* Prediction guidance banner between top bar and the 5 squares */
 .dashboard-notification-slot {
+    display: flex;
     width: 100%;
     min-height: 68px;
-    border: 1px dashed rgb(52 211 153 / 16%);
-    border-radius: 14px;
-    background: linear-gradient(180deg, rgb(19 33 28 / 38%), rgb(12 20 17 / 22%));
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px 20px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgb(19 27 24 / 95%), rgb(14 21 18 / 98%));
+    box-shadow: 0 12px 32px -12px rgb(0 0 0 / 50%), inset 0 1px 0 rgb(255 255 255 / 5%);
 }
+.dashboard-notification-slot.is-normal { border-left: 3px solid #34d399; }
+.dashboard-notification-slot.is-warning { border-left: 3px solid #fbbf24; }
+.dashboard-notification-slot.is-critical { border-left: 3px solid #fb7185; }
+.prediction-banner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.prediction-banner-kicker {
+    color: var(--secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.prediction-banner-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.prediction-banner-item + .prediction-banner-item {
+    padding-top: 8px;
+    border-top: 1px solid rgb(255 255 255 / 6%);
+}
+.prediction-banner-status {
+    margin: 0 0 3px;
+    color: var(--muted);
+    font-size: 11.5px;
+    line-height: 1.4;
+}
+.prediction-banner-text {
+    margin: 0;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+}
+.prediction-banner-text.is-muted { color: var(--muted); }
 
 .dashboard-heading { align-items: center; margin-bottom: 0; }
 .dashboard-heading .page-heading-copy p { max-width: 720px; }
@@ -679,7 +723,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: baseline;
     gap: 0 14px;
-    margin: 10px 0 14px;
+    margin: 10px 0 0;
     padding: 10px 15px;
     border: 1px solid var(--border);
     border-radius: 12px;
