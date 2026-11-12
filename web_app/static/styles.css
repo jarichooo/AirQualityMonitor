@@ -685,9 +685,8 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .dashboard-stat span { display: block; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .dashboard-stat strong { display: block; overflow: hidden; margin-top: 2px; color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 2-Hour Forecast AI Panel */
+/* Forecast AI Panel */
 .ai-panel { flex: 1 1 auto; }
-.ai-panel .dashboard-panel-heading { padding: 18px 22px 14px; border-bottom: 1px solid rgb(255 255 255 / 6%); }
 .forecast-legend {
     display: flex;
     flex-wrap: wrap;
