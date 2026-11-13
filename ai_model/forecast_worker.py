@@ -386,45 +386,74 @@ def acquire_worker_lock(conn):
         return bool(cursor.fetchone()[0])
 
 
+CHANNEL_DISPLAY = (
+    ("temperature_c", "Temperature", "\u00b0C"),
+    ("humidity_perc", "Humidity", "%"),
+    ("co2_ppm", "CO2", "ppm"),
+    ("mq137_ppm", "Ammonia", "ppm"),
+    ("mq4_ppm", "Methane", "ppm"),
+    ("pm1_ugm3", "PM1.0", "\u00b5g/m\u00b3"),
+    ("pm25_ugm3", "PM2.5", "\u00b5g/m\u00b3"),
+    ("pm10_ugm3", "PM10", "\u00b5g/m\u00b3"),
+)
+
+
+def _format_channel_reading(label, value, unit):
+    formatted = f"{round(float(value), 2):,.2f}".rstrip("0").rstrip(".")
+    spacing = "" if unit == "%" else " "
+    return f"{label} {formatted}{spacing}{unit}" if unit else f"{label} {formatted}"
+
+
+def _valid_number(value):
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
+
+
 def call_qwen(predictions, severity, policy_text, target_at):
     pht = timezone(timedelta(hours=8))
-    target_utc = target_at.astimezone(timezone.utc)
-    target_pht = target_utc.astimezone(pht)
-    flagged = {
-        column: {"value": round(float(value), 2), "category": severity.get(column)}
-        for column, value in sorted(predictions.items())
-        if severity.get(column) in {"critical", "warning"}
-        and not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
-    }
-    normal_channels = sorted(col for col, cat in severity.items() if cat == "normal")
-    unavailable_channels = sorted(col for col, cat in severity.items() if cat not in {"critical", "warning", "normal"})
-    data_lines = [
-        f"Target time: {target_pht.strftime('%I:%M %p').lstrip('0')} PHT ({target_utc.isoformat()})",
-    ]
-    if flagged:
-        data_lines.append(f"Elevated forecast channels: {json.dumps(flagged, sort_keys=True)}")
-        data_lines.append(f"Remaining normal channels ({len(normal_channels)}): {json.dumps(normal_channels)}")
-    else:
-        sample = {
-            col: round(float(predictions[col]), 2)
-            for col in normal_channels[:3]
-            if col in predictions and not isinstance(predictions[col], bool)
-            and isinstance(predictions[col], (int, float)) and math.isfinite(float(predictions[col]))
-        }
-        data_lines.append(f"All monitored channels are forecast normal ({len(normal_channels)}): {json.dumps(normal_channels)}")
-        if sample:
-            data_lines.append(f"Sample predicted values: {json.dumps(sample, sort_keys=True)}")
-    if unavailable_channels:
-        data_lines.append(f"Unavailable channels: {json.dumps(unavailable_channels)}")
+    target_pht = target_at.astimezone(timezone.utc).astimezone(pht)
+    known_cols = [col for col, _, _ in CHANNEL_DISPLAY]
+    meta = {col: (label, unit) for col, label, unit in CHANNEL_DISPLAY}
+    extra_cols = sorted(col for col in (set(predictions) | set(severity)) if col not in meta)
+    ordered_cols = known_cols + extra_cols
+
+    elevated = []
+    normal = []
+    unavailable = []
+    for column in ordered_cols:
+        if column not in predictions and column not in severity:
+            continue
+        label, unit = meta.get(column, (column, ""))
+        cat = severity.get(column)
+        value = predictions.get(column)
+        if cat in {"critical", "warning"} and _valid_number(value):
+            rank = 0 if cat == "critical" else 1
+            elevated.append((rank, f"{_format_channel_reading(label, value, unit)} ({cat})"))
+        elif cat == "normal" and _valid_number(value):
+            normal.append(_format_channel_reading(label, value, unit))
+        else:
+            unavailable.append(label)
+
+    data_lines = [f"Target time: {target_pht.strftime('%I:%M %p').lstrip('0')} PHT"]
+    if elevated:
+        elevated.sort(key=lambda item: item[0])
+        data_lines.append("Elevated: " + ", ".join(text for _, text in elevated))
+    if normal:
+        prefix = "Normal readings: " if elevated else "All monitored readings remain normal: "
+        data_lines.append(prefix + ", ".join(normal))
+    if unavailable:
+        data_lines.append("Unavailable: " + ", ".join(unavailable))
+
     prompt = (
-        "Use the trusted policy below to write concise forecast guidance in 2-3 clear sentences of plain English (45-75 words). "
-        "Lead with any critical or warning channels using their exact predicted value, unit, category, and plain-English threshold limit "
-        "(for example 'above 80% warning limit; normal 50-70%'), or state that monitored sensors remain normal when none are elevated. "
-        "Summarize remaining normal channels together in one short phrase without listing every individual normal reading, "
-        "mention unavailable coverage if any, and end with 1 short sentence of practical checks supported by the policy "
-        "(such as live readings, sensor validity, airflow, ventilation, or equipment). "
-        "Clearly call it a forecast with its target time, keep supplied values unchanged, never claim an action already occurred, "
-        "never output inequality syntax like '<=' or 'OR', and never mention what the policy omits.\n\n"
+        "Use the trusted policy below to write clear, detailed yet concise forecast guidance in 3 short sentences (55-85 words total). "
+        "Sentence 1: label it a 2-hour forecast with the PHT target time and highlight every critical or warning channel with its exact predicted value, unit, category, and plain-English threshold limit "
+        "(or state that all monitored channels stay normal when none are elevated). "
+        "Sentence 2: list the supplied normal predicted values and units compactly in one comma-separated phrase (plus any unavailable channels) without repeating 'within the normal range' or threshold bounds for normal sensors. "
+        "Sentence 3: give 1 brief practical check recommendation (live readings, sensor validity, airflow, ventilation, or equipment relevant to the elevated channels). "
+        "Never use inequality symbols ('<=' or 'OR'), never add meta-disclaimers about what the policy omits, and never claim an action already occurred.\n\n"
+        "Style example (match this detail and brevity):\n"
+        "\"By 12:30 PM PHT, forecast Humidity reaches 85.49% (critical, above the 80% warning limit; normal 50-70%). "
+        "Other monitored readings stay normal: Temperature 29.99 °C, CO2 1,123 ppm, Ammonia 4.39 ppm, Methane 1.07 ppm, and PM1.0–PM10 7.04 µg/m³. "
+        "Verify live readings and sensor validity, and inspect airflow, condensation sources, and ventilation equipment.\"\n\n"
         f"Trusted policy:\n{policy_text}\n\n"
         + "\n".join(data_lines)
     )
@@ -435,7 +464,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 384, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 220, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")

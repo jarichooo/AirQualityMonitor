@@ -665,10 +665,10 @@ class ForecastWorkerTest(unittest.TestCase):
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["options"]["num_ctx"], 4096)
-        self.assertEqual(payload["options"]["num_predict"], 384)
-        self.assertIn("45-75 words", payload["prompt"])
-        self.assertIn("without listing every individual normal reading", payload["prompt"])
-        self.assertIn("Elevated forecast channels:", payload["prompt"])
+        self.assertEqual(payload["options"]["num_predict"], 220)
+        self.assertIn("55-85 words", payload["prompt"])
+        self.assertIn("without repeating 'within the normal range'", payload["prompt"])
+        self.assertIn("Elevated: Temperature 34 °C (warning)", payload["prompt"])
         self.assertEqual(payload["keep_alive"], "15m")
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
 
@@ -684,8 +684,7 @@ class ForecastWorkerTest(unittest.TestCase):
             )
         self.assertEqual(normal_message, "All monitored channels stay normal.")
         normal_payload = json.loads(opener.open.call_args.args[0].data)
-        self.assertIn("All monitored channels are forecast normal (2):", normal_payload["prompt"])
-        self.assertIn("Sample predicted values:", normal_payload["prompt"])
+        self.assertIn("All monitored readings remain normal: Temperature 26 °C, Humidity 60%", normal_payload["prompt"])
 
         opener.open.return_value = io.BytesIO(json.dumps({"done": False, "response": ""}).encode())
         with patch.object(worker.urllib.request, "build_opener", return_value=opener):
