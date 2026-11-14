@@ -2,7 +2,7 @@
 
 This folder contains ready-to-use test scripts for **people testing the Henvironment Air Quality Dashboard** without needing physical sensors or server login access.
 
-As long as your laptop or computer is connected to the **same Wi-Fi or local network** as the Henvironment server, you can run these scripts straight from your own device.
+The scripts are pre-configured for the Henvironment server at **`192.168.11.50`**. As long as your laptop or computer is on the **same Wi-Fi or local network**, you can run them right away from your own device.
 
 ---
 
@@ -22,10 +22,9 @@ Pick the test scenario you want to see on the dashboard:
 
 ## What You Need Before Starting
 
-1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server.
-2. **Server IP address:** Ask the project team for the server's local IP address (it looks something like `192.168.1.50`).
-3. **Python 3 installed** on your computer.
-4. A bash terminal:
+1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server (`192.168.11.50`).
+2. **Python 3 installed** on your computer.
+3. A bash terminal:
    - **Windows:** Open **Git Bash** inside the `AirQualityMonitor` folder (right-click the folder → **Open Git Bash here**).
    - **Mac / Linux:** Open **Terminal** and go into the `AirQualityMonitor` folder (`cd path/to/AirQualityMonitor`).
 
@@ -35,20 +34,20 @@ Pick the test scenario you want to see on the dashboard:
 
 ## Step 1: Run a Test Scenario
 
-Run the script you want with the server's IP address at the end:
+Simply run the script you want:
 
 ```bash
-./simulation_scripts/simulate_good.sh 192.168.1.50
+./simulation_scripts/simulate_good.sh
 ```
 
-*(Replace `192.168.1.50` with the actual IP address of the server, and swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh` as needed.)*
+Swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh` to test the other conditions.
 
-If you forget to include the IP address, the script will ask you to type it in.
+*(If the server ever moves to a different IP address, just pass the new IP at the end — for example: `./simulation_scripts/simulate_good.sh 192.168.11.50`.)*
 
 ### What happens while it runs
 - Immediately sends starter sample readings so the dashboard cards and charts update right away.
 - Continues sending 1 new sample reading every minute while open.
-- Open the **Henvironment web dashboard** in your browser to inspect the cards, charts, and 2-hour forecast.
+- Open the **Henvironment web dashboard** (`http://192.168.11.50:5000`) in your browser to inspect the cards, charts, and 2-hour forecast.
 - Press **`Ctrl + C`** in the terminal whenever you want to stop the test.
 
 ---
@@ -58,10 +57,10 @@ If you forget to include the IP address, the script will ask you to type it in.
 After finishing your tests, run the cleanup script so no sample test data stays mixed into the system:
 
 ```bash
-./simulation_scripts/delete_simulated_data.sh 192.168.1.50
+./simulation_scripts/delete_simulated_data.sh
 ```
 
-- Deletes any simulated readings and simulated forecasts found on the server.
+- Deletes any simulated readings and simulated forecasts found on the server (`192.168.11.50`).
 - Safe to run even if there is no test data yet.
 - Does **not** delete real sensor readings from actual hardware.
 
@@ -69,10 +68,9 @@ After finishing your tests, run the cleanup script so no sample test data stays 
 
 ## If Something Doesn't Work
 
-- **Script says it cannot reach the server:**
+- **Script says it cannot reach `192.168.11.50:5432`:**
   - Make sure your device is on the same Wi-Fi/network as the server.
-  - Double-check the server IP address with the project team.
-  - Let the server host know if connection to port `5432` is blocked on the server.
+  - Check with the project team if the server is powered on or if port `5432` is blocked on the server.
 - **"Permission denied" on Mac or Linux:**
   - Run `chmod +x simulation_scripts/*.sh` once, then re-run your script.
 - **"Python 3 is required" message:**

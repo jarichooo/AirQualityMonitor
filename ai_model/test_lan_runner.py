@@ -59,15 +59,8 @@ class LanRunnerTests(unittest.TestCase):
     def test_resolve_host_precedence(self):
         self.assertEqual(lan_runner.resolve_host("192.168.1.50", {"DB_HOST": "10.0.0.2"}), "192.168.1.50")
         self.assertEqual(lan_runner.resolve_host(None, {"DB_HOST": "10.0.0.2"}), "10.0.0.2")
-        self.assertEqual(
-            lan_runner.resolve_host(None, {}, interactive=True, input_fn=lambda _: " 192.168.1.88 "),
-            "192.168.1.88",
-        )
-        self.assertEqual(
-            lan_runner.resolve_host(None, {}, interactive=True, input_fn=lambda _: ""),
-            "127.0.0.1",
-        )
-        self.assertEqual(lan_runner.resolve_host(None, {}, interactive=False), "127.0.0.1")
+        self.assertEqual(lan_runner.resolve_host(None, {}), "192.168.11.50")
+        self.assertEqual(lan_runner.resolve_host("   ", {"DB_HOST": ""}), "192.168.11.50")
 
     def test_configure_db_env_sets_defaults_without_overwriting_overrides(self):
         env = {"DB_PORT": "15432", "DB_PASS": "custompass"}

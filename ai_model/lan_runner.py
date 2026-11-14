@@ -14,6 +14,7 @@ from pathlib import Path
 
 VALID_ACTIONS = ("good", "mid", "bad", "random", "delete")
 PSYCOPG2_REQUIREMENT = "psycopg2-binary==2.9.11"
+DEFAULT_HOST = "192.168.11.50"
 DEFAULT_PORT = "5432"
 DEFAULT_DB = "air_quality"
 DEFAULT_USER = "admin"
@@ -40,19 +41,15 @@ def _cache_venv_dir():
         return Path(tempfile.gettempdir()) / "airqualitymonitor-sim-venv"
 
 
-def resolve_host(cli_host=None, env=None, *, interactive=None, input_fn=input):
-    """Determine PostgreSQL host from CLI argument, DB_HOST, or interactive prompt."""
+def resolve_host(cli_host=None, env=None):
+    """Determine PostgreSQL host from CLI argument, DB_HOST, or built-in server IP."""
     env = os.environ if env is None else env
     if cli_host and cli_host.strip():
         return cli_host.strip()
     env_host = env.get("DB_HOST", "").strip()
     if env_host:
         return env_host
-    is_tty = sys.stdin.isatty() if interactive is None else interactive
-    if is_tty:
-        entered = input_fn("Enter the server IP address [127.0.0.1]: ").strip()
-        return entered or "127.0.0.1"
-    return "127.0.0.1"
+    return DEFAULT_HOST
 
 
 def configure_db_env(host, *, port=None, user=None, dbname=None, env=None):
