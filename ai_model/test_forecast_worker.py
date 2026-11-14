@@ -664,13 +664,13 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(message, "Forecast warning. Check ventilation.")
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
-        self.assertEqual(payload["options"]["num_ctx"], 4096)
-        self.assertEqual(payload["options"]["num_predict"], 220)
+        self.assertEqual(payload["options"]["num_ctx"], 2048)
+        self.assertEqual(payload["options"]["num_predict"], 448)
         self.assertIn("55-85 words", payload["prompt"])
         self.assertIn("without repeating 'within the normal range'", payload["prompt"])
         self.assertIn("Elevated: Temperature 34 °C (warning)", payload["prompt"])
         self.assertEqual(payload["keep_alive"], "15m")
-        self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
+        self.assertEqual(opener.open.call_args.kwargs["timeout"], 240)
 
         opener.open.return_value = io.BytesIO(json.dumps({
             "done": True,
@@ -807,23 +807,23 @@ class ForecastWorkerTest(unittest.TestCase):
             manual_conn, "esp32-1", saved["forecast_id"], "available", "Temperature forecast hits warning band."
         )
 
-    def test_run_live_once_runs_auto_gru_every_minute_and_polls_manual(self):
-        state = {"last_gru_at": None}
-        times = iter([100.0, 130.0, 160.0, 160.0])
+    def test_run_live_once_runs_auto_gru_every_minute_and_waits_between_qwen_inputs(self):
+        state = {"last_gru_at": None, "last_qwen_at": None}
+        times = iter([100.0, 100.0, 130.0, 160.0, 160.0, 310.0, 310.0])
         with (
-            patch.object(worker, "run_manual_once", side_effect=[{}, {"esp32-1": "explanation_retried"}, {}]) as manual,
+            patch.object(worker, "run_manual_once", side_effect=[{}, {"esp32-1": "explanation_retried"}, {}, {}]) as manual,
             patch.object(worker, "run_once", return_value={"esp32-1": "created"}) as auto,
         ):
             first = worker.run_live_once(state, clock=lambda: next(times))
             second = worker.run_live_once(state, clock=lambda: next(times))
             third = worker.run_live_once(state, clock=lambda: next(times))
+            fourth = worker.run_live_once(state, clock=lambda: next(times))
         self.assertEqual(first, {"esp32-1": "created"})
         self.assertEqual(second, {"esp32-1": "explanation_retried"})
         self.assertEqual(third, {"esp32-1": "created"})
-        self.assertEqual(manual.call_count, 3)
-        self.assertEqual(auto.call_count, 2)
-        for call_obj in auto.call_args_list:
-            self.assertTrue(call_obj.kwargs["explain"])
+        self.assertEqual(fourth, {"esp32-1": "created"})
+        self.assertEqual(manual.call_count, 4)
+        self.assertEqual([call_obj.kwargs["explain"] for call_obj in auto.call_args_list], [True, False, True])
 
     def test_fetch_active_devices_falls_back_to_latest_stored_device_when_idle(self):
         connection = MagicMock()

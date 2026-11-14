@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -35,9 +36,11 @@ SENSOR_COLUMNS = {
 NONNEGATIVE_COLUMNS = SENSOR_COLUMNS - {"temperature_c", "humidity_perc"}
 FRESHNESS_SECONDS = 180
 POLL_SECONDS = 60
+QWEN_AUTO_INTERVAL_SECONDS = 180
 SERIES_PHASES = ("good", "mid", "bad")
 SERIES_CYCLES_PER_PHASE = 5
 WORKER_LOCK_ID = 739_783_247_071_623_201
+_QWEN_CALL_LOCK = threading.Lock()
 
 
 class ContractError(ValueError):
@@ -464,7 +467,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 220, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 448, "num_ctx": 2048},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")
@@ -472,12 +475,13 @@ def call_qwen(predictions, severity, policy_text, target_at):
             f"{base_url}/api/generate", data=payload,
             headers={"Content-Type": "application/json"}, method="POST",
         )
-        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "120"))
+        timeout = float(os.environ.get("OLLAMA_TIMEOUT", "240"))
         if not math.isfinite(timeout) or timeout <= 0:
             raise ValueError("OLLAMA_TIMEOUT must be a finite positive number")
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-        with opener.open(request, timeout=timeout) as response:
-            result = json.load(response)
+        with _QWEN_CALL_LOCK:
+            with opener.open(request, timeout=timeout) as response:
+                result = json.load(response)
     except (OSError, ValueError, urllib.error.URLError) as exc:
         raise QwenUnavailable(str(exc)) from exc
     if not isinstance(result, dict) or result.get("error") or result.get("done") is not True:
@@ -729,16 +733,32 @@ def run_manual_once(connection_factory=database_connection, model=predictor, now
         return {job["device_id"]: result}
 
 
+def _qwen_auto_interval():
+    interval = float(os.environ.get("QWEN_AUTO_INTERVAL_SECONDS", str(QWEN_AUTO_INTERVAL_SECONDS)))
+    if not math.isfinite(interval) or interval < 0:
+        raise ValueError("QWEN_AUTO_INTERVAL_SECONDS must be a finite nonnegative number")
+    return interval
+
+
 def run_live_once(state, connection_factory=database_connection, model=predictor, now=None,
                   qwen=call_qwen, clock=time.monotonic):
-    """Run any queued Qwen explanation request and refresh live GRU forecasts and Qwen guidance every minute."""
+    """Run manual Qwen requests immediately; refresh GRU every minute and auto-Qwen after settle cooldown."""
     manual_results = run_manual_once(connection_factory, model, now, qwen=qwen)
+    ran_manual = any(key != "_worker" for key in manual_results)
+    now_tick = clock()
+    if ran_manual:
+        state["last_qwen_at"] = now_tick
     last_gru_at = state.get("last_gru_at")
-    if last_gru_at is not None and (clock() - last_gru_at) < POLL_SECONDS:
+    if last_gru_at is not None and (now_tick - last_gru_at) < POLL_SECONDS:
         return manual_results
-    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=True)
+    last_qwen_at = state.get("last_qwen_at")
+    should_explain = last_qwen_at is None or (now_tick - last_qwen_at) >= _qwen_auto_interval()
+    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=should_explain)
     if not auto_results.get("_worker", "").startswith("skipped:"):
-        state["last_gru_at"] = clock()
+        finished_tick = clock()
+        state["last_gru_at"] = finished_tick
+        if should_explain:
+            state["last_qwen_at"] = finished_tick
     return {**auto_results, **manual_results}
 
 
