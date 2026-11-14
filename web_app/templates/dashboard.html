@@ -36,7 +36,7 @@
     {% set pm25 = metrics_by_key['pm25_ugm3'] %}
     {% set pm10 = metrics_by_key['pm10_ugm3'] %}
     {% set co2 = metrics_by_key['co2_ppm'] %}
-    <div class="dashboard-metrics dashboard-metrics-grouped" aria-label="Latest recorded sensor values">
+    <div class="dashboard-metrics dashboard-metrics-grouped" id="dashboard-top-metrics" aria-label="Latest recorded sensor values">
         <a class="metric-card is-{{ ammonia.severity }}{% if selected and selected.column == 'mq137_ppm' %} is-selected{% endif %}" href="#chart-mq137_ppm"{% if selected and selected.column == 'mq137_ppm' %} aria-current="true"{% endif %}>
             <div class="metric-card-top">
                 <span class="metric-card-label">Ammonia</span>
@@ -187,4 +187,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='5') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='14') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='6') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='14') }}" defer></script>{% endblock %}

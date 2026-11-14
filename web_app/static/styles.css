@@ -748,6 +748,12 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     gap: 18px;
     align-items: stretch;
 }
+.sensor-charts-grid > .dashboard-panel {
+    cursor: pointer;
+}
+.dashboard-metrics-grouped {
+    scroll-margin-top: 20px;
+}
 .sensor-chart-panel {
     position: relative;
     scroll-margin-top: 20px;

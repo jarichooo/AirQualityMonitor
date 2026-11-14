@@ -756,11 +756,12 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b"trend-axis-tick", page.data)
         self.assertIn(b"trend-axis-unit", page.data)
         self.assertIn(b'transform="rotate(-90 -4 128)"', page.data)
+        self.assertIn(b'id="dashboard-top-metrics"', page.data)
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-37", page.data)
-        self.assertIn(b"charts.js?v=5", page.data)
+        self.assertIn(b"dark-mode-38", page.data)
+        self.assertIn(b"charts.js?v=6", page.data)
         self.assertIn(b"forecasts.js?v=14", page.data)
 
 

@@ -120,6 +120,8 @@ class Element {
             if (s === "polyline.trend-line") return this.tagName === "POLYLINE" && this.classList.contains("trend-line");
             if (s === ".chart-heading-meta .severity-pill") return this.classList.contains("severity-pill");
             if (s === ".trend-chart-wrap .chart-empty-state") return this.classList.contains("chart-empty-state");
+            if (s === "[role='button']") return this.attributes.role === "button";
+            if (/^[a-z]+$/i.test(s)) return this.tagName === s.toUpperCase();
             return false;
         });
     }
@@ -152,7 +154,7 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 function buildChartPanel(id) {
     const panel = new Element("section");
     panel.id = id;
-    panel.className = "panel sensor-chart-panel";
+    panel.className = "dashboard-panel sensor-chart-panel";
 
     const headingMeta = new Element("div");
     headingMeta.className = "chart-heading-meta";
@@ -282,10 +284,31 @@ async function run() {
     });
 
     let scheduledRefresh;
+    let scrollTopCount = 0;
+    const topMetrics = {
+        id: "dashboard-top-metrics",
+        scrollIntoView: (opts) => {
+            assert.equal(opts.behavior, "smooth");
+            assert.equal(opts.block, "start");
+            scrollTopCount += 1;
+        },
+    };
+    const forecastPanel = new Element("section");
+    forecastPanel.id = "forecast-panel";
+    forecastPanel.className = "dashboard-panel ai-panel";
+    const forecastLink = new Element("a");
+    forecastLink.setAttribute("href", "#chart-mq137_ppm");
+    forecastPanel.append(forecastLink);
+    grid.append(forecastPanel);
+
     const documentMock = {
         hidden: false,
         querySelector: (selector) => (selector === ".sensor-charts-grid[data-charts-url]" ? grid : null),
-        getElementById: (id) => (id === "chart-pm1_ugm3" ? pmPanel : (id === "chart-mq137_ppm" ? nh3Panel : null)),
+        getElementById: (id) => (
+            id === "dashboard-top-metrics"
+                ? topMetrics
+                : (id === "chart-pm1_ugm3" ? pmPanel : (id === "chart-mq137_ppm" ? nh3Panel : null))
+        ),
         createElement: (tag) => new Element(tag),
         createElementNS: (_, tag) => new Element(tag),
         addEventListener: () => {},
@@ -410,6 +433,28 @@ async function run() {
     pmSvg.listeners.pointerleave({ pointerType: "mouse" });
     assert.equal(pmTooltip.hidden, true);
     assert.equal(pmSvg.querySelectorAll(".trend-crosshair").length, 0);
+
+    // Pressing an empty part of a chart panel, forecast card, or graph jumps back to the top squares.
+    const beforeEmptyClicks = scrollTopCount;
+    grid.listeners.pointerdown({ button: 0, clientX: 20, clientY: 20 });
+    grid.listeners.click({ target: pmWrap });
+    assert.equal(scrollTopCount, beforeEmptyClicks + 1);
+
+    grid.listeners.pointerdown({ button: 0, clientX: 120, clientY: 120 });
+    grid.listeners.click({ target: pmSvg });
+    assert.equal(scrollTopCount, beforeEmptyClicks + 2);
+
+    grid.listeners.pointerdown({ button: 0, clientX: 10, clientY: 10 });
+    grid.listeners.click({ target: forecastPanel });
+    assert.equal(scrollTopCount, beforeEmptyClicks + 3);
+
+    // Interactive children (legend buttons, forecast tile links) and dragged scrubs do NOT jump.
+    grid.listeners.click({ target: updatedPm25Toggle });
+    grid.listeners.click({ target: forecastLink });
+    grid.listeners.pointerdown({ button: 0, clientX: 100, clientY: 100 });
+    grid.listeners.pointermove({ clientX: 140, clientY: 102 });
+    grid.listeners.click({ target: pmSvg });
+    assert.equal(scrollTopCount, beforeEmptyClicks + 3);
 
     console.log("test_charts.js passed");
 }

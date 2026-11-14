@@ -644,22 +644,80 @@
         }
     };
 
+    let pointerGesture = null;
+
+    const scrollToTopMetrics = () => {
+        const target = typeof document.getElementById === "function"
+            ? (document.getElementById("dashboard-top-metrics") || document.querySelector?.(".dashboard-metrics-grouped"))
+            : document.querySelector?.("#dashboard-top-metrics, .dashboard-metrics-grouped");
+        if (target && typeof target.scrollIntoView === "function") {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+            return true;
+        }
+        if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            return true;
+        }
+        return false;
+    };
+
+    grid.addEventListener("pointerdown", (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        pointerGesture = {
+            x: Number(event.clientX) || 0,
+            y: Number(event.clientY) || 0,
+            moved: false,
+        };
+    });
+
+    grid.addEventListener("pointermove", (event) => {
+        if (!pointerGesture || pointerGesture.moved) return;
+        const dx = (Number(event.clientX) || 0) - pointerGesture.x;
+        const dy = (Number(event.clientY) || 0) - pointerGesture.y;
+        if (Math.hypot(dx, dy) > 8) {
+            pointerGesture.moved = true;
+        }
+    });
+
+    grid.addEventListener("pointercancel", () => {
+        pointerGesture = null;
+    });
+
     grid.addEventListener("click", (event) => {
         const btn = event.target?.closest?.(".chart-series-toggle");
-        if (!btn) return;
-        const panel = btn.closest(".sensor-chart-panel");
-        if (!panel || !panel.id) return;
-        const col = btn.dataset.seriesCol || "";
-        const kind = btn.dataset.seriesKind || "recorded";
-        const current = activeHighlights.get(panel.id);
-        if (current && current.col === col && current.kind === kind) {
-            activeHighlights.delete(panel.id);
-            applySeriesHighlight(panel, null);
-        } else {
-            const next = { col, kind };
-            activeHighlights.set(panel.id, next);
-            applySeriesHighlight(panel, next);
+        if (btn) {
+            pointerGesture = null;
+            const panel = btn.closest(".sensor-chart-panel");
+            if (!panel || !panel.id) return;
+            const col = btn.dataset.seriesCol || "";
+            const kind = btn.dataset.seriesKind || "recorded";
+            const current = activeHighlights.get(panel.id);
+            if (current && current.col === col && current.kind === kind) {
+                activeHighlights.delete(panel.id);
+                applySeriesHighlight(panel, null);
+            } else {
+                const next = { col, kind };
+                activeHighlights.set(panel.id, next);
+                applySeriesHighlight(panel, next);
+            }
+            return;
         }
+
+        const wasDragged = Boolean(pointerGesture?.moved);
+        pointerGesture = null;
+        if (wasDragged) return;
+
+        if (event.target?.closest?.("a, button, input, select, textarea, label, [role='button'], .chart-series-item")) {
+            return;
+        }
+        const selectedText = typeof window.getSelection === "function"
+            ? String(window.getSelection()?.toString?.() || "")
+            : "";
+        if (selectedText.trim()) return;
+
+        const panel = event.target?.closest?.(".dashboard-panel");
+        if (!panel) return;
+        scrollToTopMetrics();
     });
 
     let loading = false;
