@@ -50,7 +50,7 @@ def resolve_host(cli_host=None, env=None, *, interactive=None, input_fn=input):
         return env_host
     is_tty = sys.stdin.isatty() if interactive is None else interactive
     if is_tty:
-        entered = input_fn("Enter PostgreSQL server IP or hostname [127.0.0.1]: ").strip()
+        entered = input_fn("Enter the server IP address [127.0.0.1]: ").strip()
         return entered or "127.0.0.1"
     return "127.0.0.1"
 
@@ -163,3 +163,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

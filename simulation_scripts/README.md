@@ -1,73 +1,79 @@
-# Simulation Scripts
+# Testing Guide (`simulation_scripts`)
 
-Easy-to-run scripts for sending sample air quality readings to the Henvironment server or cleaning them up afterward.
+This folder contains ready-to-use test scripts for **people testing the Henvironment Air Quality Dashboard** without needing physical sensors or server login access.
 
-You do **not** need to log into the server with SSH. As long as your computer is on the **same Wi-Fi or local network** as the server, you can run these right from your own laptop or desktop.
+As long as your laptop or computer is connected to the **same Wi-Fi or local network** as the Henvironment server, you can run these scripts straight from your own device.
 
 ---
 
-## What Each Script Does
+## Which Script Should I Run?
 
-| Script | Condition Sent | What You Will See on the Dashboard |
+Pick the test scenario you want to see on the dashboard:
+
+| Script | Air Quality Scenario | What It Simulates |
 | :--- | :--- | :--- |
-| `simulate_good.sh` | **Good / Normal** | Safe, comfortable coop readings |
-| `simulate_mid.sh` | **Warning** | Slightly elevated temperature, gas, or dust levels |
-| `simulate_bad.sh` | **Critical** | High / unsafe readings needing immediate attention |
-| `simulate_random.sh` | **Random Mix** | Unpredictable readings switching across good, warning, and critical |
-| `delete_simulated_data.sh` | **Cleanup** | Deletes all simulated test data (your real sensor readings stay safe) |
+| `simulate_good.sh` | **Good / Normal** | Healthy, normal coop conditions |
+| `simulate_mid.sh` | **Warning** | Slightly high temperature, gas, or dust levels |
+| `simulate_bad.sh` | **Critical** | Unsafe levels that trigger alerts and warnings |
+| `simulate_random.sh` | **Random Mix** | Mixed readings across good, warning, and critical levels |
+| `delete_simulated_data.sh` | **Clean Up** | Removes all test data created by these scripts (safe for real sensor data) |
 
 ---
 
-## Before You Start
+## What You Need Before Starting
 
-1. Make sure **Python 3** is installed on your computer.
-2. Make sure both your computer and the Henvironment server are connected to the **same network** (same Wi-Fi or LAN).
-3. Find the **server's IP address** (for example: `192.168.1.50`).
-4. Open a bash terminal in the main `AirQualityMonitor` folder:
-   - **Windows:** right-click inside the `AirQualityMonitor` folder and choose **Open Git Bash here**
-   - **Mac / Linux:** open **Terminal** and `cd` into `AirQualityMonitor`
+1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server.
+2. **Server IP address:** Ask the project team for the server's local IP address (it looks something like `192.168.1.50`).
+3. **Python 3 installed** on your computer.
+4. A bash terminal:
+   - **Windows:** Open **Git Bash** inside the `AirQualityMonitor` folder (right-click the folder → **Open Git Bash here**).
+   - **Mac / Linux:** Open **Terminal** and go into the `AirQualityMonitor` folder (`cd path/to/AirQualityMonitor`).
 
-> **First-time setup is automatic:** if your computer is missing the database connector package, the script sets it up automatically in the background on first run.
+*(The first time you run a script, it may pause for a few seconds to install a small helper package automatically — you don't need to install anything manually.)*
 
 ---
 
-## How to Run a Simulation
+## Step 1: Run a Test Scenario
 
-Type the script name followed by the server's IP address:
+Run the script you want with the server's IP address at the end:
 
 ```bash
 ./simulation_scripts/simulate_good.sh 192.168.1.50
 ```
 
-Replace `simulate_good.sh` with whichever condition you want (`simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh`), and replace `192.168.1.50` with your server's actual IP address.
+*(Replace `192.168.1.50` with the actual IP address of the server, and swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh` as needed.)*
 
-- If you omit the IP address, the script will simply ask you to type it in (just press **Enter** if you are running it directly on the server itself).
-- While running, the script adds the starting readings right away and then sends one new reading every minute.
-- Press **`Ctrl + C`** whenever you want to stop it.
+If you forget to include the IP address, the script will ask you to type it in.
 
-> **Tip:** To trigger an AI forecast on the simulated data, open the dashboard in your browser and click the prediction/forecast button while or after seeding.
+### What happens while it runs
+- Immediately sends starter sample readings so the dashboard cards and charts update right away.
+- Continues sending 1 new sample reading every minute while open.
+- Open the **Henvironment web dashboard** in your browser to inspect the cards, charts, and 2-hour forecast.
+- Press **`Ctrl + C`** in the terminal whenever you want to stop the test.
 
 ---
 
-## How to Delete All Simulated Data
+## Step 2: Clean Up When You're Done
 
-When you are finished testing and want to clear all simulated data from the database:
+After finishing your tests, run the cleanup script so no sample test data stays mixed into the system:
 
 ```bash
 ./simulation_scripts/delete_simulated_data.sh 192.168.1.50
 ```
 
-- If simulated data exists, it removes all simulated readings and simulated forecasts.
-- If there is no simulated data in the database, it safely does nothing and finishes cleanly.
-- Real ESP32 hardware readings are never touched.
+- Deletes any simulated readings and simulated forecasts found on the server.
+- Safe to run even if there is no test data yet.
+- Does **not** delete real sensor readings from actual hardware.
 
 ---
 
-## Common Issues
+## If Something Doesn't Work
 
-- **"Cannot reach PostgreSQL at ...:5432"**
-  - Double-check that you typed the right server IP address.
-  - Check that your computer and the server are on the same Wi-Fi/network.
-  - On the Ubuntu server, make sure port `5432` is allowed through the firewall (`sudo ufw allow 5432/tcp`) and the database container is running.
-- **"Permission denied" on Mac or Linux**
-  - Run `chmod +x simulation_scripts/*.sh` once, then try the script again.
+- **Script says it cannot reach the server:**
+  - Make sure your device is on the same Wi-Fi/network as the server.
+  - Double-check the server IP address with the project team.
+  - Let the server host know if connection to port `5432` is blocked on the server.
+- **"Permission denied" on Mac or Linux:**
+  - Run `chmod +x simulation_scripts/*.sh` once, then re-run your script.
+- **"Python 3 is required" message:**
+  - Install Python 3 from [python.org](https://www.python.org/downloads/), then open a fresh terminal window and try again.
