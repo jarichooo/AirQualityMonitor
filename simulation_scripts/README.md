@@ -6,17 +6,20 @@ This `simulation_scripts` folder is **completely standalone** — you do **not**
 
 ## Which Script Should I Run?
 
-| Script | Air Quality Scenario | What It Simulates |
+Pick the test scenario or control action you want:
+
+| Script | Action | What It Does |
 | :--- | :--- | :--- |
-| `simulate_good.sh` | **Good / Normal** | Healthy, normal coop conditions |
-| `simulate_mid.sh` | **Warning** | Slightly high temperature, gas, or dust levels |
-| `simulate_bad.sh` | **Critical** | Unsafe levels that trigger alerts and warnings |
-| `simulate_random.sh` | **Random Mix** | Mixed readings across good, warning, and critical levels |
+| `simulate_good.sh` | **Good / Normal** | Simulates healthy, normal coop conditions |
+| `simulate_mid.sh` | **Warning** | Simulates slightly high temperature, gas, or dust levels |
+| `simulate_bad.sh` | **Critical** | Simulates unsafe levels that trigger alerts and warnings |
+| `simulate_random.sh` | **Random Mix** | Simulates mixed readings across good, warning, and critical levels |
+| `stop_simulation.sh` | **Stop Simulation** | Stops any active simulation without deleting the readings already shown |
 | `delete_simulated_data.sh` | **Clean Up** | Removes all test data created by these scripts (safe for real sensor data) |
 
 ---
 
-## Before You Start
+## What You Need Before Starting
 
 1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server (`192.168.11.50`).
 2. **Python 3 installed** on your computer.
@@ -44,11 +47,24 @@ Swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_r
 - Immediately sends starter sample readings so the dashboard updates right away.
 - Continues sending 1 new sample reading every minute while left open.
 - Open `http://192.168.11.50:5000` in your browser to inspect the dashboard cards, charts, and 2-hour forecast.
-- Press **`Ctrl + C`** whenever you want to stop sending test readings.
 
 ---
 
-## Step 2: Clean Up When You're Done
+## Step 2: Stop the Running Simulation
+
+You can stop sending readings in either of two ways:
+- Press **`Ctrl + C`** in the terminal window where the simulation is running, **or**
+- Run the stop script from another terminal window (useful if the simulation was left running elsewhere or in the background):
+
+```bash
+./stop_simulation.sh
+```
+
+*(Stopping leaves the seeded readings visible on the dashboard so you can inspect them or switch to a different condition.)*
+
+---
+
+## Step 3: Clean Up When You're Done
 
 Run the cleanup script afterward so no sample test data stays in the dashboard:
 

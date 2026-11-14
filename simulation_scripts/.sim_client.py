@@ -7,6 +7,7 @@ import json
 import math
 import os
 import random
+import signal
 import socket
 import subprocess
 import sys
@@ -17,7 +18,7 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-VALID_ACTIONS = ("good", "mid", "bad", "random", "delete")
+VALID_ACTIONS = ("good", "mid", "bad", "random", "stop", "delete")
 PSYCOPG2_REQUIREMENT = "psycopg2-binary==2.9.11"
 DEFAULT_HOST = "192.168.11.50"
 DEFAULT_PORT = "5432"
@@ -371,6 +372,90 @@ def clear_simulated_data(connection_factory=database_connection, report=print, *
     return summary
 
 
+def _pid_file():
+    base = Path.home() / ".cache"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        return base / "airqualitymonitor-sim.pid"
+    except OSError:
+        return Path(tempfile.gettempdir()) / "airqualitymonitor-sim.pid"
+
+
+def _write_pid_file(profile):
+    try:
+        _pid_file().write_text(json.dumps({"pid": os.getpid(), "profile": profile}), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _remove_pid_file(*, only_if_self=True):
+    path = _pid_file()
+    try:
+        if not path.exists():
+            return
+        if only_if_self:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("pid") != os.getpid():
+                return
+        path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
+
+
+def _terminate_local_pid(killer=os.kill):
+    path = _pid_file()
+    if not path.exists():
+        return 0
+    stopped = 0
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        pid = int(data.get("pid", 0))
+        if pid > 0 and pid != os.getpid():
+            try:
+                killer(pid, signal.SIGTERM)
+                stopped = 1
+            except OSError:
+                pass
+    except (OSError, ValueError, TypeError):
+        pass
+    finally:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return stopped
+
+
+def stop_simulation(connection_factory=database_connection, report=print, *, killer=os.kill):
+    """Stop any locally running simulation process and terminate active server lock sessions."""
+    local_stopped = _terminate_local_pid(killer=killer)
+    lock_hi = (MANUAL_SEEDER_LOCK >> 32) & 0xFFFFFFFF
+    lock_lo = MANUAL_SEEDER_LOCK & 0xFFFFFFFF
+    terminated = 0
+    with closing(connection_factory()) as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT l.pid FROM pg_locks l "
+                "WHERE l.locktype = 'advisory' AND l.objsubid = 1 "
+                "AND l.classid = %s::oid AND l.objid = %s::oid "
+                "AND l.pid <> pg_backend_pid()",
+                (lock_hi, lock_lo),
+            )
+            pids = [row[0] for row in cursor.fetchall()]
+            for backend_pid in pids:
+                cursor.execute("SELECT pg_terminate_backend(%s)", (backend_pid,))
+                if cursor.fetchone()[0]:
+                    terminated += 1
+        conn.commit()
+    summary = {
+        "status": "stopped",
+        "local_stopped": local_stopped,
+        "server_sessions_terminated": terminated,
+    }
+    report(json.dumps(summary), flush=True)
+    return summary
+
+
 def run_simulation(profile, connection_factory=database_connection, clock=None, sleeper=time.sleep, report=print):
     """Seed one condition, then append a reading each minute until interrupted."""
     current_device = device_id(profile)
@@ -396,48 +481,55 @@ def run_simulation(profile, connection_factory=database_connection, clock=None, 
                 cursor.execute("SELECT pg_advisory_unlock(%s)", (WORKER_LOCK_ID,))
             conn.commit()
 
-        report(
-            json.dumps({"profile": profile, "status": "started", "device_id": current_device, "seeded": inserted}),
-            flush=True,
-        )
-        expected_at = started_at
-        while True:
-            expected_at += timedelta(minutes=1)
-            remaining = (expected_at - clock()).total_seconds()
-            if remaining > 0:
-                sleeper(remaining)
-            observed_at = clock()
-            if _utc_minute(observed_at) != expected_at:
-                raise RuntimeError(
-                    f"Missed the {expected_at.isoformat()} reading; stopping instead of backfilling fake data"
-                )
-            row = generate_readings(profile, expected_at)[-1]
-            try:
-                inserted = _insert_rows(conn, [row])
-                if inserted != 1:
-                    raise RuntimeError(f"The {expected_at.isoformat()} reading already exists")
-                conn.commit()
-            except BaseException:
-                conn.rollback()
-                raise
+        _write_pid_file(profile)
+        try:
             report(
-                json.dumps(
-                    {
-                        "profile": profile,
-                        "device_id": current_device,
-                        "recorded_at": expected_at.isoformat(),
-                        "inserted": 1,
-                    }
-                ),
+                json.dumps({"profile": profile, "status": "started", "device_id": current_device, "seeded": inserted}),
                 flush=True,
             )
+            expected_at = started_at
+            while True:
+                expected_at += timedelta(minutes=1)
+                remaining = (expected_at - clock()).total_seconds()
+                if remaining > 0:
+                    sleeper(remaining)
+                observed_at = clock()
+                if _utc_minute(observed_at) != expected_at:
+                    raise RuntimeError(
+                        f"Missed the {expected_at.isoformat()} reading; stopping instead of backfilling fake data"
+                    )
+                row = generate_readings(profile, expected_at)[-1]
+                try:
+                    inserted = _insert_rows(conn, [row])
+                    if inserted != 1:
+                        raise RuntimeError(f"The {expected_at.isoformat()} reading already exists")
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    raise
+                report(
+                    json.dumps(
+                        {
+                            "profile": profile,
+                            "device_id": current_device,
+                            "recorded_at": expected_at.isoformat(),
+                            "inserted": 1,
+                        }
+                    ),
+                    flush=True,
+                )
+        finally:
+            _remove_pid_file(only_if_self=True)
 
 
 def run_action(action):
-    """Execute the requested simulation profile or clear all seeded simulated records."""
+    """Execute the requested simulation profile, stop a running one, or delete seeded rows."""
     from psycopg2 import Error as DatabaseError
 
     try:
+        if action == "stop":
+            stop_simulation()
+            return 0
         if action == "delete":
             clear_simulated_data()
             return 0
@@ -452,9 +544,9 @@ def run_action(action):
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Run standalone LAN air quality simulations or delete simulated DB rows."
+        description="Run standalone LAN air quality simulations, stop an active simulation, or delete simulated DB rows."
     )
-    parser.add_argument("action", choices=VALID_ACTIONS, help="Simulation profile or 'delete'")
+    parser.add_argument("action", choices=VALID_ACTIONS, help="Simulation profile, 'stop', or 'delete'")
     parser.add_argument("host", nargs="?", help=f"Server LAN IP or hostname (default: DB_HOST or {DEFAULT_HOST})")
     parser.add_argument("--port", help=f"PostgreSQL port (default: DB_PORT or {DEFAULT_PORT})")
     parser.add_argument("--user", help=f"PostgreSQL user (default: DB_USER or {DEFAULT_USER})")
@@ -483,3 +575,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
