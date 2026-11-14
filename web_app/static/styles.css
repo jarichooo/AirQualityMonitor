@@ -623,6 +623,12 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     scroll-margin-top: 20px;
     transition: border-color 220ms ease, box-shadow 220ms ease;
 }
+#chart-pm1_ugm3 {
+    grid-column: 1 / -1;
+}
+#chart-pm1_ugm3 .sensor-trend {
+    max-height: 360px;
+}
 .chart-anchor-alias {
     position: absolute;
     top: -20px;

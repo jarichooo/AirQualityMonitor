@@ -666,6 +666,7 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(payload["has_forecast"])
         self.assertEqual(len(payload["ticks"]), 7)
         self.assertEqual(len(payload["charts"]), 6)
+        self.assertEqual(payload["charts"][-1]["chart_id"], "chart-pm1_ugm3")
         charts_by_id = {chart["chart_id"]: chart for chart in payload["charts"]}
         self.assertEqual(charts_by_id["chart-temperature_c"]["unit"], "\u00b0C")
         self.assertEqual(charts_by_id["chart-humidity_perc"]["unit"], "%")

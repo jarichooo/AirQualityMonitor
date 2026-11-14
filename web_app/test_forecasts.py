@@ -231,8 +231,8 @@ class ForecastTestCase(unittest.TestCase):
         self.assertLess(ammonia_pos, methane_pos)
         self.assertLess(methane_pos, temp_pos)
         self.assertLess(temp_pos, humidity_pos)
-        self.assertLess(humidity_pos, pm_pos)
-        self.assertLess(pm_pos, co2_pos)
+        self.assertLess(humidity_pos, co2_pos)
+        self.assertLess(co2_pos, pm_pos)
 
     def test_previous_guidance_survives_pending_error_and_stale_readings(self):
         now = datetime.now(timezone.utc)
