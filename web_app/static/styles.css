@@ -465,6 +465,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .metric-card-status.is-unavailable { color: var(--danger); }
 
 /* 6-Card Telemetry Grid: balanced tracks + compact sizing so digits never clip */
+.dashboard-metrics-panel > .dashboard-metrics-grouped {
+    padding: 14px 16px 16px;
+}
 .dashboard-metrics-grouped {
     grid-template-columns: repeat(4, minmax(0, .92fr)) minmax(0, 1.54fr) minmax(0, .96fr);
     gap: 11px;
@@ -752,7 +755,7 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     cursor: pointer;
 }
 .dashboard-metrics-grouped {
-    scroll-margin-top: 20px;
+    scroll-margin-top: 76px;
 }
 .sensor-chart-panel {
     position: relative;
@@ -866,9 +869,10 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .dashboard-stat span { display: block; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .dashboard-stat strong { display: block; overflow: hidden; margin-top: 2px; color: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Forecast AI Panel */
+/* Forecast AI Panel & Current Sensor Readings Container */
 .ai-panel { flex: 1 1 auto; }
-.forecast-panel-header {
+.forecast-panel-header,
+.dashboard-metrics-panel-header {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -878,7 +882,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     border-bottom: 1px solid rgb(255 255 255 / 6%);
     background: linear-gradient(180deg, rgb(255 255 255 / 3%), transparent);
 }
-.forecast-panel-kicker {
+.forecast-panel-kicker,
+.dashboard-metrics-panel-title {
+    margin: 0;
     color: #f8fafc;
     font-size: 14px;
     font-weight: 600;
@@ -1380,6 +1386,7 @@ a.pagination-control:hover { border-color: var(--border-strong); background: var
     .dashboard-freshness { min-height: 30px; min-width: 0; flex: 1 1 auto; }
     .dashboard-range-field { width: min(164px, 48vw); flex: 0 1 164px; }
     .dashboard-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .dashboard-metrics-panel > .dashboard-metrics-grouped { padding: 12px 14px 14px; }
     .dashboard-metrics-grouped { grid-template-columns: 1fr; gap: 12px; }
     .live-sensor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .dashboard-panel.device-live-panel { gap: 14px; padding: 15px; }

@@ -36,7 +36,11 @@
     {% set pm25 = metrics_by_key['pm25_ugm3'] %}
     {% set pm10 = metrics_by_key['pm10_ugm3'] %}
     {% set co2 = metrics_by_key['co2_ppm'] %}
-    <div class="dashboard-metrics dashboard-metrics-grouped" id="dashboard-top-metrics" aria-label="Latest recorded sensor values">
+    <section class="dashboard-panel dashboard-metrics-panel" aria-labelledby="current-readings-title">
+        <div class="dashboard-metrics-panel-header">
+            <h2 class="dashboard-metrics-panel-title" id="current-readings-title">Current sensor readings</h2>
+        </div>
+        <div class="dashboard-metrics dashboard-metrics-grouped" id="dashboard-top-metrics" aria-label="Latest recorded sensor values">
         <a class="metric-card is-{{ ammonia.severity }}{% if selected and selected.column == 'mq137_ppm' %} is-selected{% endif %}" href="#chart-mq137_ppm"{% if selected and selected.column == 'mq137_ppm' %} aria-current="true"{% endif %}>
             <div class="metric-card-top">
                 <span class="metric-card-label">Ammonia</span>
@@ -107,7 +111,8 @@
             <span class="metric-card-value"><strong>{{ reading(co2.value) }}</strong><small>{{ co2.unit }}</small>{{ trend_arrow(co2) }}</span>
             <span class="metric-card-thresholds">Normal &le; 2,500 ppm &middot; Warning up to 3,000 ppm &middot; Critical above 3,000 ppm</span>
         </a>
-    </div>
+        </div>
+    </section>
 
     <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts" data-charts-url="{{ url_for('charts_api') }}">
         <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" aria-busy="true">
