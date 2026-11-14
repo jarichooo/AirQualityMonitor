@@ -386,17 +386,76 @@ def acquire_worker_lock(conn):
         return bool(cursor.fetchone()[0])
 
 
+CHANNEL_DISPLAY = (
+    ("temperature_c", "Temperature", "\u00b0C"),
+    ("humidity_perc", "Humidity", "%"),
+    ("co2_ppm", "CO2", "ppm"),
+    ("mq137_ppm", "Ammonia", "ppm"),
+    ("mq4_ppm", "Methane", "ppm"),
+    ("pm1_ugm3", "PM1.0", "\u00b5g/m\u00b3"),
+    ("pm25_ugm3", "PM2.5", "\u00b5g/m\u00b3"),
+    ("pm10_ugm3", "PM10", "\u00b5g/m\u00b3"),
+)
+
+
+def _format_channel_reading(label, value, unit):
+    formatted = f"{round(float(value), 2):,.2f}".rstrip("0").rstrip(".")
+    spacing = "" if unit == "%" else " "
+    return f"{label} {formatted}{spacing}{unit}" if unit else f"{label} {formatted}"
+
+
+def _valid_number(value):
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(float(value))
+
+
 def call_qwen(predictions, severity, policy_text, target_at):
+    pht = timezone(timedelta(hours=8))
+    target_pht = target_at.astimezone(timezone.utc).astimezone(pht)
+    known_cols = [col for col, _, _ in CHANNEL_DISPLAY]
+    meta = {col: (label, unit) for col, label, unit in CHANNEL_DISPLAY}
+    extra_cols = sorted(col for col in (set(predictions) | set(severity)) if col not in meta)
+    ordered_cols = known_cols + extra_cols
+
+    elevated = []
+    normal = []
+    unavailable = []
+    for column in ordered_cols:
+        if column not in predictions and column not in severity:
+            continue
+        label, unit = meta.get(column, (column, ""))
+        cat = severity.get(column)
+        value = predictions.get(column)
+        if cat in {"critical", "warning"} and _valid_number(value):
+            rank = 0 if cat == "critical" else 1
+            elevated.append((rank, f"{_format_channel_reading(label, value, unit)} ({cat})"))
+        elif cat == "normal" and _valid_number(value):
+            normal.append(_format_channel_reading(label, value, unit))
+        else:
+            unavailable.append(label)
+
+    data_lines = [f"Target time: {target_pht.strftime('%I:%M %p').lstrip('0')} PHT"]
+    if elevated:
+        elevated.sort(key=lambda item: item[0])
+        data_lines.append("Elevated: " + ", ".join(text for _, text in elevated))
+    if normal:
+        prefix = "Normal readings: " if elevated else "All monitored readings remain normal: "
+        data_lines.append(prefix + ", ".join(normal))
+    if unavailable:
+        data_lines.append("Unavailable: " + ", ".join(unavailable))
+
     prompt = (
-        "Use the trusted policy below to explain this two-hour forecast in 1-2 short sentences of plain English. "
-        "Use at most 50 words and mention only the two most concerning channels. "
-        "Do not list every reading; the numbers are already displayed separately. "
-        "If you mention a supplied value or category, keep it unchanged. Clearly call it a forecast, include the target time, "
-        "do not claim any action occurred, and only recommend checks supported by the policy.\n\n"
+        "Use the trusted policy below to write clear, detailed yet concise forecast guidance in 3 short sentences (55-85 words total). "
+        "Sentence 1: label it a 2-hour forecast with the PHT target time and highlight every critical or warning channel with its exact predicted value, unit, category, and plain-English threshold limit "
+        "(or state that all monitored channels stay normal when none are elevated). "
+        "Sentence 2: list the supplied normal predicted values and units compactly in one comma-separated phrase (plus any unavailable channels) without repeating 'within the normal range' or threshold bounds for normal sensors. "
+        "Sentence 3: give 1 brief practical check recommendation (live readings, sensor validity, airflow, ventilation, or equipment relevant to the elevated channels). "
+        "Never use inequality symbols ('<=' or 'OR'), never add meta-disclaimers about what the policy omits, and never claim an action already occurred.\n\n"
+        "Style example (match this detail and brevity):\n"
+        "\"By 12:30 PM PHT, forecast Humidity reaches 85.49% (critical, above the 80% warning limit; normal 50-70%). "
+        "Other monitored readings stay normal: Temperature 29.99 °C, CO2 1,123 ppm, Ammonia 4.39 ppm, Methane 1.07 ppm, and PM1.0–PM10 7.04 µg/m³. "
+        "Verify live readings and sensor validity, and inspect airflow, condensation sources, and ventilation equipment.\"\n\n"
         f"Trusted policy:\n{policy_text}\n\n"
-        f"Target time (UTC): {target_at.astimezone(timezone.utc).isoformat()}\n"
-        f"Forecast: {json.dumps(predictions, sort_keys=True)}\n"
-        f"Categories: {json.dumps(severity, sort_keys=True)}"
+        + "\n".join(data_lines)
     )
     payload = json.dumps({
         "model": os.environ.get("OLLAMA_MODEL", "qwen2.5:3b"),
@@ -405,7 +464,7 @@ def call_qwen(predictions, severity, policy_text, target_at):
         "keep_alive": "15m",
         "format": {"type": "object", "properties": {"message": {"type": "string"}},
                    "required": ["message"], "additionalProperties": False},
-        "options": {"temperature": 0, "num_predict": 384, "num_ctx": 4096},
+        "options": {"temperature": 0, "num_predict": 220, "num_ctx": 4096},
     }).encode()
     try:
         base_url = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11435").rstrip("/")
@@ -672,12 +731,12 @@ def run_manual_once(connection_factory=database_connection, model=predictor, now
 
 def run_live_once(state, connection_factory=database_connection, model=predictor, now=None,
                   qwen=call_qwen, clock=time.monotonic):
-    """Run any queued Qwen explanation request and refresh numeric GRU forecasts every minute."""
+    """Run any queued Qwen explanation request and refresh live GRU forecasts and Qwen guidance every minute."""
     manual_results = run_manual_once(connection_factory, model, now, qwen=qwen)
     last_gru_at = state.get("last_gru_at")
     if last_gru_at is not None and (clock() - last_gru_at) < POLL_SECONDS:
         return manual_results
-    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=False)
+    auto_results = run_once(connection_factory, model, now, qwen=qwen, explain=True)
     if not auto_results.get("_worker", "").startswith("skipped:"):
         state["last_gru_at"] = clock()
     return {**auto_results, **manual_results}
@@ -749,7 +808,7 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--manual", action="store_true", help="only predict when the dashboard queues a request")
     mode.add_argument("--live", action="store_true",
-                      help="refresh numeric GRU forecasts every minute and run Qwen on button requests")
+                      help="refresh live GRU forecasts and Qwen guidance every minute, plus manual requests")
     mode.add_argument("--simulate", choices=(*SERIES_PHASES, "series"),
                         help="insert labelled demo history and forecast it without a sensor device")
     args = parser.parse_args(argv)

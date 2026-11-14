@@ -25,6 +25,7 @@ class AppTestCase(unittest.TestCase):
             connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = []
             dashboard = self.client.get("/dashboard")
         self.assertEqual(dashboard.status_code, 200)
+        self.assertIn(b'<h1 class="page-brand-title">Henvironment</h1>', dashboard.data)
         self.assertIn(b"Good day", dashboard.data)
         self.assertIn(b"Methane", dashboard.data)
         self.assertIn(b"Ammonia", dashboard.data)
@@ -37,6 +38,7 @@ class AppTestCase(unittest.TestCase):
         with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
             page = self.client.get("/data?date_range=all&per_page=25")
             self.assertEqual(page.status_code, 200)
+            self.assertIn(b'<h1 class="page-brand-title">Henvironment</h1>', page.data)
             self.assertIn(b"Timestamp (PHT)", page.data)
             self.assertIn(b"Sep 27, 2026, 01:50:25 PM", page.data)
             self.assertIn(b'class="numeric cell-normal is-normal">31.5</td>', page.data)
@@ -503,7 +505,7 @@ class AppTestCase(unittest.TestCase):
             self.assertNotIn(b"About these analytics", page.data)
             self.assertNotIn(b"analytics-notes-title", page.data)
             self.assertIn(b"<polyline", page.data)
-            self.assertIn(b'<h2 id="recorded-trend-title">Temperature and Humidity</h2>', page.data)
+            self.assertIn(b'<h2 id="recorded-trend-title">Temperature</h2>', page.data)
             self.assertNotIn(b"Individual measurements", page.data)
             self.assertNotIn(b"View recorded values", page.data)
             self.assertIn("AVG(temperature_c)", cursor.execute.call_args_list[-2].args[0])
@@ -599,10 +601,12 @@ class AppTestCase(unittest.TestCase):
             cursor.fetchall.return_value = []
             page = self.client.get("/dashboard")
             self.assertEqual(page.status_code, 200)
-            self.assertIn(b"Temperature and Humidity", page.data)
+            self.assertIn(b"Temperature", page.data)
+            self.assertIn(b"Humidity", page.data)
+            self.assertNotIn(b"Temperature and Humidity", page.data)
             self.assertIn(b"Particulate matter", page.data)
             self.assertIn(b"Carbon Dioxide", page.data)
-            self.assertIn(b"metric-card metric-card-group is-normal", page.data)
+            self.assertIn(b"metric-card is-normal", page.data)
             self.assertIn(b"metric-card metric-card-group is-critical", page.data)
             self.assertIn(b"metric-trend-arrow is-up", page.data)
             self.assertIn(b"metric-trend-arrow is-down", page.data)
@@ -661,15 +665,23 @@ class AppTestCase(unittest.TestCase):
         self.assertTrue(payload["configured"])
         self.assertTrue(payload["has_forecast"])
         self.assertEqual(len(payload["ticks"]), 7)
-        self.assertEqual(len(payload["charts"]), 5)
+        self.assertEqual(len(payload["charts"]), 6)
+        self.assertEqual(payload["charts"][-1]["chart_id"], "chart-pm1_ugm3")
+        charts_by_id = {chart["chart_id"]: chart for chart in payload["charts"]}
+        self.assertEqual(charts_by_id["chart-temperature_c"]["unit"], "\u00b0C")
+        self.assertEqual(charts_by_id["chart-humidity_perc"]["unit"], "%")
         self.assertTrue(all(chart["series_list"][0]["forecast_segments"] for chart in payload["charts"]))
 
         charts_js = (Path(__file__).parent / "static" / "charts.js").read_text(encoding="utf-8")
         self.assertNotIn("innerHTML", charts_js)
+        self.assertNotIn("outerHTML", charts_js)
         self.assertIn("createElementNS", charts_js)
         self.assertIn("AbortController", charts_js)
         self.assertIn("trend-axis-tick", charts_js)
         self.assertIn("trend-axis-unit", charts_js)
+        self.assertIn("trend-crosshair", charts_js)
+        self.assertIn("trend-hover-dot", charts_js)
+        self.assertIn("chart-hover-tooltip", charts_js)
 
     def test_chart_axes_zoom_to_data_and_match_reference_layout(self):
         start = datetime(2026, 11, 11, 10, 0, tzinfo=timezone.utc)
@@ -700,8 +712,21 @@ class AppTestCase(unittest.TestCase):
         co2 = by_id["chart-co2_ppm"]
         self.assertGreater(int(co2["y_ticks"][0][1].replace(",", "")), 1000)
 
+        temp = by_id["chart-temperature_c"]
+        self.assertEqual(temp["title"], "Temperature")
+        self.assertEqual(temp["unit"], "\u00b0C")
+        self.assertEqual([s["column"] for s in temp["series_list"]], ["temperature_c"])
+
+        humidity = by_id["chart-humidity_perc"]
+        self.assertEqual(humidity["title"], "Humidity")
+        self.assertEqual(humidity["unit"], "%")
+        self.assertEqual([s["column"] for s in humidity["series_list"]], ["humidity_perc"])
+
         pm = by_id["chart-pm1_ugm3"]
         self.assertLess(int(pm["y_ticks"][-1][1].replace(",", "")), 400)
+        self.assertEqual(pm["plot_right"], 1000)
+        self.assertEqual(pm["view_box"], "-18 14 1038 252")
+        self.assertEqual(pm["x_ticks"][-1][0], 1000)
 
         # Flat series use minimum span rather than collapsing to zero height.
         flat_rows = [
@@ -709,7 +734,7 @@ class AppTestCase(unittest.TestCase):
             (end, None, "node-1", 31.0, 60.0, 500.0, 5.0, 15.0, 30.0, 4.0, 200.0),
         ]
         flat_charts = application.build_sensor_charts(flat_rows, start, end, "temperature_c", metrics_by_key)
-        flat_co2_ticks = flat_charts[4]["y_ticks"]
+        flat_co2_ticks = next(c["y_ticks"] for c in flat_charts if c["chart_id"] == "chart-co2_ppm")
         self.assertGreaterEqual(len(flat_co2_ticks), 3)
         self.assertNotEqual(flat_co2_ticks[0][1], flat_co2_ticks[-1][1])
 
@@ -723,9 +748,21 @@ class AppTestCase(unittest.TestCase):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'viewBox="-18 14 798 252"', page.data)
+        self.assertIn(b'viewBox="-18 14 1038 252"', page.data)
+        self.assertIn(b'class="chart-series-item chart-series-toggle"', page.data)
+        self.assertIn(b'data-series-col="pm25_ugm3"', page.data)
+        self.assertIn(b'data-series-kind="recorded"', page.data)
+        self.assertIn(b'aria-pressed="false"', page.data)
         self.assertIn(b"trend-axis-tick", page.data)
         self.assertIn(b"trend-axis-unit", page.data)
         self.assertIn(b'transform="rotate(-90 -4 128)"', page.data)
+        self.assertIn(b'id="dashboard-top-metrics"', page.data)
+        self.assertIn(b'class="chart-hover-data"', page.data)
+        self.assertIn(b'class="chart-hover-tooltip"', page.data)
+        self.assertIn(b'"hover_points"', page.data)
+        self.assertIn(b"dark-mode-38", page.data)
+        self.assertIn(b"charts.js?v=6", page.data)
+        self.assertIn(b"forecasts.js?v=14", page.data)
 
 
 if __name__ == "__main__":

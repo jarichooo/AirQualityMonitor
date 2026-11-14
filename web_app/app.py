@@ -354,41 +354,44 @@ SENSOR_CHART_SPECS = (
     dict(
         column="temperature_c",
         chart_id="chart-temperature_c",
-        aliases=("chart-humidity_perc",),
-        title="Temperature and Humidity",
-        unit="\u00b0C / %",
+        aliases=(),
+        title="Temperature",
+        unit="\u00b0C",
         scale="linear",
-        min_span=4.0,
+        min_span=3.0,
         nonnegative=False,
-        base_low=10.0,
-        base_high=90.0,
-        ticks=(18, 32, 50, 70, 80),
-        threshold_summary="Temp normal 21\u201332 \u00b0C (Crit < 18 or > 35 \u00b0C) \u00b7 Humidity normal 50\u201370% (Crit < 40% or > 80%)",
-        series=(
-            ("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),
-            ("humidity_perc", "Humidity", "%", "#c084fc"),
+        base_low=15.0,
+        base_high=38.0,
+        ticks=(18, 21, 32, 35),
+        threshold_summary="Normal 21\u201332 \u00b0C \u00b7 Warning 18\u201321 or 32\u201335 \u00b0C \u00b7 Critical < 18 or > 35 \u00b0C",
+        series=(("temperature_c", "Temperature", "\u00b0C", "#22d3ee"),),
+        thresholds=(
+            ("critical", "Critical low", 18.0),
+            ("warning", "Warning low", 21.0),
+            ("warning", "Warning high", 32.0),
+            ("critical", "Critical high", 35.0),
         ),
-        thresholds=(),
     ),
     dict(
-        column="pm1_ugm3",
-        chart_id="chart-pm1_ugm3",
-        aliases=("chart-pm25_ugm3", "chart-pm10_ugm3"),
-        title="Particulate matter",
-        unit="\u00b5g/m\u00b3",
-        scale="log",
-        min_span=10.0,
+        column="humidity_perc",
+        chart_id="chart-humidity_perc",
+        aliases=(),
+        title="Humidity",
+        unit="%",
+        scale="linear",
+        min_span=6.0,
         nonnegative=True,
-        base_low=1.0,
-        base_high=1500.0,
-        ticks=(1, 10, 35, 150, 1000),
-        threshold_summary="PM 1.0 warning > 10, critical > 35 \u00b7 PM 2.5 warning > 35, critical > 150 \u00b7 PM 10 warning > 150, critical > 1,000 \u00b5g/m\u00b3",
-        series=(
-            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#22d3ee"),
-            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#818cf8"),
-            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#c084fc"),
+        base_low=35.0,
+        base_high=90.0,
+        ticks=(40, 50, 70, 80),
+        threshold_summary="Normal 50\u201370% \u00b7 Warning 40\u201350% or 70\u201380% \u00b7 Critical < 40% or > 80%",
+        series=(("humidity_perc", "Humidity", "%", "#c084fc"),),
+        thresholds=(
+            ("critical", "Critical low", 40.0),
+            ("warning", "Warning low", 50.0),
+            ("warning", "Warning high", 70.0),
+            ("critical", "Critical high", 80.0),
         ),
-        thresholds=(),
     ),
     dict(
         column="co2_ppm",
@@ -409,6 +412,28 @@ SENSOR_CHART_SPECS = (
             ("warning", "Warning", 2500.0),
             ("critical", "Critical", 3000.0),
         ),
+    ),
+    dict(
+        column="pm1_ugm3",
+        chart_id="chart-pm1_ugm3",
+        aliases=("chart-pm25_ugm3", "chart-pm10_ugm3"),
+        title="Particulate matter",
+        unit="\u00b5g/m\u00b3",
+        scale="log",
+        min_span=10.0,
+        nonnegative=True,
+        base_low=1.0,
+        base_high=1500.0,
+        log_top_pad=1.6,
+        plot_right=1000,
+        ticks=(1, 10, 35, 150, 1000),
+        threshold_summary="PM 1.0 warning > 10, critical > 35 \u00b7 PM 2.5 warning > 35, critical > 150 \u00b7 PM 10 warning > 150, critical > 1,000 \u00b5g/m\u00b3",
+        series=(
+            ("pm1_ugm3", "PM 1.0", "\u00b5g/m\u00b3", "#22d3ee"),
+            ("pm25_ugm3", "PM 2.5", "\u00b5g/m\u00b3", "#818cf8"),
+            ("pm10_ugm3", "PM 10", "\u00b5g/m\u00b3", "#c084fc"),
+        ),
+        thresholds=(),
     ),
 )
 
@@ -478,7 +503,8 @@ def _compute_chart_y_scale(spec, all_valid):
         low_target = max(1.0, data_min * 0.72)
         below = [tick for tick in LOG_TICK_CANDIDATES if tick <= low_target]
         bottom = float(below[-1]) if below else 1.0
-        high_target = max(bottom * 2.5, data_max * 1.2)
+        top_pad = float(spec.get("log_top_pad", 1.2))
+        high_target = max(bottom * 2.5, data_max * top_pad)
         above = [tick for tick in LOG_TICK_CANDIDATES if tick >= high_target]
         top = float(above[0]) if above else max(high_target, data_max * 1.25)
         decades = math.log10(max(1.0, top)) - math.log10(max(1.0, bottom))
@@ -573,16 +599,18 @@ def _resolve_chart_forecast(forecast, end):
     return dict(cutoff=cutoff, target=target, device_id=forecast.get("device_id"), series=series)
 
 
-def build_chart_ticks(start, end, has_forecast=False):
+def build_chart_ticks(start, end, has_forecast=False, plot_right=760):
     if start is None or end is None:
         return []
     start_utc = _parse_utc_timestamp(start)
     end_utc = _parse_utc_timestamp(end)
     if start_utc is None or end_utc is None:
         return []
+    plot_width = int(plot_right) - 60
     if not has_forecast:
         return [
-            (60 + minute / 60 * 700, to_pht(start_utc + timedelta(minutes=minute)).strftime("%I:%M %p"))
+            (round(60 + minute / 60 * plot_width, 2) if plot_width != 700 else 60 + minute / 60 * plot_width,
+             to_pht(start_utc + timedelta(minutes=minute)).strftime("%I:%M %p"))
             for minute in (0, 15, 30, 45, 60)
         ]
     total_seconds = (end_utc - start_utc).total_seconds()
@@ -591,7 +619,7 @@ def build_chart_ticks(start, end, has_forecast=False):
     steps = 6
     return [
         (
-            round(60 + step / steps * 700, 2),
+            round(60 + step / steps * plot_width, 2),
             to_pht(start_utc + timedelta(seconds=total_seconds * step / steps)).strftime("%I:%M %p"),
         )
         for step in range(steps + 1)
@@ -609,6 +637,9 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
     charts = []
     for spec in SENSOR_CHART_SPECS:
         scale = spec["scale"]
+        plot_right = int(spec.get("plot_right", 760))
+        plot_width = plot_right - 60
+        view_box = f"-18 14 {plot_right + 38} 252"
         series_defs = spec["series"]
         series_cols = {s[0] for s in series_defs}
         all_valid = []
@@ -638,7 +669,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
         series_list = []
         all_points = []
         for col, s_label, s_unit, s_color in series_defs:
-            segments, points, segment = [], [], []
+            segments, points, hover_points, segment = [], [], [], []
             previous, previous_device = None, None
             anchor, preferred_anchor = None, None
             for timestamp, value, device in raw_by_col[col]:
@@ -652,7 +683,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 if previous is not None and (timestamp - previous > max_gap or device != previous_device):
                     segments.append(" ".join(segment))
                     segment = []
-                x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * 700
+                x = 60 + (timestamp - start).total_seconds() / duration.total_seconds() * plot_width
                 y = _scale_y(value, bottom, top, scale)
                 point = dict(
                     x=round(x, 2),
@@ -665,6 +696,13 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 )
                 points.append(point)
                 all_points.append(point)
+                hover_points.append([
+                    point["x"],
+                    point["y"],
+                    to_pht(timestamp).strftime("%I:%M %p"),
+                    point["value"],
+                    "recorded",
+                ])
                 segment.append(f"{point['x']},{point['y']}")
                 anchor = (timestamp, point["x"], point["y"])
                 if active_forecast and device == active_forecast.get("device_id"):
@@ -687,9 +725,16 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                     step_ts = cutoff + timedelta(minutes=step_idx)
                     if anchor_ts is not None and step_ts <= anchor_ts:
                         continue
-                    fx = round(60 + (step_ts - start).total_seconds() / duration.total_seconds() * 700, 2)
+                    fx = round(60 + (step_ts - start).total_seconds() / duration.total_seconds() * plot_width, 2)
                     fy = round(_scale_y(f_val, bottom, top, scale), 2)
                     f_segment.append(f"{fx},{fy}")
+                    hover_points.append([
+                        fx,
+                        fy,
+                        to_pht(step_ts).strftime("%I:%M %p"),
+                        round(float(f_val), 2),
+                        "forecast",
+                    ])
                 if len(f_segment) >= 2:
                     forecast_segments.append(" ".join(f_segment))
             m = metrics_by_key.get(col, {})
@@ -701,6 +746,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 segments=segments,
                 forecast_segments=forecast_segments,
                 points=points,
+                hover_points=hover_points,
                 latest_value=m.get("value"),
                 severity=m.get("severity", "unavailable"),
             ))
@@ -723,6 +769,9 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
             series_list=series_list,
             points=all_points,
             y_ticks=y_ticks,
+            x_ticks=build_chart_ticks(start, chart_end, has_forecast=bool(active_forecast), plot_right=plot_right),
+            plot_right=plot_right,
+            view_box=view_box,
             threshold_lines=threshold_lines,
         ))
     return charts
@@ -966,9 +1015,6 @@ def dashboard():
         database_error = True
     enrich_metrics(data["metrics"])
     metrics_by_key = {m["column"]: m for m in data["metrics"]}
-    temp_humidity_severity, temp_humidity_badge = group_severity(
-        [metrics_by_key.get("temperature_c"), metrics_by_key.get("humidity_perc")]
-    )
     pm_severity, pm_badge = group_severity(
         [metrics_by_key.get("pm1_ugm3"), metrics_by_key.get("pm25_ugm3"), metrics_by_key.get("pm10_ugm3")]
     )
@@ -979,7 +1025,6 @@ def dashboard():
     return render_template("dashboard.html", **shell_context("Dashboard"),
                            sensor_charts=sensor_charts,
                            metrics_by_key=metrics_by_key,
-                           temp_humidity_group=dict(severity=temp_humidity_severity, badge=temp_humidity_badge),
                            pm_group=dict(severity=pm_severity, badge=pm_badge),
                            **data, selected=selected_metric,
                            trend=build_trend(data["series"], data["start"], data["end"]), database_error=database_error,
@@ -1108,6 +1153,9 @@ def charts_api():
             severity=chart["severity"],
             badge=chart["badge"],
             has_points=bool(chart["points"] or any(s["forecast_segments"] for s in chart["series_list"])),
+            plot_right=chart["plot_right"],
+            view_box=chart["view_box"],
+            ticks=chart["x_ticks"],
             y_ticks=chart["y_ticks"],
             threshold_lines=chart["threshold_lines"],
             series_list=[
@@ -1118,6 +1166,7 @@ def charts_api():
                     color=s["color"],
                     segments=s["segments"],
                     forecast_segments=s["forecast_segments"],
+                    hover_points=s["hover_points"],
                     latest_value=s["latest_value"],
                     severity=s["severity"],
                 )

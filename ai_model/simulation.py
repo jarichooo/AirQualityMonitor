@@ -293,6 +293,41 @@ def run_simulation(profile, connection_factory=None, clock=None, sleeper=time.sl
             })
 
 
+def clear_simulated_data(
+    connection_factory=None,
+    report=print,
+    *,
+    retries=5,
+    retry_delay=1.0,
+    sleeper=time.sleep,
+):
+    """Acquire the worker lock and delete all seeded simulated rows and forecasts if present."""
+    from ai_model.forecast_worker import WORKER_LOCK_ID, acquire_worker_lock, database_connection
+
+    os.environ["DB_PASS"] = os.environ.get("DB_PASS") or "notsosecretpass"
+    connection_factory = connection_factory or database_connection
+    with closing(connection_factory()) as conn:
+        for attempt in range(retries):
+            if acquire_worker_lock(conn):
+                break
+            if attempt + 1 < retries and retry_delay > 0:
+                sleeper(retry_delay)
+        else:
+            raise RuntimeError("A prediction is running; wait for it to finish and try again")
+        try:
+            summary = clear_history(conn)
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+        finally:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", (WORKER_LOCK_ID,))
+            conn.commit()
+    report({"status": "cleared", **summary})
+    return summary
+
+
 def main(profile, argv=None):
     parser = argparse.ArgumentParser(description=f"Seed {profile} conditions and append readings each minute for manual predictions.")
     parser.parse_args(argv)

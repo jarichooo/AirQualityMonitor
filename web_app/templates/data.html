@@ -2,6 +2,9 @@
 
 {% block content %}
 <form class="data-page-form" id="data-filters" method="get">
+    <div class="data-topbar">
+        <h1 class="page-brand-title">Henvironment</h1>
+    </div>
     {% for category, message in get_flashed_messages(with_categories=true) %}
     <p class="data-notice data-notice-{{ category }}" role="{{ 'alert' if category == 'error' else 'status' }}">{{ message }}</p>
     {% endfor %}

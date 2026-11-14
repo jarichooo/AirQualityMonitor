@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0c100f">
     <title>{{ page_name }} - Henvironment</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-28') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-38') }}">
 </head>
 <body class="page-{{ page_name|lower }}">
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -52,7 +52,7 @@
     </header>
 
     <main class="main-content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='sidebar-hover-1') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

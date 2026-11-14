@@ -30,36 +30,229 @@
         return best;
     };
 
+    const CHANNEL_THRESHOLDS = {
+        mq137_ppm: { normalMax: 1000, warningMax: 5000, unit: "ppm", category: "gas" },
+        mq4_ppm: { normalMax: 10, warningMax: 20, unit: "ppm", category: "gas" },
+        co2_ppm: { normalMax: 2500, warningMax: 3000, unit: "ppm", category: "gas" },
+        temperature_c: { normalMin: 21, normalMax: 32, warningMin: 18, warningMax: 35, unit: "°C", category: "thermal" },
+        humidity_perc: { normalMin: 50, normalMax: 70, warningMin: 40, warningMax: 80, unit: "%", category: "moisture" },
+        pm1_ugm3: { normalMax: 10, warningMax: 35, unit: "µg/m³", category: "particulate" },
+        pm25_ugm3: { normalMax: 35, warningMax: 150, unit: "µg/m³", category: "particulate" },
+        pm10_ugm3: { normalMax: 150, warningMax: 1000, unit: "µg/m³", category: "particulate" },
+    };
+    const CATEGORY_CHECKS = {
+        gas: "air exchange, ventilation fans, and litter or gas buildup",
+        thermal: "temperature conditions, airflow distribution, and heating or cooling equipment",
+        moisture: "airflow, moisture or condensation buildup, and ventilation equipment",
+        particulate: "dust sources, airflow, and filtration or ventilation equipment",
+    };
+
+    const formatNumber = (value) => new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+
+    const resolveChannelKey = (prediction) => {
+        const key = String(prediction?.key || "").toLowerCase();
+        if (CHANNEL_THRESHOLDS[key]) return key;
+        const label = String(prediction?.label || "").toLowerCase();
+        if (label.includes("ammonia")) return "mq137_ppm";
+        if (label.includes("methane")) return "mq4_ppm";
+        if (label.includes("temp")) return "temperature_c";
+        if (label.includes("humidity")) return "humidity_perc";
+        if (label.includes("co2")) return "co2_ppm";
+        if (label.includes("pm1.0") || label === "pm1") return "pm1_ugm3";
+        if (label.includes("pm2.5")) return "pm25_ugm3";
+        if (label.includes("pm10")) return "pm10_ugm3";
+        return null;
+    };
+
+    const formatList = (items) => {
+        if (items.length <= 1) return items[0] || "";
+        if (items.length === 2) return `${items[0]} and ${items[1]}`;
+        return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+    };
+
+    const formatTargetTime = (isoString) => {
+        if (!isoString) return null;
+        const date = new Date(isoString);
+        if (Number.isNaN(date.getTime())) return null;
+        return new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" }).format(date);
+    };
+
+    const describeThreshold = (prediction) => {
+        const rule = CHANNEL_THRESHOLDS[resolveChannelKey(prediction)];
+        if (!rule) return "";
+        const unit = rule.unit === "%" ? "%" : ` ${rule.unit}`;
+        const sev = severityClass(prediction.severity);
+        if (rule.normalMin != null) {
+            const normalBand = `${formatNumber(rule.normalMin)}–${formatNumber(rule.normalMax)}${unit}`;
+            const hasValue = typeof prediction.value === "number" && Number.isFinite(prediction.value);
+            if (sev === "critical") {
+                if (hasValue && prediction.value < rule.warningMin) {
+                    return `below the ${formatNumber(rule.warningMin)}${unit} warning lower limit; normal range is ${normalBand}`;
+                }
+                if (hasValue && prediction.value > rule.warningMax) {
+                    return `above the ${formatNumber(rule.warningMax)}${unit} warning upper limit; normal range is ${normalBand}`;
+                }
+                return `outside the ${normalBand} normal range and ${formatNumber(rule.warningMin)}–${formatNumber(rule.warningMax)}${unit} warning bounds`;
+            }
+            if (sev === "warning") {
+                if (hasValue && prediction.value < rule.normalMin) {
+                    return `below the ${formatNumber(rule.normalMin)}${unit} normal lower limit and within the ${formatNumber(rule.warningMin)}–${formatNumber(rule.normalMin)}${unit} warning band`;
+                }
+                if (hasValue && prediction.value > rule.normalMax) {
+                    return `above the ${formatNumber(rule.normalMax)}${unit} normal upper limit and within the ${formatNumber(rule.normalMax)}–${formatNumber(rule.warningMax)}${unit} warning band`;
+                }
+                return `outside the ${normalBand} normal range`;
+            }
+            return "";
+        }
+        const normalBand = `0–${formatNumber(rule.normalMax)}${unit}`;
+        if (sev === "critical") {
+            return `above the ${formatNumber(rule.warningMax)}${unit} warning upper limit; normal range is ${normalBand}`;
+        }
+        if (sev === "warning") {
+            return `above the ${formatNumber(rule.normalMax)}${unit} normal limit and within the ${formatNumber(rule.warningMax)}${unit} warning ceiling`;
+        }
+        return "";
+    };
+
     const renderForecastValues = (forecast) => {
         const article = document.createElement("article");
         article.className = "forecast-card is-available";
-        const heading = addText(article, "h3", "Predicted values in 2 hours");
-        const list = document.createElement("dl");
-        list.setAttribute("aria-labelledby", heading.id = `forecast-values-${forecast.forecast_id || forecast.device_id}`);
+
+        const header = document.createElement("div");
+        header.className = "forecast-card-head";
+
+        const headingId = `forecast-values-${forecast.forecast_id || forecast.device_id}`;
+        const cardSeverity = highestSeverity([forecast]) || "unavailable";
+        const targetTime = formatTargetTime(forecast.target_at);
+
+        const badge = document.createElement("span");
+        badge.id = headingId;
+        badge.className = `forecast-horizon-badge is-${cardSeverity}`;
+        const dot = document.createElement("span");
+        dot.className = "forecast-horizon-dot";
+        dot.setAttribute("aria-hidden", "true");
+        badge.append(dot);
+        addText(badge, "span", targetTime ? `Predicted · By ${targetTime}` : "Predicted levels");
+
+        const count = document.createElement("span");
+        count.className = "forecast-count-pill";
+        const total = forecast.predictions.length;
+        count.textContent = `${total} ${total === 1 ? "sensor" : "sensors"}`;
+
+        header.append(badge, count);
+
+        const grid = document.createElement("div");
+        grid.className = "forecast-tiles";
+        grid.setAttribute("aria-labelledby", headingId);
+
         forecast.predictions.forEach((prediction) => {
-            addText(list, "dt", prediction.label);
-            const value = addText(
-                list,
-                "dd",
-                `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`,
-                `forecast-value is-${severityClass(prediction.severity)}`,
-            );
-            value.setAttribute("aria-label", `${prediction.label}: ${value.textContent}`);
+            const sev = severityClass(prediction.severity);
+            const sevText = severityLabel(prediction.severity);
+            const formattedValue = formatNumber(prediction.value);
+            const unitText = prediction.unit || "";
+            const channelKey = resolveChannelKey(prediction);
+
+            const tile = document.createElement(channelKey ? "a" : "div");
+            tile.className = `forecast-tile is-${sev}`;
+            if (channelKey) {
+                tile.setAttribute("href", `#chart-${channelKey}`);
+            }
+
+            const top = document.createElement("div");
+            top.className = "forecast-tile-top";
+            addText(top, "span", prediction.label, "forecast-tile-label");
+            addText(top, "span", sevText, `severity-pill is-${sev}`);
+
+            const reading = document.createElement("div");
+            reading.className = "forecast-tile-reading";
+            const valueEl = document.createElement("strong");
+            valueEl.className = `forecast-value is-${sev}`;
+            valueEl.textContent = `${formattedValue} `;
+            addText(valueEl, "small", unitText);
+            valueEl.setAttribute("aria-label", `${prediction.label}: ${formattedValue} ${unitText} · ${sevText}`);
+            reading.append(valueEl);
+
+            tile.append(top, reading);
+            grid.append(tile);
         });
-        article.append(list);
+
+        article.append(header, grid);
         return article;
+    };
+
+    const summarizeForecast = (forecast) => {
+        if (forecast.status !== "available" || !Array.isArray(forecast.predictions) || !forecast.predictions.length) {
+            return null;
+        }
+        const valid = forecast.predictions.filter((p) => p && p.label && typeof p.value === "number" && Number.isFinite(p.value));
+        const critical = valid.filter((p) => p.severity === "critical");
+        const warning = valid.filter((p) => p.severity === "warning");
+        const normal = valid.filter((p) => p.severity === "normal");
+        const unavailable = valid.filter((p) => p.severity === "unavailable");
+        if (!critical.length && !warning.length && !normal.length) {
+            return null;
+        }
+        const targetTime = formatTargetTime(forecast.target_at);
+        const heading = forecast.data_class === "SIMULATED"
+            ? (targetTime ? `Simulated forecast for ${targetTime}` : "Simulated forecast")
+            : (targetTime ? `Forecast for ${targetTime}` : "Forecast");
+        const elevated = [...critical, ...warning];
+
+        let overview;
+        if (elevated.length) {
+            const highlighted = elevated.slice(0, 4).map((p) => {
+                const detail = describeThreshold(p);
+                return `${p.label} is forecast to reach ${formatNumber(p.value)} ${p.unit} (${p.severity}${detail ? `, ${detail}` : ""})`;
+            });
+            const extra = elevated.length > 4 ? `; ${elevated.length - 4} additional channel(s) are also forecast above normal limits` : "";
+            overview = `${heading} indicates elevated conditions: ${highlighted.join("; ")}${extra}.`;
+            if (normal.length === 1) {
+                overview += ` ${normal[0].label} is predicted to remain within normal thresholds.`;
+            } else if (normal.length > 1) {
+                overview += ` Remaining monitored sensors (${formatList(normal.map((p) => p.label))}) are predicted to remain within normal thresholds.`;
+            }
+        } else {
+            const sample = normal.slice(0, 3).map((p) => `${p.label} (${formatNumber(p.value)} ${p.unit})`);
+            if (normal.length === 1) {
+                overview = `${heading} indicates ${sample[0]} is predicted to remain within normal project thresholds.`;
+            } else if (normal.length <= 3) {
+                overview = `${heading} indicates ${formatList(sample)} are predicted to remain within normal project thresholds.`;
+            } else {
+                overview = `${heading} indicates all ${normal.length} monitored sensors (${formatList(normal.map((p) => p.label))}) are predicted to remain within normal project thresholds, including ${formatList(sample)}.`;
+            }
+        }
+        if (unavailable.length) {
+            overview += ` Coverage for ${formatList(unavailable.map((p) => p.label))} is unavailable and remains unverified.`;
+        }
+
+        const focusAreas = [...new Set(
+            elevated.map((p) => CATEGORY_CHECKS[CHANNEL_THRESHOLDS[resolveChannelKey(p)]?.category]).filter(Boolean)
+        )];
+        const inspectionTarget = focusAreas.length
+            ? formatList(focusAreas)
+            : "current sensor conditions and ventilation equipment operation";
+        let checks;
+        if (critical.length) {
+            checks = `Recommended checks: compare this forecast against current live readings and confirm sensor validity, then inspect ${inspectionTarget} before predicted critical conditions develop.`;
+        } else if (warning.length) {
+            checks = `Recommended checks: compare this forecast against current live readings and confirm sensor validity, and check ${inspectionTarget} to help keep levels from drifting toward critical limits.`;
+        } else {
+            checks = "No critical or warning levels are predicted for this window; keep monitoring current live readings, sensor validity, and routine ventilation and equipment operation.";
+        }
+        return [overview, checks];
+    };
+
+    const addParagraphs = (parent, text, className = "") => {
+        const blocks = String(text).split(/\r?\n+/).map((line) => line.trim()).filter(Boolean);
+        (blocks.length ? blocks : [String(text)]).forEach((block) => addText(parent, "p", block, className));
     };
 
     const renderForecastGuidance = (forecast) => {
         const item = document.createElement("div");
         item.className = "prediction-banner-item";
-        const guidanceFallback = forecast.explanation_status === "pending"
-            ? "Loading…"
-            : forecast.explanation_status === "error" && forecast.status === "available"
-                ? "Could not load the advice. Try again after a new reading arrives."
-                : "No advice yet.";
         if (forecast.explanation) {
-            addText(item, "p", forecast.explanation, "prediction-banner-text");
+            addParagraphs(item, forecast.explanation, "prediction-banner-text");
         } else if (forecast.last_guidance) {
             const update = forecast.status !== "available"
                 ? "New readings are needed."
@@ -67,11 +260,20 @@
                     ? "Updating… Showing the previous output."
                     : forecast.explanation_status === "error"
                         ? "Could not update. Showing the previous output."
-                        : "Live forecast updated. Showing the previous advice.";
+                        : "Live forecast updated. Showing the previous output.";
             addText(item, "p", update, "prediction-banner-status");
-            addText(item, "p", forecast.last_guidance.text, "prediction-banner-text");
+            addParagraphs(item, forecast.last_guidance.text, "prediction-banner-text");
+        } else if (forecast.explanation_status === "pending") {
+            addText(item, "p", "Loading forecast…", "prediction-banner-text is-muted");
+        } else if (forecast.explanation_status === "error" && forecast.status === "available") {
+            addText(item, "p", "Could not load the forecast summary. Try again after a new reading arrives.", "prediction-banner-text is-muted");
         } else {
-            addText(item, "p", guidanceFallback, "prediction-banner-text is-muted");
+            const paragraphs = summarizeForecast(forecast);
+            if (paragraphs) {
+                paragraphs.forEach((paragraph) => addText(item, "p", paragraph, "prediction-banner-text"));
+            } else {
+                addText(item, "p", "No forecast yet.", "prediction-banner-text is-muted");
+            }
         }
         return item;
     };
@@ -82,7 +284,7 @@
         if (!payload.configured) {
             if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
             const message = payload.message || "Forecasting is not configured yet.";
-            addText(results, "p", message);
+            addText(results, "p", message, "forecast-empty-state");
             if (guidanceResults) addText(guidanceResults, "p", message, "prediction-banner-text is-muted");
             return;
         }
@@ -93,15 +295,15 @@
             .sort((left, right) => Number(right.status === "available") - Number(left.status === "available"));
         if (!forecasts.length) {
             if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
-            addText(results, "p", "No results yet.");
-            if (guidanceResults) addText(guidanceResults, "p", "No advice yet.", "prediction-banner-text is-muted");
+            addText(results, "p", "No results yet.", "forecast-empty-state");
+            if (guidanceResults) addText(guidanceResults, "p", "No forecast yet.", "prediction-banner-text is-muted");
             return;
         }
         const numericForecasts = forecasts.filter((forecast) => forecast.status === "available" && forecast.predictions?.length);
         if (numericForecasts.length) {
             numericForecasts.forEach((forecast) => results.append(renderForecastValues(forecast)));
         } else {
-            addText(results, "p", "No results yet.");
+            addText(results, "p", "No results yet.", "forecast-empty-state");
         }
         if (guidanceBanner) {
             const level = highestSeverity(forecasts);

@@ -665,11 +665,26 @@ class ForecastWorkerTest(unittest.TestCase):
         request = opener.open.call_args.args[0]
         payload = json.loads(request.data)
         self.assertEqual(payload["options"]["num_ctx"], 4096)
-        self.assertEqual(payload["options"]["num_predict"], 384)
-        self.assertIn("at most 50 words", payload["prompt"])
-        self.assertIn("Do not list every reading", payload["prompt"])
+        self.assertEqual(payload["options"]["num_predict"], 220)
+        self.assertIn("55-85 words", payload["prompt"])
+        self.assertIn("without repeating 'within the normal range'", payload["prompt"])
+        self.assertIn("Elevated: Temperature 34 °C (warning)", payload["prompt"])
         self.assertEqual(payload["keep_alive"], "15m")
         self.assertEqual(opener.open.call_args.kwargs["timeout"], 120)
+
+        opener.open.return_value = io.BytesIO(json.dumps({
+            "done": True,
+            "response": json.dumps({"message": "All monitored channels stay normal."}),
+        }).encode())
+        with patch.object(worker.urllib.request, "build_opener", return_value=opener):
+            normal_message = worker.call_qwen(
+                {"temperature_c": 26.0, "humidity_perc": 60.0},
+                {"temperature_c": "normal", "humidity_perc": "normal"},
+                "trusted policy", self.now + timedelta(hours=2),
+            )
+        self.assertEqual(normal_message, "All monitored channels stay normal.")
+        normal_payload = json.loads(opener.open.call_args.args[0].data)
+        self.assertIn("All monitored readings remain normal: Temperature 26 °C, Humidity 60%", normal_payload["prompt"])
 
         opener.open.return_value = io.BytesIO(json.dumps({"done": False, "response": ""}).encode())
         with patch.object(worker.urllib.request, "build_opener", return_value=opener):
@@ -808,7 +823,7 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(manual.call_count, 3)
         self.assertEqual(auto.call_count, 2)
         for call_obj in auto.call_args_list:
-            self.assertFalse(call_obj.kwargs["explain"])
+            self.assertTrue(call_obj.kwargs["explain"])
 
     def test_fetch_active_devices_falls_back_to_latest_stored_device_when_idle(self):
         connection = MagicMock()
