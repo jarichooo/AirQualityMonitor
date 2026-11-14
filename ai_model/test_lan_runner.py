@@ -132,7 +132,11 @@ class StandaloneSimClientTests(unittest.TestCase):
         self.assertIn("delete", exec_cmd)
         self.assertIn("192.168.11.50", exec_cmd)
 
-    def test_run_action_dispatches_delete_and_profiles(self):
+    def test_run_action_dispatches_stop_delete_and_profiles(self):
+        with patch.object(sim_client, "stop_simulation") as stop_mock:
+            self.assertEqual(sim_client.run_action("stop"), 0)
+        stop_mock.assert_called_once()
+
         with patch.object(sim_client, "clear_simulated_data") as clear_mock:
             self.assertEqual(sim_client.run_action("delete"), 0)
         clear_mock.assert_called_once()
@@ -141,6 +145,34 @@ class StandaloneSimClientTests(unittest.TestCase):
             self.assertEqual(sim_client.run_action("mid"), 0)
         sim_run.assert_called_once_with("mid")
 
+    def test_stop_simulation_kills_local_pid_and_terminates_db_lock_backends(self):
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.fetchall.return_value = [(4242,)]
+        cursor.fetchone.return_value = (True,)
+        kills = []
+        reports = []
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pid_path = Path(tmpdir) / "sim.pid"
+            pid_path.write_text('{"pid": 999999, "profile": "good"}', encoding="utf-8")
+            with patch.object(sim_client, "_pid_file", return_value=pid_path):
+                summary = sim_client.stop_simulation(
+                    connection_factory=lambda: conn,
+                    report=lambda text, **_: reports.append(text),
+                    killer=lambda pid, sig: kills.append((pid, sig)),
+                )
+            self.assertFalse(pid_path.exists())
+
+        self.assertEqual(kills, [(999999, sim_client.signal.SIGTERM)])
+        lock_query, lock_params = cursor.execute.call_args_list[0].args
+        self.assertIn("pg_locks", lock_query)
+        self.assertEqual(lock_params, (172244209, 2491234338))
+        term_query, term_params = cursor.execute.call_args_list[1].args
+        self.assertIn("pg_terminate_backend", term_query)
+        self.assertEqual(term_params, (4242,))
+        conn.commit.assert_called_once_with()
+        self.assertEqual(summary, {"status": "stopped", "local_stopped": 1, "server_sessions_terminated": 1})
+
     def test_simulation_scripts_folder_works_standalone_outside_repo(self):
         scripts_dir = Path(__file__).resolve().parent.parent / "simulation_scripts"
         expected = {
@@ -148,6 +180,7 @@ class StandaloneSimClientTests(unittest.TestCase):
             "simulate_mid.sh": "mid",
             "simulate_bad.sh": "bad",
             "simulate_random.sh": "random",
+            "stop_simulation.sh": "stop",
             "delete_simulated_data.sh": "delete",
         }
         self.assertEqual({p.name for p in scripts_dir.glob("*.sh")}, set(expected))
