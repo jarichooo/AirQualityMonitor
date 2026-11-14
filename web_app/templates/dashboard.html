@@ -132,36 +132,43 @@
                 </div>
             </div>
             <div class="trend-chart-wrap">
-                <svg class="sensor-trend" viewBox="-18 14 798 252" role="img" aria-labelledby="{{ desc_id }}">
+                {% set plot_right = chart.plot_right or 760 %}
+                {% set chart_x_ticks = chart.x_ticks or recorded_ticks %}
+                {% set line_ns = namespace(order=0) %}
+                <svg class="sensor-trend" viewBox="{{ chart.view_box or '-18 14 798 252' }}" role="img" aria-labelledby="{{ desc_id }}">
                     <title id="{{ desc_id }}">{{ chart.title }} recorded readings from {{ recorded_start.strftime('%Y-%m-%d %H:%M:%S') }} through {{ recorded_end.strftime('%Y-%m-%d %H:%M:%S') }} UTC in {{ chart.unit }}. Separate devices and gaps longer than two minutes have separate lines.</title>
                     {% for y, tick_label in chart.y_ticks %}
-                    <path class="trend-grid" d="M60 {{ y }}H760"/><line class="trend-axis-tick" x1="55" y1="{{ y }}" x2="60" y2="{{ y }}"/><text class="trend-tick-label" x="51" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
+                    <path class="trend-grid" d="M60 {{ y }}H{{ plot_right }}"/><line class="trend-axis-tick" x1="55" y1="{{ y }}" x2="60" y2="{{ y }}"/><text class="trend-tick-label" x="51" y="{{ y + 4 }}" text-anchor="end">{{ tick_label }}</text>
                     {% endfor %}
-                    {% for x, label in recorded_ticks %}<path class="trend-grid" d="M{{ x }} 24V232"/><line class="trend-axis-tick" x1="{{ x }}" y1="232" x2="{{ x }}" y2="237"/><text class="trend-tick-label" x="{{ 62 if loop.first and x <= 65 else x }}" y="254" text-anchor="{{ 'start' if loop.first and x <= 65 else ('end' if loop.last and x >= 755 else 'middle') }}">{{ label }}</text>{% endfor %}
+                    {% for x, label in chart_x_ticks %}<path class="trend-grid" d="M{{ x }} 24V232"/><line class="trend-axis-tick" x1="{{ x }}" y1="232" x2="{{ x }}" y2="237"/><text class="trend-tick-label" x="{{ 62 if loop.first and x <= 65 else x }}" y="254" text-anchor="{{ 'start' if loop.first and x <= 65 else ('end' if loop.last and x >= plot_right - 5 else 'middle') }}">{{ label }}</text>{% endfor %}
                     {% for tline in chart.threshold_lines %}
-                    <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="760" y2="{{ tline.y }}"/>
+                    <line class="trend-threshold is-{{ tline.kind }}" x1="60" y1="{{ tline.y }}" x2="{{ plot_right }}" y2="{{ tline.y }}"/>
 
                     {% endfor %}
-                    <path class="trend-axis" d="M60 24V232H760"/>
+                    <path class="trend-axis" d="M60 24V232H{{ plot_right }}"/>
                     <text class="trend-axis-unit" x="-4" y="128" text-anchor="middle" transform="rotate(-90 -4 128)">{{ chart.unit }}</text>
                     {% for s in chart.series_list %}
-                    {% for segment in s.segments %}<polyline class="trend-line" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% endfor %}
-                    {% for fsegment in s.forecast_segments %}<polyline class="trend-line is-forecast" style="stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}44);" points="{{ fsegment }}"/>{% endfor %}
+                    {% for segment in s.segments %}<polyline class="trend-line" data-series-col="{{ s.column }}" data-series-kind="recorded" data-series-order="{{ line_ns.order }}" style="--series-color: {{ s.color }}; stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}55);" points="{{ segment }}"/>{% set line_ns.order = line_ns.order + 1 %}{% endfor %}
+                    {% for fsegment in s.forecast_segments %}<polyline class="trend-line is-forecast" data-series-col="{{ s.column }}" data-series-kind="forecast" data-series-order="{{ line_ns.order }}" style="--series-color: {{ s.color }}; stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}44);" points="{{ fsegment }}"/>{% set line_ns.order = line_ns.order + 1 %}{% endfor %}
                     {% endfor %}
                 </svg>
                 <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
                     {% for s in chart.series_list %}
-                    <li class="chart-series-item">
-                        <span class="chart-series-swatch" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
-                        <span class="chart-series-name">{{ s.label }}</span>
-                        {% if s.latest_value is not none %}
-                        <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
-                        {% endif %}
+                    <li class="chart-series-entry">
+                        <button type="button" class="chart-series-item chart-series-toggle" data-series-col="{{ s.column }}" data-series-kind="recorded" aria-pressed="false" style="--series-color: {{ s.color }};">
+                            <span class="chart-series-swatch" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
+                            <span class="chart-series-name">{{ s.label }}</span>
+                            {% if s.latest_value is not none %}
+                            <strong class="chart-series-latest">{{ reading(s.latest_value) }} <small>{{ s.unit }}</small></strong>
+                            {% endif %}
+                        </button>
                     </li>
                     {% if s.forecast_segments %}
-                    <li class="chart-series-item is-forecast">
-                        <span class="chart-series-swatch is-forecast" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
-                        <span class="chart-series-name">{{ s.label }} forecast</span>
+                    <li class="chart-series-entry">
+                        <button type="button" class="chart-series-item chart-series-toggle is-forecast" data-series-col="{{ s.column }}" data-series-kind="forecast" aria-pressed="false" style="--series-color: {{ s.color }};">
+                            <span class="chart-series-swatch is-forecast" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
+                            <span class="chart-series-name">{{ s.label }} forecast</span>
+                        </button>
                     </li>
                     {% endif %}
                     {% endfor %}
@@ -175,4 +182,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='3') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='13') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='4') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='13') }}" defer></script>{% endblock %}

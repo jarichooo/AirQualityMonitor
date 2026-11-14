@@ -131,8 +131,20 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
 .sensor-trend .trend-threshold-label.is-normal { fill: #34d399; }
 .sensor-trend .trend-threshold-label.is-warning { fill: #fbbf24; }
 .sensor-trend .trend-threshold-label.is-critical { fill: #f87171; }
-.trend-line { fill: none; stroke: var(--secondary); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgb(56 189 248 / 30%)); }
+.trend-line { fill: none; stroke: var(--secondary); stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgb(56 189 248 / 30%)); transition: stroke-width 180ms ease, opacity 180ms ease, filter 180ms ease; }
 .trend-line.is-forecast { stroke-width: 2.8; stroke-dasharray: 7 6; stroke-linecap: round; opacity: 0.94; }
+.sensor-trend .trend-line.is-highlighted {
+    stroke-width: 4.8;
+    opacity: 1 !important;
+    filter: drop-shadow(0 0 6px var(--series-color, var(--secondary))) drop-shadow(0 0 16px var(--series-color, var(--secondary))) !important;
+}
+.sensor-trend .trend-line.is-forecast.is-highlighted {
+    stroke-width: 4.2;
+}
+.sensor-trend .trend-line.is-dimmed {
+    opacity: 0.14 !important;
+    filter: none !important;
+}
 .trend-point { fill: var(--canvas); stroke: var(--secondary); stroke-width: 2.5; transition: r 140ms ease, fill 140ms ease, stroke-width 140ms ease; }
 .trend-point:hover { r: 7px; fill: var(--secondary); stroke: #fff; stroke-width: 2; }
 .chart-series-legend {
@@ -146,6 +158,9 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     list-style: none;
     font-size: 13.5px;
 }
+.chart-series-entry {
+    display: inline-flex;
+}
 .chart-series-item {
     display: inline-flex;
     align-items: center;
@@ -155,6 +170,28 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     border-radius: 999px;
     background: rgb(255 255 255 / 3%);
     color: var(--text);
+    font: inherit;
+}
+.chart-series-toggle {
+    cursor: pointer;
+    transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, opacity 160ms ease, transform 160ms ease;
+}
+.chart-series-toggle:hover {
+    border-color: color-mix(in srgb, var(--series-color, var(--secondary)) 55%, rgb(255 255 255 / 18%));
+    background: color-mix(in srgb, var(--series-color, var(--secondary)) 11%, rgb(255 255 255 / 4%));
+    transform: translateY(-1px);
+}
+.chart-series-toggle:focus-visible {
+    outline: 2px solid var(--series-color, var(--secondary));
+    outline-offset: 2px;
+}
+.chart-series-toggle.is-active {
+    border-color: var(--series-color, var(--secondary));
+    background: color-mix(in srgb, var(--series-color, var(--secondary)) 18%, rgb(12 16 15 / 88%));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--series-color, var(--secondary)) 45%, transparent), 0 0 16px color-mix(in srgb, var(--series-color, var(--secondary)) 35%, transparent);
+}
+.chart-series-toggle.is-dimmed {
+    opacity: 0.48;
 }
 .chart-series-swatch {
     position: relative;
@@ -627,7 +664,23 @@ body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-widt
     grid-column: 1 / -1;
 }
 #chart-pm1_ugm3 .sensor-trend {
-    max-height: 360px;
+    min-height: 0;
+    max-height: 295px;
+}
+#chart-pm1_ugm3 .sensor-trend text {
+    font-size: 10.8px;
+}
+#chart-pm1_ugm3 .trend-line {
+    stroke-width: 2.5;
+}
+#chart-pm1_ugm3 .trend-line.is-forecast {
+    stroke-width: 2.2;
+}
+#chart-pm1_ugm3 .trend-line.is-highlighted {
+    stroke-width: 4.2;
+}
+#chart-pm1_ugm3 .trend-line.is-forecast.is-highlighted {
+    stroke-width: 3.6;
 }
 .chart-anchor-alias {
     position: absolute;
@@ -1061,6 +1114,7 @@ a.pagination-control:hover { border-color: var(--border-strong); background: var
 
 @media (max-width: 960px) {
     .sensor-charts-grid { grid-template-columns: 1fr; }
+    #chart-pm1_ugm3 .sensor-trend text { font-size: 12.5px; }
 }
 
 @media (max-width: 900px) {

@@ -20,6 +20,80 @@
     const safeColor = (color) => /^#[0-9a-fA-F]{6}$/.test(String(color || "")) ? color : "#38bdf8";
     const safeSeverity = (value) => ["normal", "warning", "critical"].includes(value) ? value : "unavailable";
     const formatReading = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "--";
+    const activeHighlights = new Map();
+
+    const applySeriesHighlight = (panel, highlight) => {
+        if (!panel) return;
+        const buttons = Array.from(panel.querySelectorAll(".chart-series-toggle"));
+        let active = highlight;
+        if (active && !buttons.some((btn) => btn.dataset.seriesCol === active.col && btn.dataset.seriesKind === active.kind)) {
+            activeHighlights.delete(panel.id);
+            active = null;
+        }
+        buttons.forEach((btn) => {
+            const matches = Boolean(active)
+                && btn.dataset.seriesCol === active.col
+                && btn.dataset.seriesKind === active.kind;
+            btn.classList.toggle("is-active", matches);
+            btn.classList.toggle("is-dimmed", Boolean(active) && !matches);
+            btn.setAttribute("aria-pressed", matches ? "true" : "false");
+        });
+
+        const svg = panel.querySelector("svg.sensor-trend");
+        if (svg) {
+            svg.classList.toggle("has-series-focus", Boolean(active));
+            const lines = Array.from(svg.querySelectorAll("polyline.trend-line"));
+            lines.sort((a, b) => Number(a.dataset.seriesOrder || 0) - Number(b.dataset.seriesOrder || 0));
+            const promoted = [];
+            lines.forEach((line) => {
+                const matches = Boolean(active)
+                    && line.dataset.seriesCol === active.col
+                    && line.dataset.seriesKind === active.kind;
+                line.classList.toggle("is-highlighted", matches);
+                line.classList.toggle("is-dimmed", Boolean(active) && !matches);
+                svg.appendChild(line);
+                if (matches) promoted.push(line);
+            });
+            promoted.forEach((line) => svg.appendChild(line));
+        }
+    };
+
+    const createLegendToggle = (series, color, kind) => {
+        const entry = document.createElement("li");
+        entry.className = "chart-series-entry";
+
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = kind === "forecast"
+            ? "chart-series-item chart-series-toggle is-forecast"
+            : "chart-series-item chart-series-toggle";
+        btn.dataset.seriesCol = String(series.column || "");
+        btn.dataset.seriesKind = kind;
+        btn.setAttribute("aria-pressed", "false");
+        btn.style.setProperty("--series-color", color);
+
+        const swatch = document.createElement("span");
+        swatch.className = kind === "forecast" ? "chart-series-swatch is-forecast" : "chart-series-swatch";
+        swatch.style.setProperty("--series-color", color);
+        swatch.setAttribute("aria-hidden", "true");
+
+        const name = document.createElement("span");
+        name.className = "chart-series-name";
+        name.textContent = kind === "forecast" ? `${series.label} forecast` : series.label;
+
+        btn.append(swatch, name);
+        if (kind === "recorded" && series.latest_value !== null && series.latest_value !== undefined) {
+            const strong = document.createElement("strong");
+            strong.className = "chart-series-latest";
+            strong.textContent = `${formatReading(series.latest_value)} `;
+            const small = document.createElement("small");
+            small.textContent = series.unit || "";
+            strong.append(small);
+            btn.append(strong);
+        }
+        entry.append(btn);
+        return entry;
+    };
 
     const updateChartPanel = (chart, ticks, payload) => {
         const panel = document.getElementById(chart.chart_id);
@@ -31,8 +105,12 @@
             badge.textContent = chart.badge || "NO DATA";
         }
 
+        const plotRight = Number(chart.plot_right) || 760;
+        const chartTicks = Array.isArray(chart.ticks) ? chart.ticks : (ticks || []);
+
         const svg = panel.querySelector("svg.sensor-trend");
         if (svg) {
+            svg.setAttribute("viewBox", chart.view_box || "-18 14 798 252");
             const title = svg.querySelector("title");
             const descId = title?.id || `chart-desc-${chart.column}`;
             const nodes = [];
@@ -42,17 +120,17 @@
             nodes.push(svgEl("title", { id: descId }, summary));
 
             (chart.y_ticks || []).forEach(([y, tickLabel]) => {
-                nodes.push(svgEl("path", { class: "trend-grid", d: `M60 ${y}H760` }));
+                nodes.push(svgEl("path", { class: "trend-grid", d: `M60 ${y}H${plotRight}` }));
                 nodes.push(svgEl("line", { class: "trend-axis-tick", x1: 55, y1: y, x2: 60, y2: y }));
                 nodes.push(svgEl("text", { class: "trend-tick-label", x: 51, y: Number(y) + 4, "text-anchor": "end" }, tickLabel));
             });
 
-            (ticks || []).forEach(([x, label], idx, arr) => {
+            chartTicks.forEach(([x, label], idx, arr) => {
                 const xNum = Number(x);
                 nodes.push(svgEl("path", { class: "trend-grid", d: `M${x} 24V232` }));
                 nodes.push(svgEl("line", { class: "trend-axis-tick", x1: x, y1: 232, x2: x, y2: 237 }));
                 const isFirst = idx === 0 && xNum <= 65;
-                const isLast = idx === arr.length - 1 && xNum >= 755;
+                const isLast = idx === arr.length - 1 && xNum >= plotRight - 5;
                 nodes.push(svgEl("text", {
                     class: "trend-tick-label",
                     x: isFirst ? 62 : x,
@@ -65,11 +143,11 @@
                 const kind = safeSeverity(tline.kind);
                 nodes.push(svgEl("line", {
                     class: `trend-threshold is-${kind}`,
-                    x1: 60, y1: tline.y, x2: 760, y2: tline.y,
+                    x1: 60, y1: tline.y, x2: plotRight, y2: tline.y,
                 }));
             });
 
-            nodes.push(svgEl("path", { class: "trend-axis", d: "M60 24V232H760" }));
+            nodes.push(svgEl("path", { class: "trend-axis", d: `M60 24V232H${plotRight}` }));
             if (chart.unit) {
                 nodes.push(svgEl("text", {
                     class: "trend-axis-unit",
@@ -80,16 +158,34 @@
                 }, chart.unit));
             }
 
+            let lineOrder = 0;
             (chart.series_list || []).forEach((series) => {
                 const color = safeColor(series.color);
+                const col = String(series.column || "");
                 (series.segments || []).forEach((points) => {
-                    const line = svgEl("polyline", { class: "trend-line", points });
+                    const line = svgEl("polyline", {
+                        class: "trend-line",
+                        points,
+                        "data-series-col": col,
+                        "data-series-kind": "recorded",
+                        "data-series-order": lineOrder,
+                    });
+                    lineOrder += 1;
+                    line.style.setProperty("--series-color", color);
                     line.style.stroke = color;
                     line.style.filter = `drop-shadow(0 2px 5px ${color}55)`;
                     nodes.push(line);
                 });
                 (series.forecast_segments || []).forEach((points) => {
-                    const line = svgEl("polyline", { class: "trend-line is-forecast", points });
+                    const line = svgEl("polyline", {
+                        class: "trend-line is-forecast",
+                        points,
+                        "data-series-col": col,
+                        "data-series-kind": "forecast",
+                        "data-series-order": lineOrder,
+                    });
+                    lineOrder += 1;
+                    line.style.setProperty("--series-color", color);
                     line.style.stroke = color;
                     line.style.filter = `drop-shadow(0 2px 5px ${color}44)`;
                     nodes.push(line);
@@ -104,45 +200,9 @@
             const items = [];
             (chart.series_list || []).forEach((series) => {
                 const color = safeColor(series.color);
-                const item = document.createElement("li");
-                item.className = "chart-series-item";
-
-                const swatch = document.createElement("span");
-                swatch.className = "chart-series-swatch";
-                swatch.style.setProperty("--series-color", color);
-                swatch.setAttribute("aria-hidden", "true");
-
-                const name = document.createElement("span");
-                name.className = "chart-series-name";
-                name.textContent = series.label;
-
-                item.append(swatch, name);
-                if (series.latest_value !== null && series.latest_value !== undefined) {
-                    const strong = document.createElement("strong");
-                    strong.className = "chart-series-latest";
-                    strong.textContent = `${formatReading(series.latest_value)} `;
-                    const small = document.createElement("small");
-                    small.textContent = series.unit || "";
-                    strong.append(small);
-                    item.append(strong);
-                }
-                items.push(item);
-
+                items.push(createLegendToggle(series, color, "recorded"));
                 if (series.forecast_segments && series.forecast_segments.length) {
-                    const forecastItem = document.createElement("li");
-                    forecastItem.className = "chart-series-item is-forecast";
-
-                    const fSwatch = document.createElement("span");
-                    fSwatch.className = "chart-series-swatch is-forecast";
-                    fSwatch.style.setProperty("--series-color", color);
-                    fSwatch.setAttribute("aria-hidden", "true");
-
-                    const fName = document.createElement("span");
-                    fName.className = "chart-series-name";
-                    fName.textContent = `${series.label} forecast`;
-
-                    forecastItem.append(fSwatch, fName);
-                    items.push(forecastItem);
+                    items.push(createLegendToggle(series, color, "forecast"));
                 }
             });
             legend.replaceChildren(...items);
@@ -152,7 +212,27 @@
         if (emptyState) {
             emptyState.hidden = Boolean(chart.has_points);
         }
+
+        applySeriesHighlight(panel, activeHighlights.get(panel.id) || null);
     };
+
+    grid.addEventListener("click", (event) => {
+        const btn = event.target?.closest?.(".chart-series-toggle");
+        if (!btn) return;
+        const panel = btn.closest(".sensor-chart-panel");
+        if (!panel || !panel.id) return;
+        const col = btn.dataset.seriesCol || "";
+        const kind = btn.dataset.seriesKind || "recorded";
+        const current = activeHighlights.get(panel.id);
+        if (current && current.col === col && current.kind === kind) {
+            activeHighlights.delete(panel.id);
+            applySeriesHighlight(panel, null);
+        } else {
+            const next = { col, kind };
+            activeHighlights.set(panel.id, next);
+            applySeriesHighlight(panel, next);
+        }
+    });
 
     let loading = false;
     let renderedFingerprint = null;

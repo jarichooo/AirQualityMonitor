@@ -720,6 +720,9 @@ class AppTestCase(unittest.TestCase):
 
         pm = by_id["chart-pm1_ugm3"]
         self.assertLess(int(pm["y_ticks"][-1][1].replace(",", "")), 400)
+        self.assertEqual(pm["plot_right"], 1000)
+        self.assertEqual(pm["view_box"], "-18 14 1038 252")
+        self.assertEqual(pm["x_ticks"][-1][0], 1000)
 
         # Flat series use minimum span rather than collapsing to zero height.
         flat_rows = [
@@ -741,6 +744,11 @@ class AppTestCase(unittest.TestCase):
             page = self.client.get("/dashboard")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b'viewBox="-18 14 798 252"', page.data)
+        self.assertIn(b'viewBox="-18 14 1038 252"', page.data)
+        self.assertIn(b'class="chart-series-item chart-series-toggle"', page.data)
+        self.assertIn(b'data-series-col="pm25_ugm3"', page.data)
+        self.assertIn(b'data-series-kind="recorded"', page.data)
+        self.assertIn(b'aria-pressed="false"', page.data)
         self.assertIn(b"trend-axis-tick", page.data)
         self.assertIn(b"trend-axis-unit", page.data)
         self.assertIn(b'transform="rotate(-90 -4 128)"', page.data)
