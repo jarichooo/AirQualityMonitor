@@ -1,14 +1,10 @@
-# Testing Guide (`simulation_scripts`)
+# Simulation Scripts — Tester Guide
 
-This folder contains ready-to-use test scripts for **people testing the Henvironment Air Quality Dashboard** without needing physical sensors or server login access.
-
-As long as your laptop or computer is connected to the **same Wi-Fi or local network** as the Henvironment server, you can run these scripts straight from your own device.
+This `simulation_scripts` folder is **completely standalone** — you do **not** need the rest of the project code on your computer. Just copy or open this folder and run any of the scripts below while connected to the **same Wi-Fi or local network** as the Henvironment server (`192.168.11.50`).
 
 ---
 
 ## Which Script Should I Run?
-
-Pick the test scenario you want to see on the dashboard:
 
 | Script | Air Quality Scenario | What It Simulates |
 | :--- | :--- | :--- |
@@ -20,60 +16,58 @@ Pick the test scenario you want to see on the dashboard:
 
 ---
 
-## What You Need Before Starting
+## Before You Start
 
-1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server.
-2. **Server IP address:** Ask the project team for the server's local IP address (it looks something like `192.168.1.50`).
-3. **Python 3 installed** on your computer.
-4. A bash terminal:
-   - **Windows:** Open **Git Bash** inside the `AirQualityMonitor` folder (right-click the folder → **Open Git Bash here**).
-   - **Mac / Linux:** Open **Terminal** and go into the `AirQualityMonitor` folder (`cd path/to/AirQualityMonitor`).
+1. **Same network:** Connect your computer to the same Wi-Fi or LAN as the Henvironment server (`192.168.11.50`).
+2. **Python 3 installed** on your computer.
+3. Open a bash terminal inside this `simulation_scripts` folder:
+   - **Windows:** Right-click inside the `simulation_scripts` folder → **Open Git Bash here** (or double-click a `.sh` script if Git Bash is your default).
+   - **Mac / Linux:** Open **Terminal** and run `cd path/to/simulation_scripts`.
 
-*(The first time you run a script, it may pause for a few seconds to install a small helper package automatically — you don't need to install anything manually.)*
+*(First-time setup is automatic: if your computer does not have the database connector yet, the script sets it up quietly in the background on first run.)*
 
 ---
 
 ## Step 1: Run a Test Scenario
 
-Run the script you want with the server's IP address at the end:
+From inside `simulation_scripts`, run whichever scenario you want:
 
 ```bash
-./simulation_scripts/simulate_good.sh 192.168.1.50
+./simulate_good.sh
 ```
 
-*(Replace `192.168.1.50` with the actual IP address of the server, and swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh` as needed.)*
+Swap `simulate_good.sh` for `simulate_mid.sh`, `simulate_bad.sh`, or `simulate_random.sh` to test the other conditions.
 
-If you forget to include the IP address, the script will ask you to type it in.
+*(If the server is ever at a different IP address, pass it at the end — for example: `./simulate_good.sh 192.168.11.50`.)*
 
 ### What happens while it runs
-- Immediately sends starter sample readings so the dashboard cards and charts update right away.
-- Continues sending 1 new sample reading every minute while open.
-- Open the **Henvironment web dashboard** in your browser to inspect the cards, charts, and 2-hour forecast.
-- Press **`Ctrl + C`** in the terminal whenever you want to stop the test.
+- Immediately sends starter sample readings so the dashboard updates right away.
+- Continues sending 1 new sample reading every minute while left open.
+- Open `http://192.168.11.50:5000` in your browser to inspect the dashboard cards, charts, and 2-hour forecast.
+- Press **`Ctrl + C`** whenever you want to stop sending test readings.
 
 ---
 
 ## Step 2: Clean Up When You're Done
 
-After finishing your tests, run the cleanup script so no sample test data stays mixed into the system:
+Run the cleanup script afterward so no sample test data stays in the dashboard:
 
 ```bash
-./simulation_scripts/delete_simulated_data.sh 192.168.1.50
+./delete_simulated_data.sh
 ```
 
-- Deletes any simulated readings and simulated forecasts found on the server.
-- Safe to run even if there is no test data yet.
-- Does **not** delete real sensor readings from actual hardware.
+- Deletes any simulated readings and simulated forecasts found on `192.168.11.50`.
+- Safe to run even when there is no test data in the database.
+- Never deletes real hardware sensor readings.
 
 ---
 
-## If Something Doesn't Work
+## Need Help?
 
-- **Script says it cannot reach the server:**
-  - Make sure your device is on the same Wi-Fi/network as the server.
-  - Double-check the server IP address with the project team.
-  - Let the server host know if connection to port `5432` is blocked on the server.
+- **Script says it cannot reach `192.168.11.50:5432`:**
+  - Make sure you are on the same Wi-Fi/LAN as the server.
+  - Ask the project team to confirm the server is on and port `5432` is reachable.
 - **"Permission denied" on Mac or Linux:**
-  - Run `chmod +x simulation_scripts/*.sh` once, then re-run your script.
+  - Run `chmod +x *.sh` inside `simulation_scripts` once, then try again.
 - **"Python 3 is required" message:**
-  - Install Python 3 from [python.org](https://www.python.org/downloads/), then open a fresh terminal window and try again.
+  - Install Python 3 from [python.org](https://www.python.org/downloads/), open a fresh terminal window, and run the script again.
