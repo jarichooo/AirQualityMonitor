@@ -55,9 +55,9 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
     background: linear-gradient(180deg, var(--sidebar), var(--sidebar-deep));
     box-shadow: 4px 0 24px rgb(0 0 0 / 28%);
     color: #fff;
-    transition: width var(--transition), transform var(--transition);
+    transition: width var(--transition), box-shadow var(--transition), transform var(--transition);
 }
-.sidebar-header { display: flex; min-height: 88px; align-items: center; gap: 13px; padding: 18px; border-bottom: 1px solid rgb(255 255 255 / 8%); }
+.sidebar-header { display: flex; min-height: 88px; align-items: center; gap: 13px; padding: 18px; overflow: hidden; border-bottom: 1px solid rgb(255 255 255 / 8%); }
 .brand-toggle, .icon-button { border: 0; color: inherit; cursor: pointer; }
 .brand-toggle { flex: 0 0 auto; padding: 0; border-radius: 50%; background: transparent; }
 .brand-mark { display: grid; width: 40px; height: 40px; place-items: center; border: 1px solid var(--border-strong); border-radius: 50%; background: linear-gradient(160deg, #1c2e26, #121e19); box-shadow: inset 0 1px 0 rgb(255 255 255 / 12%), 0 4px 12px rgb(0 0 0 / 32%); font-size: 22px; line-height: 1; }
@@ -66,7 +66,7 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
 .greeting strong { overflow: hidden; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-close { display: none; margin-left: auto; }
 
-.sidebar-nav { display: grid; gap: 6px; padding: 20px 12px; }
+.sidebar-nav { display: grid; gap: 6px; padding: 20px 12px; overflow: hidden; }
 .nav-kicker { margin: 0 12px 5px; color: rgb(255 255 255 / 42%); font-size: 10px; font-weight: 600; letter-spacing: .11em; text-transform: uppercase; transition: opacity var(--transition); }
 .nav-link { position: relative; display: flex; min-height: 46px; align-items: center; gap: 13px; padding: 0 13px; border-radius: 10px; color: rgb(255 255 255 / 70%); font-weight: 500; text-decoration: none; white-space: nowrap; transition: background var(--transition), color var(--transition), box-shadow var(--transition), transform 120ms ease; }
 .nav-link:hover { background: rgb(255 255 255 / 7%); color: #fff; }
@@ -101,6 +101,22 @@ svg { width: 21px; height: 21px; flex: 0 0 auto; fill: none; stroke: currentColo
 .sidebar.is-collapsed .brand-toggle[data-tooltip]::after, .sidebar.is-collapsed .nav-link[data-tooltip]::after { display: block; top: 50%; bottom: auto; left: calc(100% + 10px); transform: translate(0, -50%); }
 .sidebar.is-collapsed .brand-toggle[data-tooltip]:hover::after, .sidebar.is-collapsed .brand-toggle[data-tooltip]:focus-visible::after,
 .sidebar.is-collapsed .nav-link[data-tooltip]:hover::after, .sidebar.is-collapsed .nav-link[data-tooltip]:focus-visible::after { transform: translate(3px, -50%); }
+
+@media (min-width: 1101px) {
+    .sidebar.is-collapsed:not(.just-collapsed):hover {
+        width: var(--sidebar-width);
+        box-shadow: 10px 0 36px rgb(0 0 0 / 55%);
+    }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .sidebar-header { justify-content: flex-start; padding-inline: 18px; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .greeting { display: grid; white-space: nowrap; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .sidebar-nav { justify-items: stretch; padding-inline: 12px; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .nav-kicker { display: block; white-space: nowrap; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .nav-link { width: 100%; justify-content: flex-start; padding-inline: 13px; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .nav-label { display: inline; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .account-row { justify-content: flex-end; }
+    .sidebar.is-collapsed:not(.just-collapsed):hover .brand-toggle[data-tooltip]::after,
+    .sidebar.is-collapsed:not(.just-collapsed):hover .nav-link[data-tooltip]::after { display: none; }
+}
 
 .main-content { min-height: 100vh; margin-left: var(--sidebar-width); padding: clamp(20px, 3.2vh, 34px) clamp(24px, 2.7vw, 48px) clamp(20px, 3vh, 38px); transition: margin-left var(--transition); }
 body.sidebar-collapsed .main-content { margin-left: var(--sidebar-collapsed-width); }

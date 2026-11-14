@@ -43,7 +43,12 @@
         if (!desktopQuery.matches) return;
         const collapsed = !sidebar.classList.contains("is-collapsed");
         setCollapsed(collapsed);
+        sidebar.classList.toggle("just-collapsed", collapsed);
         localStorage.setItem("henvironment-sidebar", collapsed ? "collapsed" : "expanded");
+    });
+
+    sidebar.addEventListener("mouseleave", () => {
+        sidebar.classList.remove("just-collapsed");
     });
 
     menuButton.addEventListener("click", openDrawer);
