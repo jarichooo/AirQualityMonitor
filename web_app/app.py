@@ -669,7 +669,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
         series_list = []
         all_points = []
         for col, s_label, s_unit, s_color in series_defs:
-            segments, points, segment = [], [], []
+            segments, points, hover_points, segment = [], [], [], []
             previous, previous_device = None, None
             anchor, preferred_anchor = None, None
             for timestamp, value, device in raw_by_col[col]:
@@ -696,6 +696,13 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 )
                 points.append(point)
                 all_points.append(point)
+                hover_points.append([
+                    point["x"],
+                    point["y"],
+                    to_pht(timestamp).strftime("%I:%M %p"),
+                    point["value"],
+                    "recorded",
+                ])
                 segment.append(f"{point['x']},{point['y']}")
                 anchor = (timestamp, point["x"], point["y"])
                 if active_forecast and device == active_forecast.get("device_id"):
@@ -721,6 +728,13 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                     fx = round(60 + (step_ts - start).total_seconds() / duration.total_seconds() * plot_width, 2)
                     fy = round(_scale_y(f_val, bottom, top, scale), 2)
                     f_segment.append(f"{fx},{fy}")
+                    hover_points.append([
+                        fx,
+                        fy,
+                        to_pht(step_ts).strftime("%I:%M %p"),
+                        round(float(f_val), 2),
+                        "forecast",
+                    ])
                 if len(f_segment) >= 2:
                     forecast_segments.append(" ".join(f_segment))
             m = metrics_by_key.get(col, {})
@@ -732,6 +746,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 segments=segments,
                 forecast_segments=forecast_segments,
                 points=points,
+                hover_points=hover_points,
                 latest_value=m.get("value"),
                 severity=m.get("severity", "unavailable"),
             ))
@@ -1151,6 +1166,7 @@ def charts_api():
                     color=s["color"],
                     segments=s["segments"],
                     forecast_segments=s["forecast_segments"],
+                    hover_points=s["hover_points"],
                     latest_value=s["latest_value"],
                     severity=s["severity"],
                 )

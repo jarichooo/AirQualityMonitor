@@ -212,6 +212,11 @@ async function run() {
                     color: "#38bdf8",
                     segments: ["60,120 280,118"],
                     forecast_segments: ["280,118 760,115"],
+                    hover_points: [
+                        [60, 120, "08:00 AM", 5.2, "recorded"],
+                        [280, 118, "09:00 AM", 5.8, "recorded"],
+                        [760, 115, "11:00 AM", 6.4, "forecast"],
+                    ],
                     latest_value: 5.8,
                 }],
             },
@@ -236,6 +241,11 @@ async function run() {
                         color: "#22d3ee",
                         segments: ["60,180 350,190"],
                         forecast_segments: ["350,190 1000,220"],
+                        hover_points: [
+                            [60, 180, "08:00 AM", 6.1, "recorded"],
+                            [350, 190, "09:00 AM", pm1Latest, "recorded"],
+                            [1000, 220, "11:00 AM", 3.2, "forecast"],
+                        ],
                         latest_value: pm1Latest,
                     },
                     {
@@ -245,6 +255,11 @@ async function run() {
                         color: "#818cf8",
                         segments: ["60,140 350,150"],
                         forecast_segments: ["350,150 1000,175"],
+                        hover_points: [
+                            [60, 140, "08:00 AM", 19.5, "recorded"],
+                            [350, 150, "09:00 AM", 17, "recorded"],
+                            [1000, 175, "11:00 AM", 11.4, "forecast"],
+                        ],
                         latest_value: 17,
                     },
                     {
@@ -254,6 +269,11 @@ async function run() {
                         color: "#c084fc",
                         segments: ["60,140 350,150"],
                         forecast_segments: ["350,150 1000,175"],
+                        hover_points: [
+                            [60, 140, "08:00 AM", 24.0, "recorded"],
+                            [350, 150, "09:00 AM", 22.1, "recorded"],
+                            [1000, 175, "11:00 AM", 14.8, "forecast"],
+                        ],
                         latest_value: 17,
                     },
                 ],
@@ -339,6 +359,57 @@ async function run() {
     pmLines = pmSvg.querySelectorAll("polyline.trend-line");
     assert.deepEqual(pmLines.map((l) => Number(l.dataset.seriesOrder)), [0, 1, 2, 3, 4, 5]);
     assert.equal(pmLines.filter((l) => l.classList.contains("is-highlighted") || l.classList.contains("is-dimmed")).length, 0);
+
+    // Interactive hover scrubbing across multi-series Particulate matter + forecast + highlight dimming.
+    const pmWrap = pmPanel.querySelector(".trend-chart-wrap");
+    pmWrap.clientWidth = 1038;
+    pmWrap.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1038, height: 320, bottom: 320 });
+    pmSvg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1038, height: 252, bottom: 252 });
+
+    // Hover near x=350 (svgX = -18 + 368 = 350) -> snaps all 3 PM series at 09:00 AM.
+    pmSvg.listeners.pointermove({ pointerType: "mouse", clientX: 368, clientY: 150 });
+    const pmCrosshair = pmSvg.querySelector(".trend-crosshair");
+    assert.ok(pmCrosshair);
+    assert.equal(pmCrosshair.getAttribute("x1"), "350");
+    assert.equal(pmCrosshair.getAttribute("y1"), "24");
+    assert.equal(pmCrosshair.getAttribute("y2"), "232");
+    const pmDots = pmSvg.querySelectorAll(".trend-hover-dot");
+    assert.equal(pmDots.length, 3);
+    const pmTooltip = pmWrap.querySelector(".chart-hover-tooltip");
+    assert.ok(pmTooltip && !pmTooltip.hidden);
+    assert.ok(pmTooltip.textContent.includes("09:00 AM"));
+    assert.ok(pmTooltip.textContent.includes("PM 1.0 : 6"));
+    assert.ok(pmTooltip.textContent.includes("PM 2.5 : 17"));
+    assert.ok(pmTooltip.textContent.includes("PM 10 : 22.1"));
+    const leftSideLeft = parseFloat(pmTooltip.style.left);
+    assert.ok(leftSideLeft > 368);
+
+    // Scrubbing near right edge (x=1000 -> clientX=1018) snaps forecast points and flips tooltip left.
+    pmSvg.listeners.pointermove({ pointerType: "mouse", clientX: 1018, clientY: 180 });
+    assert.ok(pmTooltip.textContent.includes("11:00 AM"));
+    assert.ok(pmTooltip.textContent.includes("PM 1.0 (forecast) : 3.2"));
+    const rightSideLeft = parseFloat(pmTooltip.style.left);
+    assert.ok(rightSideLeft < 1018);
+
+    // With PM 2.5 highlighted, touch-drag dims PM 1.0 & PM 10 dots/rows and promotes PM 2.5 dot last.
+    grid.listeners.click({ target: updatedPm25Toggle });
+    pmSvg.listeners.pointerdown({ pointerType: "touch", pointerId: 7, clientX: 368, clientY: 150 });
+    const focusedDots = pmSvg.querySelectorAll(".trend-hover-dot");
+    assert.equal(focusedDots.length, 3);
+    assert.ok(focusedDots[2].classList.contains("is-highlighted"));
+    assert.equal(focusedDots.filter((d) => d.classList.contains("is-dimmed")).length, 2);
+    assert.equal(pmTooltip.querySelectorAll(".chart-hover-row").filter((r) => r.classList.contains("is-dimmed")).length, 2);
+
+    // Pointerleave & pointercancel hide tooltip and clear overlay.
+    pmSvg.listeners.pointercancel({ pointerType: "touch" });
+    assert.equal(pmTooltip.hidden, true);
+    assert.equal(pmSvg.querySelectorAll(".trend-hover-dot").length, 0);
+
+    pmSvg.listeners.pointermove({ pointerType: "mouse", clientX: 78, clientY: 160 });
+    assert.equal(pmTooltip.hidden, false);
+    pmSvg.listeners.pointerleave({ pointerType: "mouse" });
+    assert.equal(pmTooltip.hidden, true);
+    assert.equal(pmSvg.querySelectorAll(".trend-crosshair").length, 0);
 
     console.log("test_charts.js passed");
 }

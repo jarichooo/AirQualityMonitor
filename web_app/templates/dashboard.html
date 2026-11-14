@@ -152,6 +152,8 @@
                     {% for fsegment in s.forecast_segments %}<polyline class="trend-line is-forecast" data-series-col="{{ s.column }}" data-series-kind="forecast" data-series-order="{{ line_ns.order }}" style="--series-color: {{ s.color }}; stroke: {{ s.color }}; filter: drop-shadow(0 2px 5px {{ s.color }}44);" points="{{ fsegment }}"/>{% set line_ns.order = line_ns.order + 1 %}{% endfor %}
                     {% endfor %}
                 </svg>
+                <div class="chart-hover-tooltip" role="status" aria-live="off" hidden></div>
+                <script type="application/json" class="chart-hover-data">{"plot_right": {{ plot_right | tojson }}, "view_box": {{ (chart.view_box or '-18 14 798 252') | tojson }}, "unit": {{ chart.unit | tojson }}, "series": [{% for s in chart.series_list %}{"column": {{ s.column | tojson }}, "label": {{ s.label | tojson }}, "unit": {{ s.unit | tojson }}, "color": {{ s.color | tojson }}, "hover_points": {{ s.hover_points | tojson }}}{{ "," if not loop.last else "" }}{% endfor %}]}</script>
                 <ul class="chart-series-legend" aria-label="{{ chart.title }} series legend">
                     {% for s in chart.series_list %}
                     <li class="chart-series-entry">
@@ -182,4 +184,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='4') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='13') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='5') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='13') }}" defer></script>{% endblock %}

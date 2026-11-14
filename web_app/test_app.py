@@ -674,10 +674,14 @@ class AppTestCase(unittest.TestCase):
 
         charts_js = (Path(__file__).parent / "static" / "charts.js").read_text(encoding="utf-8")
         self.assertNotIn("innerHTML", charts_js)
+        self.assertNotIn("outerHTML", charts_js)
         self.assertIn("createElementNS", charts_js)
         self.assertIn("AbortController", charts_js)
         self.assertIn("trend-axis-tick", charts_js)
         self.assertIn("trend-axis-unit", charts_js)
+        self.assertIn("trend-crosshair", charts_js)
+        self.assertIn("trend-hover-dot", charts_js)
+        self.assertIn("chart-hover-tooltip", charts_js)
 
     def test_chart_axes_zoom_to_data_and_match_reference_layout(self):
         start = datetime(2026, 11, 11, 10, 0, tzinfo=timezone.utc)
@@ -752,6 +756,11 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b"trend-axis-tick", page.data)
         self.assertIn(b"trend-axis-unit", page.data)
         self.assertIn(b'transform="rotate(-90 -4 128)"', page.data)
+        self.assertIn(b'class="chart-hover-data"', page.data)
+        self.assertIn(b'class="chart-hover-tooltip"', page.data)
+        self.assertIn(b'"hover_points"', page.data)
+        self.assertIn(b"dark-mode-36", page.data)
+        self.assertIn(b"charts.js?v=5", page.data)
 
 
 if __name__ == "__main__":
