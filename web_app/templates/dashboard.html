@@ -173,6 +173,9 @@
                         <button type="button" class="chart-series-item chart-series-toggle is-forecast" data-series-col="{{ s.column }}" data-series-kind="forecast" aria-pressed="false" style="--series-color: {{ s.color }};">
                             <span class="chart-series-swatch is-forecast" style="--series-color: {{ s.color }};" aria-hidden="true"></span>
                             <span class="chart-series-name">{{ s.label }} forecast</span>
+                            {% if s.forecast_value is not none %}
+                            <strong class="chart-series-latest">{{ reading(s.forecast_value) }} <small>{{ s.unit }}</small></strong>
+                            {% endif %}
                         </button>
                     </li>
                     {% endif %}
@@ -187,4 +190,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-7') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='6') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='14') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-7') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='7') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='14') }}" defer></script>{% endblock %}

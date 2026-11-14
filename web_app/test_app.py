@@ -637,6 +637,7 @@ class AppTestCase(unittest.TestCase):
         charts = application.build_sensor_charts(rows, start, end, "temperature_c", metrics_by_key, forecast=forecast)
         ammonia_chart = charts[0]
         ammonia_series = ammonia_chart["series_list"][0]
+        self.assertEqual(ammonia_series["forecast_value"], 2100.0)
         self.assertEqual(len(ammonia_series["forecast_segments"]), 1)
         last_recorded_pt = f"{ammonia_series['points'][-1]['x']},{ammonia_series['points'][-1]['y']}"
         forecast_pts = ammonia_series["forecast_segments"][0].split()
@@ -660,7 +661,10 @@ class AppTestCase(unittest.TestCase):
             patch.object(application, "fetch_latest_forecasts", return_value=[forecast]),
         ):
             response = self.client.get("/api/charts")
+            dashboard_page = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(dashboard_page.status_code, 200)
+        self.assertIn(b"charts.js?v=7", dashboard_page.data)
         payload = response.get_json()
         self.assertTrue(payload["configured"])
         self.assertTrue(payload["has_forecast"])
@@ -668,6 +672,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(len(payload["charts"]), 6)
         self.assertEqual(payload["charts"][-1]["chart_id"], "chart-pm1_ugm3")
         charts_by_id = {chart["chart_id"]: chart for chart in payload["charts"]}
+        self.assertEqual(charts_by_id["chart-mq137_ppm"]["series_list"][0]["forecast_value"], 2100.0)
         self.assertEqual(charts_by_id["chart-temperature_c"]["unit"], "\u00b0C")
         self.assertEqual(charts_by_id["chart-humidity_perc"]["unit"], "%")
         self.assertTrue(all(chart["series_list"][0]["forecast_segments"] for chart in payload["charts"]))
@@ -761,7 +766,7 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
         self.assertIn(b"dark-mode-38", page.data)
-        self.assertIn(b"charts.js?v=6", page.data)
+        self.assertIn(b"charts.js?v=7", page.data)
         self.assertIn(b"forecasts.js?v=14", page.data)
 
 

@@ -738,6 +738,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 if len(f_segment) >= 2:
                     forecast_segments.append(" ".join(f_segment))
             m = metrics_by_key.get(col, {})
+            forecast_value = round(float(f_vals[-1]), 2) if f_vals else None
             series_list.append(dict(
                 column=col,
                 label=s_label,
@@ -748,6 +749,7 @@ def build_sensor_charts(recorded_series, start, end, selected_sensor, metrics_by
                 points=points,
                 hover_points=hover_points,
                 latest_value=m.get("value"),
+                forecast_value=forecast_value,
                 severity=m.get("severity", "unavailable"),
             ))
         threshold_lines = []
@@ -1168,6 +1170,7 @@ def charts_api():
                     forecast_segments=s["forecast_segments"],
                     hover_points=s["hover_points"],
                     latest_value=s["latest_value"],
+                    forecast_value=s["forecast_value"],
                     severity=s["severity"],
                 )
                 for s in chart["series_list"]

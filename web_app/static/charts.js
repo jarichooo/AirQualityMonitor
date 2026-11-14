@@ -488,11 +488,12 @@
         name.className = "chart-series-name";
         name.textContent = kind === "forecast" ? `${series.label} forecast` : series.label;
 
+        const legendValue = kind === "forecast" ? series.forecast_value : series.latest_value;
         btn.append(swatch, name);
-        if (kind === "recorded" && series.latest_value !== null && series.latest_value !== undefined) {
+        if (legendValue !== null && legendValue !== undefined) {
             const strong = document.createElement("strong");
             strong.className = "chart-series-latest";
-            strong.textContent = `${formatReading(series.latest_value)} `;
+            strong.textContent = `${formatReading(legendValue)} `;
             const small = document.createElement("small");
             small.textContent = series.unit || "";
             strong.append(small);

@@ -249,6 +249,7 @@ async function run() {
                             [1000, 220, "11:00 AM", 3.2, "forecast"],
                         ],
                         latest_value: pm1Latest,
+                        forecast_value: 3.2,
                     },
                     {
                         column: "pm25_ugm3",
@@ -263,6 +264,7 @@ async function run() {
                             [1000, 175, "11:00 AM", 11.4, "forecast"],
                         ],
                         latest_value: 17,
+                        forecast_value: 11.4,
                     },
                     {
                         column: "pm10_ugm3",
@@ -277,6 +279,7 @@ async function run() {
                             [1000, 175, "11:00 AM", 14.8, "forecast"],
                         ],
                         latest_value: 17,
+                        forecast_value: 14.8,
                     },
                 ],
             },
@@ -348,6 +351,9 @@ async function run() {
 
     const toggles = pmPanel.querySelectorAll(".chart-series-toggle");
     assert.equal(toggles.length, 6);
+    const pm1ForecastToggle = toggles.find((btn) => btn.dataset.seriesCol === "pm1_ugm3" && btn.dataset.seriesKind === "forecast");
+    assert.ok(pm1ForecastToggle);
+    assert.ok(pm1ForecastToggle.textContent.includes("3.20 ug/m3"));
     const pm25Toggle = toggles.find((btn) => btn.dataset.seriesCol === "pm25_ugm3" && btn.dataset.seriesKind === "recorded");
     assert.ok(pm25Toggle);
 
