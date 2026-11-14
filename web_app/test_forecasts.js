@@ -148,6 +148,13 @@ async function run() {
 
     const cards = withClass(results, "forecast-card");
     assert.equal(cards.length, 1);
+    assert.equal(withClass(cards[0], "forecast-tiles").length, 1);
+    assert.equal(withClass(cards[0], "forecast-horizon-badge").length, 1);
+    assert.match(withClass(cards[0], "forecast-horizon-badge")[0].textContent, /^Predicted · By /);
+    const tiles = withClass(cards[0], "forecast-tile");
+    assert.equal(tiles.length, 1);
+    assert.equal(tiles[0].tagName, "A");
+    assert.equal(tiles[0].attributes.href, "#chart-mq137_ppm");
     assert.equal(withClass(cards[0], "forecast-value")[0].className.includes("is-warning"), true);
     assert.doesNotMatch(cards[0].textContent, /Review the forecast/);
     assert.match(guidanceResults.textContent, /Review the forecast/);

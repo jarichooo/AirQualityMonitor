@@ -111,12 +111,15 @@
 
     <div class="sensor-charts-grid" aria-label="Recorded sensor trend charts" data-charts-url="{{ url_for('charts_api') }}">
         <section class="dashboard-panel ai-panel" aria-label="2-hour forecast" id="forecast-panel" data-forecast-url="{{ url_for('forecasts_api') }}" aria-busy="true">
-            <ul class="forecast-legend" aria-label="Prediction conditions">
-                <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
-                <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
-                <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
-            </ul>
-            <div class="ai-body" id="forecast-results" aria-live="polite"><p>Loading saved forecasts…</p></div>
+            <div class="forecast-panel-header">
+                <span class="forecast-panel-kicker">2-Hour Horizon</span>
+                <ul class="forecast-legend" aria-label="Prediction conditions">
+                    <li class="is-normal"><span class="forecast-legend-dot" aria-hidden="true"></span>Normal</li>
+                    <li class="is-warning"><span class="forecast-legend-dot" aria-hidden="true"></span>Warning</li>
+                    <li class="is-critical"><span class="forecast-legend-dot" aria-hidden="true"></span>Critical</li>
+                </ul>
+            </div>
+            <div class="ai-body" id="forecast-results" aria-live="polite"><p class="forecast-empty-state">Loading saved forecasts…</p></div>
         </section>
         {% for chart in sensor_charts %}
         {% set title_id = 'recorded-trend-title' if chart.is_selected else 'chart-title-' ~ chart.column %}
@@ -184,4 +187,4 @@
     </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='5') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='13') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='device.js', v='live-panel-6') }}" defer></script><script src="{{ url_for('static', filename='charts.js', v='5') }}" defer></script><script src="{{ url_for('static', filename='forecasts.js', v='14') }}" defer></script>{% endblock %}

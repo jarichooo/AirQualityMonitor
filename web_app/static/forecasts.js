@@ -118,20 +118,66 @@
     const renderForecastValues = (forecast) => {
         const article = document.createElement("article");
         article.className = "forecast-card is-available";
-        const heading = addText(article, "h3", "Predicted values in 2 hours");
-        const list = document.createElement("dl");
-        list.setAttribute("aria-labelledby", heading.id = `forecast-values-${forecast.forecast_id || forecast.device_id}`);
+
+        const header = document.createElement("div");
+        header.className = "forecast-card-head";
+
+        const headingId = `forecast-values-${forecast.forecast_id || forecast.device_id}`;
+        const cardSeverity = highestSeverity([forecast]) || "unavailable";
+        const targetTime = formatTargetTime(forecast.target_at);
+
+        const badge = document.createElement("span");
+        badge.id = headingId;
+        badge.className = `forecast-horizon-badge is-${cardSeverity}`;
+        const dot = document.createElement("span");
+        dot.className = "forecast-horizon-dot";
+        dot.setAttribute("aria-hidden", "true");
+        badge.append(dot);
+        addText(badge, "span", targetTime ? `Predicted · By ${targetTime}` : "Predicted levels");
+
+        const count = document.createElement("span");
+        count.className = "forecast-count-pill";
+        const total = forecast.predictions.length;
+        count.textContent = `${total} ${total === 1 ? "sensor" : "sensors"}`;
+
+        header.append(badge, count);
+
+        const grid = document.createElement("div");
+        grid.className = "forecast-tiles";
+        grid.setAttribute("aria-labelledby", headingId);
+
         forecast.predictions.forEach((prediction) => {
-            addText(list, "dt", prediction.label);
-            const value = addText(
-                list,
-                "dd",
-                `${formatNumber(prediction.value)} ${prediction.unit} · ${severityLabel(prediction.severity)}`,
-                `forecast-value is-${severityClass(prediction.severity)}`,
-            );
-            value.setAttribute("aria-label", `${prediction.label}: ${value.textContent}`);
+            const sev = severityClass(prediction.severity);
+            const sevText = severityLabel(prediction.severity);
+            const formattedValue = formatNumber(prediction.value);
+            const unitText = prediction.unit || "";
+            const channelKey = resolveChannelKey(prediction);
+
+            const tile = document.createElement(channelKey ? "a" : "div");
+            tile.className = `forecast-tile is-${sev}`;
+            if (channelKey) {
+                tile.setAttribute("href", `#chart-${channelKey}`);
+            }
+
+            const top = document.createElement("div");
+            top.className = "forecast-tile-top";
+            addText(top, "span", prediction.label, "forecast-tile-label");
+            addText(top, "span", sevText, `severity-pill is-${sev}`);
+
+            const reading = document.createElement("div");
+            reading.className = "forecast-tile-reading";
+            const valueEl = document.createElement("strong");
+            valueEl.className = `forecast-value is-${sev}`;
+            valueEl.textContent = `${formattedValue} `;
+            addText(valueEl, "small", unitText);
+            valueEl.setAttribute("aria-label", `${prediction.label}: ${formattedValue} ${unitText} · ${sevText}`);
+            reading.append(valueEl);
+
+            tile.append(top, reading);
+            grid.append(tile);
         });
-        article.append(list);
+
+        article.append(header, grid);
         return article;
     };
 
@@ -238,7 +284,7 @@
         if (!payload.configured) {
             if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
             const message = payload.message || "Forecasting is not configured yet.";
-            addText(results, "p", message);
+            addText(results, "p", message, "forecast-empty-state");
             if (guidanceResults) addText(guidanceResults, "p", message, "prediction-banner-text is-muted");
             return;
         }
@@ -249,7 +295,7 @@
             .sort((left, right) => Number(right.status === "available") - Number(left.status === "available"));
         if (!forecasts.length) {
             if (guidanceBanner) guidanceBanner.className = "dashboard-notification-slot";
-            addText(results, "p", "No results yet.");
+            addText(results, "p", "No results yet.", "forecast-empty-state");
             if (guidanceResults) addText(guidanceResults, "p", "No forecast yet.", "prediction-banner-text is-muted");
             return;
         }
@@ -257,7 +303,7 @@
         if (numericForecasts.length) {
             numericForecasts.forEach((forecast) => results.append(renderForecastValues(forecast)));
         } else {
-            addText(results, "p", "No results yet.");
+            addText(results, "p", "No results yet.", "forecast-empty-state");
         }
         if (guidanceBanner) {
             const level = highestSeverity(forecasts);

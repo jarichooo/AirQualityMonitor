@@ -759,8 +759,9 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-36", page.data)
+        self.assertIn(b"dark-mode-37", page.data)
         self.assertIn(b"charts.js?v=5", page.data)
+        self.assertIn(b"forecasts.js?v=14", page.data)
 
 
 if __name__ == "__main__":
