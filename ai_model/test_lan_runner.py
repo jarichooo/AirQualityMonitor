@@ -135,8 +135,9 @@ class LanRunnerTests(unittest.TestCase):
             "simulate_random.sh": "random",
             "delete_simulated_data.sh": "delete",
         }
-        actual_names = {p.name for p in scripts_dir.iterdir()}
+        actual_names = {p.name for p in scripts_dir.glob("*.sh")}
         self.assertEqual(actual_names, set(expected))
+        self.assertTrue((scripts_dir / "README.md").is_file())
         for filename, action in expected.items():
             raw = (scripts_dir / filename).read_bytes()
             self.assertNotIn(b"\r", raw, f"{filename} must use LF line endings")
@@ -147,3 +148,4 @@ class LanRunnerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
