@@ -26,7 +26,7 @@
         readingsPaused = null;
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = "Disable IoT";
+            pauseButton.textContent = "Pause IoT";
             pauseButton.removeAttribute("aria-pressed");
         }
         if (collectionState) {
@@ -40,7 +40,7 @@
         clearTimeout(controlTimer);
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = command === "PAUSE" ? "Disabling IoT…" : command === "RESUME" ? "Resuming IoT…" : "Disable IoT";
+            pauseButton.textContent = command === "PAUSE" ? "Pausing IoT…" : command === "RESUME" ? "Resuming IoT…" : "Pause IoT";
         }
         if (collectionHelp) {
             collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
@@ -77,7 +77,7 @@
         readingsPaused = message.paused;
         if (pauseButton) {
             pauseButton.disabled = false;
-            pauseButton.textContent = readingsPaused ? "Resume IoT" : "Disable IoT";
+            pauseButton.textContent = readingsPaused ? "Resume IoT" : "Pause IoT";
             pauseButton.setAttribute("aria-pressed", String(readingsPaused));
         }
         if (collectionState) {
