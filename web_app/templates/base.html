@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0c100f">
     <title>{{ page_name }} - Henvironment</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-40') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-41') }}">
 </head>
 <body class="page-{{ page_name|lower }}">
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -53,16 +53,32 @@
 
     <main class="main-content" id="main-content" tabindex="-1">
         <div class="server-connection-notice" id="server-connection-notice" data-health-url="{{ url_for('health_api') }}" role="alert" aria-live="assertive" hidden>
-            <span class="server-connection-dot" aria-hidden="true"></span>
+            <div class="server-connection-icon" aria-hidden="true">
+                <span class="server-connection-pulse"></span>
+                <svg class="server-connection-svg is-disconnect-icon" viewBox="0 0 24 24">
+                    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/>
+                    <path d="M12 9v4M12 17h.01"/>
+                </svg>
+                <svg class="server-connection-svg is-shutdown-icon" viewBox="0 0 24 24">
+                    <path d="M12 2.5v9.5"/>
+                    <path d="M18.36 6.64a9 9 0 1 1-12.73 0"/>
+                </svg>
+            </div>
             <div class="server-connection-copy">
-                <strong id="server-connection-title">Server disconnected</strong>
-                <span id="server-connection-message">Cannot reach the server. Retrying automatically…</span>
+                <div class="server-connection-header">
+                    <span class="server-connection-kicker" id="server-connection-kicker">
+                        <span class="server-connection-kicker-dot" aria-hidden="true"></span>
+                        <span id="server-connection-kicker-text">Connection lost</span>
+                    </span>
+                    <strong id="server-connection-title">Server disconnected</strong>
+                </div>
+                <span class="server-connection-message" id="server-connection-message">Cannot reach the server. Retrying automatically…</span>
             </div>
             <button class="button button-secondary server-connection-retry" id="server-connection-retry" type="button">Retry now</button>
         </div>
         {% block content %}{% endblock %}
     </main>
-    <script src="{{ url_for('static', filename='app.js', v='server-notice-1') }}"></script>
+    <script src="{{ url_for('static', filename='app.js', v='server-notice-2') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

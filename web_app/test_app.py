@@ -767,10 +767,15 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-40", page.data)
+        self.assertIn(b"dark-mode-41", page.data)
+        self.assertIn(b"app.js?v=server-notice-2", page.data)
+        self.assertIn(b"device.js?v=live-panel-9", page.data)
         self.assertIn(b"charts.js?v=8", page.data)
         self.assertIn(b"forecasts.js?v=15", page.data)
         self.assertIn(b'id="server-connection-notice"', page.data)
+        self.assertIn(b'id="server-connection-kicker-text"', page.data)
+        self.assertIn(b"is-disconnect-icon", page.data)
+        self.assertIn(b"is-shutdown-icon", page.data)
 
     def test_health_api_reports_ok_and_transitions_on_shutdown(self):
         application._SERVER_SHUTTING_DOWN.clear()
@@ -805,6 +810,27 @@ class AppTestCase(unittest.TestCase):
             self.assertEqual(down_resp.get_json(), {"status": "shutting_down", "shutting_down": True})
         finally:
             application._SERVER_SHUTTING_DOWN.clear()
+
+    def test_connection_notice_and_device_shutdown_reset_contracts(self):
+        device_js = (Path(__file__).parent / "static" / "device.js").read_text(encoding="utf-8")
+        app_js = (Path(__file__).parent / "static" / "app.js").read_text(encoding="utf-8")
+        notice_section = app_js[app_js.index("const connectionNotice"):]
+
+        self.assertNotIn("innerHTML", device_js)
+        self.assertNotIn("outerHTML", device_js)
+        self.assertNotIn("innerHTML", notice_section)
+        self.assertNotIn("outerHTML", notice_section)
+        self.assertIn("server:reconnected", device_js)
+        self.assertIn("resetShutdownButton", device_js)
+        self.assertIn("#server-connection-kicker-text", notice_section)
+
+        self.login()
+        with patch.object(application, "fetch_readings", return_value=([], 0, None)):
+            data_page = self.client.get("/data")
+        self.assertEqual(data_page.status_code, 200)
+        self.assertIn(b'id="server-connection-notice"', data_page.data)
+        self.assertIn(b'id="server-connection-kicker-text"', data_page.data)
+        self.assertIn(b"app.js?v=server-notice-2", data_page.data)
 
 
 if __name__ == "__main__":

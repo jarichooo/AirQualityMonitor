@@ -342,6 +342,7 @@
     if (connectionNotice) {
         const titleElem = document.querySelector("#server-connection-title");
         const messageElem = document.querySelector("#server-connection-message");
+        const kickerElem = document.querySelector("#server-connection-kicker-text");
         const retryButton = document.querySelector("#server-connection-retry");
         const healthUrl = connectionNotice.dataset.healthUrl || "/api/health";
         const NORMAL_POLL_MS = 15000;
@@ -354,9 +355,10 @@
         let inFlight = false;
         let pollTimer = null;
 
-        const showNotice = (mode, titleText, messageText) => {
+        const showNotice = (mode, titleText, messageText, kickerText) => {
             connectionNotice.hidden = false;
             connectionNotice.classList.toggle("is-shutdown", mode === "shutdown");
+            if (kickerElem && kickerText) kickerElem.textContent = kickerText;
             if (titleElem) titleElem.textContent = titleText;
             if (messageElem) messageElem.textContent = messageText;
         };
@@ -390,26 +392,34 @@
                 showNotice(
                     "shutdown",
                     "Server is shutting down",
-                    reasonMessage || "Host shutdown was initiated. Live updates have stopped until the server starts again."
+                    reasonMessage || "Host shutdown was initiated. Live updates have stopped until the server starts again.",
+                    "Host shutdown"
                 );
                 scheduleNext(SHUTDOWN_POLL_MS);
                 return;
             }
             consecutiveFailures += 1;
             const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+            if (!offline && isShuttingDown) {
+                isDisconnected = true;
+                scheduleNext(DISCONNECTED_POLL_MS);
+                return;
+            }
             if (offline || immediate || consecutiveFailures >= 2) {
                 isDisconnected = true;
                 if (offline) {
                     showNotice(
                         "disconnected",
                         "Network disconnected",
-                        "Your device is offline. Waiting for network connection…"
+                        "Your device is offline. Waiting for network connection…",
+                        "Offline"
                     );
                 } else {
                     showNotice(
                         "disconnected",
                         "Server disconnected",
-                        "Cannot reach the Air Quality Monitor server. It may have shut down or lost connection. Retrying automatically…"
+                        "Cannot reach the Air Quality Monitor server. It may have shut down or lost connection. Retrying automatically…",
+                        "Connection lost"
                     );
                 }
                 scheduleNext(DISCONNECTED_POLL_MS);
@@ -440,7 +450,7 @@
                     signal: controller?.signal,
                 });
                 const payload = await response.json().catch(() => null);
-                if (response.ok && payload && payload.status === "ok") {
+                if (response.ok && payload && payload.status === "ok" && payload.shutting_down !== true) {
                     handleHealthy();
                 } else if (payload?.shutting_down === true || payload?.status === "shutting_down") {
                     handleFailure({ shuttingDown: true, reasonMessage: payload.message });
@@ -471,7 +481,8 @@
             if (!isShuttingDown && !isDisconnected) checkHealth();
         });
         document.addEventListener("server:request-ok", () => {
-            if (isDisconnected && !isShuttingDown) handleHealthy();
+            if (isShuttingDown) checkHealth();
+            else if (isDisconnected) handleHealthy();
         });
         window.addEventListener("offline", () => handleFailure({ immediate: true }));
         window.addEventListener("online", () => checkHealth());

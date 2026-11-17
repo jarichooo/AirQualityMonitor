@@ -180,6 +180,12 @@
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
         sendControl(readingsPaused ? "RESUME" : "PAUSE");
     });
+    const resetShutdownButton = () => {
+        if (!shutdownButton) return;
+        shutdownButton.disabled = false;
+        shutdownButton.textContent = "Shutdown server";
+    };
+    document.addEventListener("server:reconnected", resetShutdownButton);
     shutdownButton?.addEventListener("click", async () => {
         const url = shutdownButton.dataset.shutdownUrl;
         const token = shutdownButton.dataset.shutdownToken;
@@ -189,12 +195,18 @@
         try {
             const response = await fetch(url, {
                 method: "POST",
+                credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ csrf_token: token }),
             });
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(payload.message || "Unable to shut down the server.");
+            if (response.redirected && new URL(response.url, window.location.origin).pathname === "/login") {
+                resetShutdownButton();
+                window.location.href = response.url;
+                return;
+            }
+            const payload = await response.json().catch(() => null);
+            if (!response.ok || !payload || payload.status !== "shutting_down") {
+                throw new Error(payload?.message || "Unable to shut down the server.");
             }
             if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") {
                 document.dispatchEvent(new CustomEvent("server:shutting-down", {
@@ -202,8 +214,7 @@
                 }));
             }
         } catch (error) {
-            shutdownButton.disabled = false;
-            shutdownButton.textContent = "Shutdown server";
+            resetShutdownButton();
             window.alert(error.message || "Unable to shut down the server.");
         }
     });
