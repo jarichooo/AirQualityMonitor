@@ -180,24 +180,33 @@
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
         sendControl(readingsPaused ? "RESUME" : "PAUSE");
     });
+    let shutdownAwaitingHealth = false;
     const resetShutdownButton = () => {
+        shutdownAwaitingHealth = false;
         if (!shutdownButton) return;
         shutdownButton.disabled = false;
         shutdownButton.textContent = "Shutdown server";
     };
     document.addEventListener("server:reconnected", resetShutdownButton);
+    document.addEventListener("server:health-ok", () => {
+        if (shutdownAwaitingHealth) resetShutdownButton();
+    });
     shutdownButton?.addEventListener("click", async () => {
         const url = shutdownButton.dataset.shutdownUrl;
         const token = shutdownButton.dataset.shutdownToken;
         if (!url || !window.confirm("Shut down the server now?")) return;
+        shutdownAwaitingHealth = false;
         shutdownButton.disabled = true;
         shutdownButton.textContent = "Shutting down…";
+        const controller = typeof AbortController === "function" ? new AbortController() : null;
+        const timeout = controller ? window.setTimeout(() => controller.abort(), 8000) : null;
         try {
             const response = await fetch(url, {
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ csrf_token: token }),
+                signal: controller?.signal,
             });
             if (response.redirected && new URL(response.url, window.location.origin).pathname === "/login") {
                 resetShutdownButton();
@@ -206,7 +215,9 @@
             }
             const payload = await response.json().catch(() => null);
             if (!response.ok || !payload || payload.status !== "shutting_down") {
-                throw new Error(payload?.message || "Unable to shut down the server.");
+                const rejection = new Error(payload?.message || "Unable to shut down the server.");
+                rejection.isServerRejection = true;
+                throw rejection;
             }
             if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") {
                 document.dispatchEvent(new CustomEvent("server:shutting-down", {
@@ -214,8 +225,19 @@
                 }));
             }
         } catch (error) {
-            resetShutdownButton();
-            window.alert(error.message || "Unable to shut down the server.");
+            if (error?.isServerRejection) {
+                resetShutdownButton();
+                window.alert(error.message);
+                return;
+            }
+            shutdownAwaitingHealth = true;
+            if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") {
+                document.dispatchEvent(new CustomEvent("server:request-failed", {
+                    detail: { source: "shutdown" },
+                }));
+            }
+        } finally {
+            if (timeout !== null) window.clearTimeout(timeout);
         }
     });
     window.addEventListener("pagehide", () => {

@@ -768,8 +768,8 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
         self.assertIn(b"dark-mode-41", page.data)
-        self.assertIn(b"app.js?v=server-notice-2", page.data)
-        self.assertIn(b"device.js?v=live-panel-9", page.data)
+        self.assertIn(b"app.js?v=server-notice-3", page.data)
+        self.assertIn(b"device.js?v=live-panel-10", page.data)
         self.assertIn(b"charts.js?v=8", page.data)
         self.assertIn(b"forecasts.js?v=15", page.data)
         self.assertIn(b'id="server-connection-notice"', page.data)
@@ -830,7 +830,7 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(data_page.status_code, 200)
         self.assertIn(b'id="server-connection-notice"', data_page.data)
         self.assertIn(b'id="server-connection-kicker-text"', data_page.data)
-        self.assertIn(b"app.js?v=server-notice-2", data_page.data)
+        self.assertIn(b"app.js?v=server-notice-3", data_page.data)
 
 
 if __name__ == "__main__":

@@ -191,7 +191,7 @@ async function run() {
     assert.equal(notice.hidden, true);
     assert.equal(dispatched.filter((e) => e.type === "server:reconnected").length, 1);
 
-    // 4. Clicking shutdown disables button, shows amber shutdown banner, survives 503 + unreachable host, and resets on recovery.
+    // 4. Clicking shutdown disables button, shows amber shutdown banner, switches to disconnected when host powers off, and resets on recovery.
     shutdownOutcomes.push({ status: 202, body: { status: "shutting_down", message: "Server is shutting down." } });
     await shutdownButton.listeners.click[0]();
     await settle();
@@ -202,7 +202,7 @@ async function run() {
     assert.equal(kicker.textContent, "Host shutdown");
     assert.equal(title.textContent, "Server is shutting down");
     assert.equal(message.textContent, "Server is shutting down.");
-    assert.equal(latestActiveTimer().delay, 10000);
+    assert.equal(latestActiveTimer().delay, 3000);
 
     healthOutcomes.push({ status: 503, body: { status: "shutting_down", shutting_down: true } });
     await latestActiveTimer().fn();
@@ -215,8 +215,9 @@ async function run() {
     await latestActiveTimer().fn();
     await settle();
     assert.equal(notice.hidden, false);
-    assert.equal(notice.classList.contains("is-shutdown"), true);
-    assert.equal(kicker.textContent, "Host shutdown");
+    assert.equal(notice.classList.contains("is-shutdown"), false);
+    assert.equal(kicker.textContent, "Connection lost");
+    assert.equal(title.textContent, "Server disconnected");
     assert.equal(latestActiveTimer().delay, 5000);
 
     healthOutcomes.push({ status: 200, body: { status: "ok", shutting_down: false } });
@@ -224,6 +225,15 @@ async function run() {
     await settle();
     assert.equal(notice.hidden, true);
     assert.equal(dispatched.filter((e) => e.type === "server:reconnected").length, 2);
+    assert.equal(shutdownButton.disabled, false);
+    assert.equal(shutdownButton.textContent, "Shutdown server");
+
+    // 4b. Network drop on shutdown POST triggers health check instead of alert, and resets button if server is still up.
+    shutdownOutcomes.push(new Error("Failed to fetch"));
+    healthOutcomes.push({ status: 200, body: { status: "ok", shutting_down: false } });
+    await shutdownButton.listeners.click[0]();
+    await settle();
+    assert.equal(alerts.length, 0);
     assert.equal(shutdownButton.disabled, false);
     assert.equal(shutdownButton.textContent, "Shutdown server");
 

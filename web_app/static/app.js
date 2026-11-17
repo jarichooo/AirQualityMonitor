@@ -347,7 +347,7 @@
         const healthUrl = connectionNotice.dataset.healthUrl || "/api/health";
         const NORMAL_POLL_MS = 15000;
         const DISCONNECTED_POLL_MS = 5000;
-        const SHUTDOWN_POLL_MS = 10000;
+        const SHUTDOWN_POLL_MS = 3000;
         const CONFIRM_DELAY_MS = 1500;
         let consecutiveFailures = 0;
         let isDisconnected = false;
@@ -380,6 +380,7 @@
             isDisconnected = false;
             isShuttingDown = false;
             hideNotice();
+            emitServerEvent("server:health-ok");
             if (wasDown) emitServerEvent("server:reconnected");
             scheduleNext(NORMAL_POLL_MS);
         };
@@ -398,14 +399,11 @@
                 scheduleNext(SHUTDOWN_POLL_MS);
                 return;
             }
+            const wasShuttingDown = isShuttingDown;
             consecutiveFailures += 1;
             const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-            if (!offline && isShuttingDown) {
-                isDisconnected = true;
-                scheduleNext(DISCONNECTED_POLL_MS);
-                return;
-            }
-            if (offline || immediate || consecutiveFailures >= 2) {
+            if (offline || immediate || wasShuttingDown || consecutiveFailures >= 2) {
+                isShuttingDown = false;
                 isDisconnected = true;
                 if (offline) {
                     showNotice(
@@ -413,6 +411,13 @@
                         "Network disconnected",
                         "Your device is offline. Waiting for network connection…",
                         "Offline"
+                    );
+                } else if (wasShuttingDown) {
+                    showNotice(
+                        "disconnected",
+                        "Server disconnected",
+                        "The server has shut down and is now offline. Retrying automatically…",
+                        "Connection lost"
                     );
                 } else {
                     showNotice(
@@ -478,7 +483,7 @@
             });
         });
         document.addEventListener("server:request-failed", () => {
-            if (!isShuttingDown && !isDisconnected) checkHealth();
+            if (!isDisconnected) checkHealth();
         });
         document.addEventListener("server:request-ok", () => {
             if (isShuttingDown) checkHealth();
