@@ -199,6 +199,7 @@ class ForecastTestCase(unittest.TestCase):
         self.assertIn('aria-label="Forecast"', html)
         self.assertIn('<span class="prediction-banner-kicker">Forecast</span>', html)
         self.assertIn('aria-label="2-hour forecast"', html)
+        self.assertIn('<span class="forecast-panel-kicker">Forecast for the next 2 hours</span>', html)
         self.assertNotIn("<h2>2-Hour Forecast</h2>", html)
         self.assertNotIn("AI-predicted sensor values for the next 2 hours", html)
         self.assertIn("Loading forecast…", html)
