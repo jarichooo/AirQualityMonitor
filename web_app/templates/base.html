@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0c100f">
     <title>{{ page_name }} - Henvironment</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-39') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='dark-mode-40') }}">
 </head>
 <body class="page-{{ page_name|lower }}">
     <a class="skip-link" href="#main-content">Skip to content</a>
@@ -51,8 +51,18 @@
         <span class="mobile-brand" aria-hidden="true">H</span>
     </header>
 
-    <main class="main-content" id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
-    <script src="{{ url_for('static', filename='app.js', v='sidebar-hover-1') }}"></script>
+    <main class="main-content" id="main-content" tabindex="-1">
+        <div class="server-connection-notice" id="server-connection-notice" data-health-url="{{ url_for('health_api') }}" role="alert" aria-live="assertive" hidden>
+            <span class="server-connection-dot" aria-hidden="true"></span>
+            <div class="server-connection-copy">
+                <strong id="server-connection-title">Server disconnected</strong>
+                <span id="server-connection-message">Cannot reach the server. Retrying automatically…</span>
+            </div>
+            <button class="button button-secondary server-connection-retry" id="server-connection-retry" type="button">Retry now</button>
+        </div>
+        {% block content %}{% endblock %}
+    </main>
+    <script src="{{ url_for('static', filename='app.js', v='server-notice-1') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

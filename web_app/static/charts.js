@@ -725,14 +725,16 @@
     let renderedFingerprint = null;
     let refreshTimer;
 
-    const notifyUpdated = (payload) => {
+    const emitServerEvent = (name, detail) => {
         if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
-        document.dispatchEvent(new CustomEvent("charts:updated", {
-            detail: {
-                hasForecast: Boolean(payload.has_forecast),
-                forecastEnd: payload.forecast_end || null,
-            },
-        }));
+        document.dispatchEvent(new CustomEvent(name, detail ? { detail } : undefined));
+    };
+
+    const notifyUpdated = (payload) => {
+        emitServerEvent("charts:updated", {
+            hasForecast: Boolean(payload.has_forecast),
+            forecastEnd: payload.forecast_end || null,
+        });
     };
 
     const scheduleRefresh = (delay) => {
@@ -762,6 +764,7 @@
             }
             if (!response.ok) throw new Error(`Chart refresh failed: ${response.status}`);
             const payload = await response.json();
+            emitServerEvent("server:request-ok", { source: "charts" });
             if (payload.configured && Array.isArray(payload.charts)) {
                 const fingerprint = JSON.stringify(payload);
                 if (fingerprint !== renderedFingerprint) {
@@ -772,6 +775,7 @@
                 }
             }
         } catch (error) {
+            emitServerEvent("server:request-failed", { source: "charts" });
             nextDelay = 15000;
         } finally {
             window.clearTimeout(timeout);
@@ -782,6 +786,7 @@
 
     initInitialHoverData();
     refresh();
+    document.addEventListener("server:reconnected", () => refresh());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 })();
 

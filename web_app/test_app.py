@@ -664,7 +664,7 @@ class AppTestCase(unittest.TestCase):
             dashboard_page = self.client.get("/dashboard")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(dashboard_page.status_code, 200)
-        self.assertIn(b"charts.js?v=7", dashboard_page.data)
+        self.assertIn(b"charts.js?v=8", dashboard_page.data)
         payload = response.get_json()
         self.assertTrue(payload["configured"])
         self.assertTrue(payload["has_forecast"])
@@ -767,9 +767,44 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-39", page.data)
-        self.assertIn(b"charts.js?v=7", page.data)
-        self.assertIn(b"forecasts.js?v=14", page.data)
+        self.assertIn(b"dark-mode-40", page.data)
+        self.assertIn(b"charts.js?v=8", page.data)
+        self.assertIn(b"forecasts.js?v=15", page.data)
+        self.assertIn(b'id="server-connection-notice"', page.data)
+
+    def test_health_api_reports_ok_and_transitions_on_shutdown(self):
+        application._SERVER_SHUTTING_DOWN.clear()
+        try:
+            ok_resp = self.client.get("/api/health")
+            self.assertEqual(ok_resp.status_code, 200)
+            self.assertEqual(ok_resp.headers.get("Cache-Control"), "no-store")
+            self.assertEqual(ok_resp.get_json(), {"status": "ok", "shutting_down": False})
+
+            self.login()
+            metrics = [dict(column=c, label=l, unit=u, value=None, severity="normal")
+                       for c, l, u in application.SENSORS]
+            with patch.object(application, "fetch_dashboard_data", return_value={
+                "total": 0, "earliest": None, "latest": None, "metrics": metrics,
+                "series": [], "start": datetime.now(timezone.utc) - timedelta(hours=24),
+                "end": datetime.now(timezone.utc), "recorded_series": [],
+                "recorded_start": datetime.now(timezone.utc) - timedelta(hours=1),
+                "recorded_end": datetime.now(timezone.utc),
+            }):
+                dashboard = self.client.get("/dashboard")
+            self.assertEqual(dashboard.status_code, 200)
+            with self.client.session_transaction() as sess:
+                token = sess["shutdown_token"]
+
+            with patch.object(application, "trigger_host_poweroff") as poweroff_mock:
+                shut_resp = self.client.post("/api/system/shutdown", json={"csrf_token": token})
+            self.assertEqual(shut_resp.status_code, 202)
+            poweroff_mock.assert_called_once()
+
+            down_resp = self.client.get("/api/health")
+            self.assertEqual(down_resp.status_code, 503)
+            self.assertEqual(down_resp.get_json(), {"status": "shutting_down", "shutting_down": True})
+        finally:
+            application._SERVER_SHUTTING_DOWN.clear()
 
 
 if __name__ == "__main__":

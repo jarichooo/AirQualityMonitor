@@ -6,6 +6,7 @@ import re
 import secrets
 import socket
 import struct
+import threading
 from contextlib import closing
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
@@ -23,6 +24,7 @@ from prediction import PredictionRejected, enqueue_prediction, get_prediction_st
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
+_SERVER_SHUTTING_DOWN = threading.Event()
 
 DB_HOST = os.environ.get("DB_HOST", "postgres_db")
 DB_NAME = os.environ.get("DB_NAME", "air_quality")
@@ -1112,7 +1114,20 @@ def shutdown_server_api():
     except OSError:
         app.logger.exception("Unable to trigger host poweroff")
         return jsonify(status="error", message="Unable to shut down the server from this environment."), 503
+    _SERVER_SHUTTING_DOWN.set()
     return jsonify(status="shutting_down", message="Server is shutting down."), 202
+
+
+@app.route("/api/health")
+def health_api():
+    shutting_down = _SERVER_SHUTTING_DOWN.is_set()
+    response = jsonify(
+        status="shutting_down" if shutting_down else "ok",
+        shutting_down=shutting_down,
+    )
+    response.status_code = 503 if shutting_down else 200
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/api/charts")

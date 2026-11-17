@@ -196,6 +196,11 @@
             if (!response.ok) {
                 throw new Error(payload.message || "Unable to shut down the server.");
             }
+            if (typeof document.dispatchEvent === "function" && typeof CustomEvent === "function") {
+                document.dispatchEvent(new CustomEvent("server:shutting-down", {
+                    detail: { message: payload.message },
+                }));
+            }
         } catch (error) {
             shutdownButton.disabled = false;
             shutdownButton.textContent = "Shutdown server";

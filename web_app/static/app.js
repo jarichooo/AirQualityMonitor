@@ -4,79 +4,85 @@
     const menuButton = document.querySelector("#menu-button");
     const drawerClose = document.querySelector("#drawer-close");
     const backdrop = document.querySelector("#drawer-backdrop");
-    const desktopQuery = window.matchMedia("(min-width: 1101px)");
+    const desktopQuery = typeof window.matchMedia === "function" ? window.matchMedia("(min-width: 1101px)") : null;
+    const emitServerEvent = (name, detail) => {
+        if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
+        document.dispatchEvent(new CustomEvent(name, detail ? { detail } : undefined));
+    };
     let returnFocus = null;
 
-    const setCollapsed = (collapsed) => {
-        sidebar.classList.toggle("is-collapsed", collapsed);
-        document.body.classList.toggle("sidebar-collapsed", collapsed);
-        sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
-        sidebarToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Minimize sidebar");
-        sidebarToggle.dataset.tooltip = collapsed ? "Expand navigation" : "Collapse navigation";
-    };
+    if (sidebar && sidebarToggle && menuButton && drawerClose && backdrop && desktopQuery) {
+        const setCollapsed = (collapsed) => {
+            sidebar.classList.toggle("is-collapsed", collapsed);
+            document.body.classList.toggle("sidebar-collapsed", collapsed);
+            sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+            sidebarToggle.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Minimize sidebar");
+            sidebarToggle.dataset.tooltip = collapsed ? "Expand navigation" : "Collapse navigation";
+        };
 
-    const closeDrawer = () => {
-        sidebar.classList.remove("drawer-open");
-        document.body.classList.remove("drawer-open");
-        backdrop.hidden = true;
-        menuButton.setAttribute("aria-expanded", "false");
-        if (returnFocus) returnFocus.focus();
-    };
+        const closeDrawer = () => {
+            sidebar.classList.remove("drawer-open");
+            document.body.classList.remove("drawer-open");
+            backdrop.hidden = true;
+            menuButton.setAttribute("aria-expanded", "false");
+            if (returnFocus) returnFocus.focus();
+        };
 
-    const openDrawer = () => {
-        returnFocus = document.activeElement;
-        sidebar.classList.add("drawer-open");
-        document.body.classList.add("drawer-open");
-        backdrop.hidden = false;
-        menuButton.setAttribute("aria-expanded", "true");
-        drawerClose.focus();
-    };
+        const openDrawer = () => {
+            returnFocus = document.activeElement;
+            sidebar.classList.add("drawer-open");
+            document.body.classList.add("drawer-open");
+            backdrop.hidden = false;
+            menuButton.setAttribute("aria-expanded", "true");
+            drawerClose.focus();
+        };
 
-    const syncSidebarMode = () => {
-        closeDrawer();
-        setCollapsed(desktopQuery.matches && localStorage.getItem("henvironment-sidebar") === "collapsed");
-    };
+        const syncSidebarMode = () => {
+            closeDrawer();
+            setCollapsed(desktopQuery.matches && localStorage.getItem("henvironment-sidebar") === "collapsed");
+        };
 
-    syncSidebarMode();
+        syncSidebarMode();
 
-    sidebarToggle.addEventListener("click", () => {
-        if (!desktopQuery.matches) return;
-        const collapsed = !sidebar.classList.contains("is-collapsed");
-        setCollapsed(collapsed);
-        sidebar.classList.toggle("just-collapsed", collapsed);
-        localStorage.setItem("henvironment-sidebar", collapsed ? "collapsed" : "expanded");
-    });
+        sidebarToggle.addEventListener("click", () => {
+            if (!desktopQuery.matches) return;
+            const collapsed = !sidebar.classList.contains("is-collapsed");
+            setCollapsed(collapsed);
+            sidebar.classList.toggle("just-collapsed", collapsed);
+            localStorage.setItem("henvironment-sidebar", collapsed ? "collapsed" : "expanded");
+        });
 
-    sidebar.addEventListener("mouseleave", () => {
-        sidebar.classList.remove("just-collapsed");
-    });
+        sidebar.addEventListener("mouseleave", () => {
+            sidebar.classList.remove("just-collapsed");
+        });
 
-    menuButton.addEventListener("click", openDrawer);
-    drawerClose.addEventListener("click", closeDrawer);
-    backdrop.addEventListener("click", closeDrawer);
-    sidebar.querySelectorAll(".nav-link").forEach((link) => link.addEventListener("click", () => {
-        if (!desktopQuery.matches) closeDrawer();
-    }));
+        menuButton.addEventListener("click", openDrawer);
+        drawerClose.addEventListener("click", closeDrawer);
+        backdrop.addEventListener("click", closeDrawer);
+        sidebar.querySelectorAll(".nav-link").forEach((link) => link.addEventListener("click", () => {
+            if (!desktopQuery.matches) closeDrawer();
+        }));
 
-    document.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") {
-            if (sidebar.classList.contains("drawer-open")) closeDrawer();
-        }
-        if (event.key === "Tab" && sidebar.classList.contains("drawer-open")) {
-            const focusable = [...sidebar.querySelectorAll("button, a[href]")].filter((element) => !element.hidden);
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if (event.shiftKey && document.activeElement === first) {
-                event.preventDefault();
-                last.focus();
-            } else if (!event.shiftKey && document.activeElement === last) {
-                event.preventDefault();
-                first.focus();
+        document.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+                if (sidebar.classList.contains("drawer-open")) closeDrawer();
             }
-        }
-    });
+            if (event.key === "Tab" && sidebar.classList.contains("drawer-open")) {
+                const focusable = [...sidebar.querySelectorAll("button, a[href]")].filter((element) => !element.hidden);
+                const first = focusable[0];
+                const last = focusable[focusable.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                } else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                }
+            }
+        });
 
-    desktopQuery.addEventListener("change", syncSidebarMode);
+        desktopQuery.addEventListener("change", syncSidebarMode);
+    }
 
     const filterForm = document.querySelector("#data-filters");
     const loadingState = document.querySelector("#loading-state");
@@ -187,6 +193,7 @@
             if (!response.ok) throw new Error(`Live data request failed: ${response.status}`);
 
             const data = await response.json();
+            emitServerEvent("server:request-ok", { source: "data" });
             if (!isFirstPage()) return;
             const tbody = tableBodyScroll.querySelector("tbody");
             const pagination = document.querySelector(".pagination");
@@ -209,7 +216,10 @@
             tableBodyScroll.scrollTop = scrollTop;
             tableBodyScroll.scrollLeft = scrollLeft;
         } catch (error) {
-            if (error.name !== "AbortError") console.debug("Live data refresh skipped", error);
+            if (error.name !== "AbortError") {
+                console.debug("Live data refresh skipped", error);
+                emitServerEvent("server:request-failed", { source: "data" });
+            }
         } finally {
             liveController = null;
             lastLiveRefresh = Date.now();
@@ -217,6 +227,7 @@
     };
     if (filterForm && tableBodyScroll) {
         window.setInterval(refreshLiveData, liveInterval);
+        document.addEventListener("server:reconnected", () => refreshLiveData());
         document.addEventListener("visibilitychange", () => {
             if (!document.hidden && Date.now() - lastLiveRefresh >= liveInterval) refreshLiveData();
         });
@@ -325,5 +336,149 @@
                 exportButton.removeAttribute("aria-busy");
             }, 1800);
         });
+    }
+
+    const connectionNotice = document.querySelector("#server-connection-notice");
+    if (connectionNotice) {
+        const titleElem = document.querySelector("#server-connection-title");
+        const messageElem = document.querySelector("#server-connection-message");
+        const retryButton = document.querySelector("#server-connection-retry");
+        const healthUrl = connectionNotice.dataset.healthUrl || "/api/health";
+        const NORMAL_POLL_MS = 15000;
+        const DISCONNECTED_POLL_MS = 5000;
+        const SHUTDOWN_POLL_MS = 10000;
+        const CONFIRM_DELAY_MS = 1500;
+        let consecutiveFailures = 0;
+        let isDisconnected = false;
+        let isShuttingDown = false;
+        let inFlight = false;
+        let pollTimer = null;
+
+        const showNotice = (mode, titleText, messageText) => {
+            connectionNotice.hidden = false;
+            connectionNotice.classList.toggle("is-shutdown", mode === "shutdown");
+            if (titleElem) titleElem.textContent = titleText;
+            if (messageElem) messageElem.textContent = messageText;
+        };
+
+        const hideNotice = () => {
+            connectionNotice.hidden = true;
+            connectionNotice.classList.remove("is-shutdown");
+        };
+
+        const scheduleNext = (delayMs) => {
+            window.clearTimeout(pollTimer);
+            if (document.hidden) return;
+            pollTimer = window.setTimeout(checkHealth, delayMs);
+        };
+
+        const handleHealthy = () => {
+            const wasDown = isDisconnected || isShuttingDown;
+            consecutiveFailures = 0;
+            isDisconnected = false;
+            isShuttingDown = false;
+            hideNotice();
+            if (wasDown) emitServerEvent("server:reconnected");
+            scheduleNext(NORMAL_POLL_MS);
+        };
+
+        const handleFailure = ({ shuttingDown = false, immediate = false, reasonMessage = "" } = {}) => {
+            if (shuttingDown) {
+                isShuttingDown = true;
+                isDisconnected = false;
+                consecutiveFailures = Math.max(consecutiveFailures, 1);
+                showNotice(
+                    "shutdown",
+                    "Server is shutting down",
+                    reasonMessage || "Host shutdown was initiated. Live updates have stopped until the server starts again."
+                );
+                scheduleNext(SHUTDOWN_POLL_MS);
+                return;
+            }
+            consecutiveFailures += 1;
+            const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+            if (offline || immediate || consecutiveFailures >= 2) {
+                isDisconnected = true;
+                if (offline) {
+                    showNotice(
+                        "disconnected",
+                        "Network disconnected",
+                        "Your device is offline. Waiting for network connection…"
+                    );
+                } else {
+                    showNotice(
+                        "disconnected",
+                        "Server disconnected",
+                        "Cannot reach the Air Quality Monitor server. It may have shut down or lost connection. Retrying automatically…"
+                    );
+                }
+                scheduleNext(DISCONNECTED_POLL_MS);
+                return;
+            }
+            scheduleNext(CONFIRM_DELAY_MS);
+        };
+
+        const checkHealth = async () => {
+            if (inFlight) return;
+            if (typeof navigator !== "undefined" && navigator.onLine === false) {
+                handleFailure({ immediate: true });
+                return;
+            }
+            inFlight = true;
+            window.clearTimeout(pollTimer);
+            if (retryButton) {
+                retryButton.disabled = true;
+                retryButton.textContent = "Checking…";
+            }
+            const controller = typeof AbortController === "function" ? new AbortController() : null;
+            const timeout = controller ? window.setTimeout(() => controller.abort(), 5000) : null;
+            try {
+                const response = await fetch(healthUrl, {
+                    credentials: "same-origin",
+                    headers: { Accept: "application/json" },
+                    cache: "no-store",
+                    signal: controller?.signal,
+                });
+                const payload = await response.json().catch(() => null);
+                if (response.ok && payload && payload.status === "ok") {
+                    handleHealthy();
+                } else if (payload?.shutting_down === true || payload?.status === "shutting_down") {
+                    handleFailure({ shuttingDown: true, reasonMessage: payload.message });
+                } else {
+                    handleFailure();
+                }
+            } catch (_) {
+                handleFailure();
+            } finally {
+                if (timeout !== null) window.clearTimeout(timeout);
+                inFlight = false;
+                if (retryButton) {
+                    retryButton.disabled = false;
+                    retryButton.textContent = "Retry now";
+                }
+            }
+        };
+
+        retryButton?.addEventListener("click", () => checkHealth());
+        document.addEventListener("server:shutting-down", (event) => {
+            handleFailure({
+                shuttingDown: true,
+                immediate: true,
+                reasonMessage: event?.detail?.message,
+            });
+        });
+        document.addEventListener("server:request-failed", () => {
+            if (!isShuttingDown && !isDisconnected) checkHealth();
+        });
+        document.addEventListener("server:request-ok", () => {
+            if (isDisconnected && !isShuttingDown) handleHealthy();
+        });
+        window.addEventListener("offline", () => handleFailure({ immediate: true }));
+        window.addEventListener("online", () => checkHealth());
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) checkHealth();
+            else window.clearTimeout(pollTimer);
+        });
+        scheduleNext(NORMAL_POLL_MS);
     }
 })();

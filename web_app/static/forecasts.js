@@ -324,6 +324,10 @@
         window.clearTimeout(refreshTimer);
         refreshTimer = window.setTimeout(refresh, delay);
     };
+    const emitServerEvent = (name, detail) => {
+        if (typeof document.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
+        document.dispatchEvent(new CustomEvent(name, detail ? { detail } : undefined));
+    };
     const refresh = async () => {
         if (document.hidden) return;
         if (loading) {
@@ -353,6 +357,7 @@
             }
             if (!response.ok) throw new Error(`Forecast refresh failed: ${response.status}`);
             const payload = await response.json();
+            emitServerEvent("server:request-ok", { source: "forecasts" });
             if (payload.forecasts?.some((forecast) => forecast.status === "available" && forecast.explanation_status === "pending")) {
                 refreshDelay = 3000;
             }
@@ -363,6 +368,7 @@
                 renderedFingerprint = fingerprint;
             }
         } catch (error) {
+            emitServerEvent("server:request-failed", { source: "forecasts" });
             refreshNotice.textContent = "Could not refresh forecasts. Showing the last loaded results.";
             refreshDelay = 15000;
         }
@@ -379,5 +385,6 @@
 
     refresh();
     document.addEventListener("charts:updated", () => refresh());
+    document.addEventListener("server:reconnected", () => refresh());
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 })();
