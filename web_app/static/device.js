@@ -13,21 +13,30 @@
     const collectionState = document.querySelector("#device-collection-state");
     const collectionHelp = document.querySelector("#device-collection-help");
     const storageKey = "henvironment-esp32-websocket";
-    const defaultEndpoint = "ws://airqualitymonitor.local:81/";
+    const defaultEndpoints = [
+        "ws://airqualitymonitor.local:81/",
+        "ws://192.168.11.55:81/",
+    ];
+    const connectTimeoutMs = 4000;
+    const fallbackRetryMs = 250;
     let socket;
     let reconnectTimer;
+    let connectTimer;
     let reconnectDelay = 1000;
     let manuallyClosed = false;
     let readingsPaused = null;
     let controlTimer;
+    let candidateEndpoints = [];
+    let endpointIndex = 0;
 
     const unknownControl = (message) => {
         clearTimeout(controlTimer);
         readingsPaused = null;
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = "Pause IoT";
+            pauseButton.textContent = "IoT offline";
             pauseButton.removeAttribute("aria-pressed");
+            pauseButton.title = message || "";
         }
         if (collectionState) {
             collectionState.textContent = "Status unknown";
@@ -40,7 +49,7 @@
         clearTimeout(controlTimer);
         if (pauseButton) {
             pauseButton.disabled = true;
-            pauseButton.textContent = command === "PAUSE" ? "Pausing IoT…" : command === "RESUME" ? "Resuming IoT…" : "Pause IoT";
+            pauseButton.textContent = command === "PAUSE" ? "Pausing IoT…" : command === "RESUME" ? "Resuming IoT…" : "Connecting…";
         }
         if (collectionHelp) {
             collectionHelp.textContent = "Waiting for the device to confirm. The displayed status has not changed yet.";
@@ -63,7 +72,10 @@
 
     const showStatus = (message, state) => {
         if (status) status.textContent = message;
-        if (dot) dot.className = `freshness-dot ${state}`;
+        if (dot) {
+            dot.className = `freshness-dot ${state}`;
+            dot.title = message;
+        }
     };
 
     const displayReading = (value) => {
@@ -79,6 +91,9 @@
             pauseButton.disabled = false;
             pauseButton.textContent = readingsPaused ? "Resume IoT" : "Pause IoT";
             pauseButton.setAttribute("aria-pressed", String(readingsPaused));
+            pauseButton.title = readingsPaused
+                ? "IoT device is paused. Click to resume readings."
+                : "IoT device is collecting every minute. Click to pause.";
         }
         if (collectionState) {
             collectionState.textContent = readingsPaused ? "Paused" : "Collecting";
@@ -113,40 +128,106 @@
         showStatus(`Connected${reading.device_id ? ` · ${reading.device_id}` : ""}`, "is-current");
     };
 
-    const resolveEndpointUrl = () => {
-        if (address) return address.value.trim();
+    const parseEndpoint = (raw) => {
+        if (!raw || typeof raw !== "string") return null;
         try {
-            return localStorage.getItem(storageKey) || defaultEndpoint;
+            const parsed = new URL(raw.trim());
+            if (!["ws:", "wss:"].includes(parsed.protocol) || !parsed.hostname) return null;
+            return parsed;
         } catch (_) {
-            return defaultEndpoint;
+            return null;
         }
     };
 
-    const connect = () => {
-        clearTimeout(reconnectTimer);
-        manuallyClosed = false;
-        let endpoint;
+    const resolveEndpoints = () => {
+        if (address) {
+            const custom = parseEndpoint(address.value);
+            return custom ? [custom] : [];
+        }
+        const candidates = [];
+        const seen = new Set();
+        const pushCandidate = (raw) => {
+            const parsed = parseEndpoint(raw);
+            if (!parsed || seen.has(parsed.href)) return;
+            seen.add(parsed.href);
+            candidates.push(parsed);
+        };
         try {
-            endpoint = new URL(resolveEndpointUrl());
-            if (!["ws:", "wss:"].includes(endpoint.protocol) || !endpoint.hostname) throw new Error();
+            pushCandidate(localStorage.getItem(storageKey));
         } catch (_) {
+            // Unavailable storage still falls back to default device addresses.
+        }
+        defaultEndpoints.forEach(pushCandidate);
+        return candidates;
+    };
+
+    const advanceAndReconnect = (wasOpened) => {
+        clearTimeout(connectTimer);
+        clearTimeout(reconnectTimer);
+        unknownControl("Collection status is unknown until the device reconnects.");
+        showStatus("Disconnected; reconnecting", "is-unavailable");
+        if (!wasOpened && candidateEndpoints.length > 1) {
+            endpointIndex = (endpointIndex + 1) % candidateEndpoints.length;
+            if (endpointIndex !== 0) {
+                reconnectTimer = setTimeout(() => connect(), fallbackRetryMs);
+                return;
+            }
+        }
+        reconnectTimer = setTimeout(() => connect(), reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+    };
+
+    const connect = ({ resetCandidates = false } = {}) => {
+        clearTimeout(reconnectTimer);
+        clearTimeout(connectTimer);
+        manuallyClosed = false;
+        if (resetCandidates || candidateEndpoints.length === 0) {
+            candidateEndpoints = resolveEndpoints();
+            endpointIndex = 0;
+        }
+        if (candidateEndpoints.length === 0) {
             showStatus("Enter a valid ws:// or wss:// address", "is-unavailable");
             return;
         }
+        const endpoint = candidateEndpoints[endpointIndex % candidateEndpoints.length];
 
-        try {
-            localStorage.setItem(storageKey, endpoint.href);
-        } catch (_) {
-            // A failed preference save does not prevent a connection.
+        if (address) {
+            try {
+                localStorage.setItem(storageKey, endpoint.href);
+            } catch (_) {
+                // A failed preference save does not prevent a connection.
+            }
         }
         socket?.close();
-        unknownControl("Connecting to the device; waiting for its collection status.");
+        let opened = false;
+        unknownControl(`Connecting to ${endpoint.host}; waiting for its collection status.`);
         showStatus(`Connecting to ${endpoint.host}`, "is-delayed");
         const connection = new WebSocket(endpoint.href);
         socket = connection;
+        if (candidateEndpoints.length > 1) {
+            connectTimer = setTimeout(() => {
+                if (socket !== connection || opened || manuallyClosed) return;
+                socket = null;
+                try {
+                    connection.close();
+                } catch (_) {
+                    // Ignore errors when aborting a timed-out handshake.
+                }
+                advanceAndReconnect(false);
+            }, connectTimeoutMs);
+        }
         connection.addEventListener("open", () => {
             if (socket !== connection) return;
+            opened = true;
+            clearTimeout(connectTimer);
             reconnectDelay = 1000;
+            if (!address) {
+                try {
+                    localStorage.setItem(storageKey, endpoint.href);
+                } catch (_) {
+                    // A failed preference save does not prevent a connection.
+                }
+            }
             sendControl("STATUS");
             showStatus("Connected; waiting for a sensor reading", "is-current");
         });
@@ -165,16 +246,13 @@
         });
         connection.addEventListener("close", () => {
             if (socket !== connection || manuallyClosed) return;
-            unknownControl("Collection status is unknown until the device reconnects.");
-            showStatus("Disconnected; reconnecting", "is-unavailable");
-            reconnectTimer = setTimeout(connect, reconnectDelay);
-            reconnectDelay = Math.min(reconnectDelay * 2, 15000);
+            advanceAndReconnect(opened);
         });
     };
 
     form?.addEventListener("submit", (event) => {
         event.preventDefault();
-        connect();
+        connect({ resetCandidates: true });
     });
     pauseButton?.addEventListener("click", () => {
         if (!socket || socket.readyState !== WebSocket.OPEN || readingsPaused === null) return;
@@ -243,8 +321,9 @@
     window.addEventListener("pagehide", () => {
         manuallyClosed = true;
         clearTimeout(reconnectTimer);
+        clearTimeout(connectTimer);
         clearTimeout(controlTimer);
         socket?.close();
     });
-    connect();
+    connect({ resetCandidates: true });
 })();

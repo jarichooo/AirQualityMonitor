@@ -152,7 +152,18 @@ async function run() {
             send() {}
         },
         localStorage: { getItem: () => null, setItem: () => {} },
+        setTimeout: (fn, delay) => {
+            const id = nextTimerId++;
+            deviceTimers.push({ id, fn, delay, cleared: false });
+            return id;
+        },
+        clearTimeout: (id) => {
+            const entry = deviceTimers.find((item) => item.id === id);
+            if (entry) entry.cleared = true;
+        },
     };
+
+    const deviceTimers = [];
 
     vm.runInNewContext(appSource, context);
     vm.runInNewContext(deviceSource, context);
@@ -260,7 +271,125 @@ async function run() {
     assert.equal(notice.hidden, true);
     assert.equal(dispatched.filter((e) => e.type === "server:reconnected").length, 3);
 
+    testDeviceFallbackAndPauseState();
+
     console.log("test_connection.js passed");
+}
+
+function testDeviceFallbackAndPauseState() {
+    const pauseButton = new Element("device-pause-toggle");
+    pauseButton.disabled = true;
+    pauseButton.textContent = "IoT offline";
+    pauseButton.attributes = {};
+    pauseButton.setAttribute = (name, value) => { pauseButton.attributes[name] = String(value); };
+    pauseButton.removeAttribute = (name) => { delete pauseButton.attributes[name]; };
+    const dot = new Element("device-live-dot");
+    dot.className = "freshness-dot is-unavailable";
+    const deviceRoot = new Element("device-root");
+
+    const timers = [];
+    let timerId = 1;
+    const sockets = [];
+    const storage = new Map([["henvironment-esp32-websocket", "ws://192.168.1.99:81/"]]);
+
+    class MockWebSocket {
+        static OPEN = 1;
+        constructor(url) {
+            this.url = url;
+            this.readyState = 0;
+            this.sent = [];
+            this.listeners = {};
+            sockets.push(this);
+        }
+        addEventListener(type, fn) {
+            (this.listeners[type] ||= []).push(fn);
+        }
+        emit(type, payload) {
+            (this.listeners[type] || []).forEach((fn) => fn(payload));
+        }
+        send(value) {
+            this.sent.push(value);
+        }
+        close() {
+            this.readyState = 3;
+        }
+    }
+
+    const deviceContext = {
+        URL,
+        localStorage: {
+            getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+            setItem: (key, value) => { storage.set(key, String(value)); },
+        },
+        setTimeout: (fn, delay) => {
+            const id = timerId++;
+            timers.push({ id, fn, delay, cleared: false });
+            return id;
+        },
+        clearTimeout: (id) => {
+            const entry = timers.find((item) => item.id === id);
+            if (entry) entry.cleared = true;
+        },
+        window: { addEventListener: () => {} },
+        document: {
+            querySelector: (selector) => ({
+                "[data-device-socket]": deviceRoot,
+                "#device-pause-toggle": pauseButton,
+                "#device-live-dot": dot,
+            }[selector] || null),
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+        },
+        WebSocket: MockWebSocket,
+    };
+
+    const activeTimer = (delay) => [...timers].reverse().find((item) => !item.cleared && (delay === undefined || item.delay === delay));
+
+    vm.runInNewContext(deviceSource, deviceContext);
+
+    // 1. Starts with stale saved address, disabled IoT offline button, and tries mDNS/IP fallbacks.
+    assert.equal(pauseButton.disabled, true);
+    assert.equal(pauseButton.textContent, "IoT offline");
+    assert.equal(sockets.length, 1);
+    assert.equal(sockets[0].url, "ws://192.168.1.99:81/");
+
+    sockets[0].emit("close");
+    assert.equal(activeTimer(250).delay, 250);
+    activeTimer(250).fn();
+    assert.equal(sockets.length, 2);
+    assert.equal(sockets[1].url, "ws://airqualitymonitor.local:81/");
+
+    // 2. Hung mDNS connection times out after 4s and falls back to static LAN IP 192.168.11.55.
+    assert.equal(activeTimer(4000).delay, 4000);
+    activeTimer(4000).fn();
+    assert.equal(activeTimer(250).delay, 250);
+    activeTimer(250).fn();
+    assert.equal(sockets.length, 3);
+    assert.equal(sockets[2].url, "ws://192.168.11.55:81/");
+
+    // 3. Opening fallback saves the reachable IP, queries STATUS, and switches to Resume IoT when boot-paused.
+    sockets[2].readyState = MockWebSocket.OPEN;
+    sockets[2].emit("open");
+    assert.equal(storage.get("henvironment-esp32-websocket"), "ws://192.168.11.55:81/");
+    assert.deepEqual(sockets[2].sent, ["STATUS"]);
+    assert.equal(dot.className, "freshness-dot is-current");
+    assert.equal(pauseButton.textContent, "Connecting…");
+
+    sockets[2].emit("message", { data: JSON.stringify({ type: "control", paused: true }) });
+    assert.equal(pauseButton.disabled, false);
+    assert.equal(pauseButton.textContent, "Resume IoT");
+    assert.equal(pauseButton.attributes["aria-pressed"], "true");
+
+    // 4. Clicking Resume IoT sends RESUME and switches to enabled Pause IoT upon acknowledgement.
+    pauseButton.listeners.click[0]();
+    assert.deepEqual(sockets[2].sent, ["STATUS", "RESUME"]);
+    assert.equal(pauseButton.disabled, true);
+    assert.equal(pauseButton.textContent, "Resuming IoT…");
+
+    sockets[2].emit("message", { data: JSON.stringify({ type: "control", paused: false }) });
+    assert.equal(pauseButton.disabled, false);
+    assert.equal(pauseButton.textContent, "Pause IoT");
+    assert.equal(pauseButton.attributes["aria-pressed"], "false");
 }
 
 run().catch((err) => {

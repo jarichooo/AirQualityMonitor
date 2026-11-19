@@ -769,7 +769,8 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'"hover_points"', page.data)
         self.assertIn(b"dark-mode-41", page.data)
         self.assertIn(b"app.js?v=server-notice-3", page.data)
-        self.assertIn(b"device.js?v=live-panel-10", page.data)
+        self.assertIn(b"device.js?v=live-panel-11", page.data)
+        self.assertIn(b">IoT offline</button>", page.data)
         self.assertIn(b"charts.js?v=8", page.data)
         self.assertIn(b"forecasts.js?v=15", page.data)
         self.assertIn(b'id="server-connection-notice"', page.data)
@@ -822,6 +823,8 @@ class AppTestCase(unittest.TestCase):
         self.assertNotIn("outerHTML", notice_section)
         self.assertIn("server:reconnected", device_js)
         self.assertIn("resetShutdownButton", device_js)
+        self.assertIn("ws://192.168.11.55:81/", device_js)
+        self.assertIn("IoT offline", device_js)
         self.assertIn("#server-connection-kicker-text", notice_section)
 
         self.login()

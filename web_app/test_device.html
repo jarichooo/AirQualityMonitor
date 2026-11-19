@@ -5,7 +5,7 @@
   <form id="device-connect-form"><input id="device-websocket-url" value="ws://localhost:81/"></form>
   <span id="device-live-status"></span><span id="device-live-dot"></span>
   <time id="device-live-time"></time><span data-live-sensor="t"></span>
-  <button id="device-pause-toggle" disabled>Pause readings</button>
+  <button id="device-pause-toggle" disabled>IoT offline</button>
   <strong id="device-collection-state"></strong><p id="device-collection-help"></p>
 </div>
 <output id="result">Checking…</output>
@@ -46,7 +46,7 @@ try {
     check(ws.sent.at(-1) === "PAUSE" && button.disabled && button.textContent.includes("Pausing"), "Send pause with progress");
     check(state.dataset.state === "running", "Do not claim pause before acknowledgement");
     ws.message({ type: "control", paused: true });
-    check(state.dataset.state === "paused" && button.textContent === "Resume readings", "Confirm pause");
+    check(state.dataset.state === "paused" && button.textContent === "Resume IoT", "Confirm pause");
     ws.message({ t: 30 });
     check(state.dataset.state === "unknown" && help.textContent.includes("after confirming pause"), "Detect a device still transmitting");
     ws.message({ type: "control", paused: true });
