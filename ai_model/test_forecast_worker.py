@@ -141,36 +141,71 @@ class ForecastWorkerTest(unittest.TestCase):
         self.assertEqual(record["input_cutoff_at"], self.now)
         self.assertEqual(record["input_row_id"], rows[-1]["id"])
 
-    def test_long_gap_is_rejected_before_prediction_or_save(self):
+    def test_long_multi_day_gap_stitches_latest_readings_for_prediction(self):
         process_now = self.now + timedelta(seconds=50)
-        rows = []
-        for offset in range(-122, 1):
-            if offset in {-62, -61, -60}:
-                continue
-            rows.append({
-                "id": offset + 123,
-                "recorded_at": self.now + timedelta(minutes=offset, seconds=36),
-                "device_id": "esp32-1",
-                "temperature_c": 30.0,
-                "humidity_perc": 60.0,
-            })
+        old_end = self.now - timedelta(days=24)
+        rows = [
+            {
+                "id": index + 1,
+                "recorded_at": old_end - timedelta(minutes=118 - index),
+                "device_id": "esp32-old",
+                "temperature_c": 29.0 + index / 1000,
+                "humidity_perc": 75.0,
+            }
+            for index in range(119)
+        ]
+        rows.append({
+            "id": 999,
+            "recorded_at": self.now + timedelta(seconds=36),
+            "device_id": "esp32-1",
+            "temperature_c": 28.5,
+            "humidity_perc": 65.0,
+        })
         model = SimpleNamespace(
             MODEL_VERSION="gap-test-v1", LOOKBACK_SAMPLES=120,
             SAMPLE_INTERVAL_SECONDS=60, CADENCE_TOLERANCE_SECONDS=0,
             HORIZON_MINUTES=120,
             FEATURE_COLUMNS=("temperature_c", "humidity_perc"),
-            TARGET_COLUMNS=("temperature_c",), predict=Mock(),
+            TARGET_COLUMNS=("temperature_c",),
+            predict=Mock(return_value={"temperature_c": 34.0}),
         )
         with (
             patch.object(worker, "fetch_history", return_value=rows),
-            patch.object(worker, "fetch_current_forecast") as current,
+            patch.object(worker, "fetch_current_forecast", return_value=None),
             patch.object(worker, "save_forecast") as save,
+            patch.object(worker, "update_explanation"),
         ):
-            with self.assertRaisesRegex(predictor.ModelUnavailable, "longer than 2 minutes"):
-                worker.process_device(self.conn, "esp32-1", model, process_now, (self.policy, None))
-        model.predict.assert_not_called()
-        current.assert_not_called()
-        save.assert_not_called()
+            result = worker.process_device(
+                self.conn, "esp32-1", model, process_now, (self.policy, None),
+                Mock(return_value="Check ventilation."),
+            )
+        self.assertEqual(result, "created")
+        prepared = model.predict.call_args.args[0]
+        record = save.call_args.args[1]
+        self.assertEqual(len(prepared), 120)
+        self.assertTrue(all(row["device_id"] == "esp32-1" for row in prepared))
+        self.assertEqual(prepared[0]["recorded_at"], self.now - timedelta(minutes=119))
+        self.assertEqual(prepared[-1]["recorded_at"], self.now)
+        self.assertEqual(prepared[-1]["temperature_c"], 28.5)
+        self.assertEqual(record["input_row_id"], 999)
+        self.assertEqual(record["input_cutoff_at"], self.now)
+
+    def test_fetch_history_backfills_prior_non_simulated_rows_when_device_is_new(self):
+        recent = [dict(self.rows[-1], device_id="esp32-new", id=500)]
+        prior = [dict(row, device_id="esp32-old") for row in self.rows[:-1]]
+        connection = MagicMock()
+        cursor = connection.cursor.return_value.__enter__.return_value
+        cursor.fetchall.side_effect = [recent, prior]
+
+        fetched = worker.fetch_history(connection, "esp32-new", self.model)
+
+        self.assertEqual(len(fetched), self.model.LOOKBACK_SAMPLES)
+        self.assertEqual(fetched[0]["device_id"], "esp32-old")
+        self.assertEqual(fetched[-1]["device_id"], "esp32-new")
+        self.assertEqual(cursor.execute.call_count, 2)
+        second_query, second_params = cursor.execute.call_args_list[1].args
+        self.assertIn("prior_history", second_query)
+        self.assertEqual(second_params[1], self.model.LOOKBACK_SAMPLES - 1)
 
     def test_fetch_history_uses_latest_reading_from_each_utc_minute(self):
         connection = MagicMock()

@@ -134,7 +134,11 @@ def validate_history(rows, model=predictor, now=None):
     return rows
 
 
-def validate_source_history(rows, model=predictor, now=None):
+def _is_simulated_device(device_id):
+    return device_id.startswith("sim-farm-") or device_id == "python-simulator"
+
+
+def validate_source_history(rows, model=predictor, now=None, expected_device_id=None, allow_mixed_devices=False):
     """Validate measured rows before minute alignment and limited gap filling."""
     now = now or utc_now()
     if now.tzinfo is None:
@@ -142,8 +146,12 @@ def validate_source_history(rows, model=predictor, now=None):
     if not rows:
         raise ContractError("No history rows are available")
     devices = {row["device_id"] for row in rows}
-    if len(devices) != 1 or not next(iter(devices), "").strip():
+    if any(not isinstance(device, str) or not device.strip() for device in devices):
+        raise ContractError("History must belong to an identified device")
+    if not allow_mixed_devices and len(devices) != 1:
         raise ContractError("History must belong to one identified device")
+    if expected_device_id is not None and rows[-1]["device_id"] != expected_device_id:
+        raise ContractError("Latest history row does not belong to the target device")
     previous = None
     for row in rows:
         timestamp = row["recorded_at"]
@@ -159,6 +167,34 @@ def validate_source_history(rows, model=predictor, now=None):
     if False and (now - rows[-1]["recorded_at"]).total_seconds() > FRESHNESS_SECONDS:
         raise ContractError("Latest reading is stale")
     return rows
+
+
+def stitch_history_rows(rows, device_id, model=predictor):
+    """Re-index the latest LOOKBACK_SAMPLES measured minutes onto a 1-minute grid ending at the latest row."""
+    bucketed = {}
+    for row in rows:
+        timestamp = row["recorded_at"].astimezone(timezone.utc)
+        minute = timestamp.replace(second=0, microsecond=0)
+        candidate_id = row.get("id") if isinstance(row.get("id"), int) else -1
+        current = bucketed.get(minute)
+        current_id = current[1].get("id") if current and isinstance(current[1].get("id"), int) else -1
+        if current is None or timestamp > current[0] or (timestamp == current[0] and candidate_id >= current_id):
+            bucketed[minute] = (timestamp, row)
+    ordered = [pair[1] for pair in sorted(bucketed.values(), key=lambda pair: (pair[0], pair[1].get("id") or -1))]
+    if len(ordered) < model.LOOKBACK_SAMPLES:
+        raise predictor.ModelUnavailable(
+            f"Need at least {model.LOOKBACK_SAMPLES} readings to forecast (have {len(ordered)})"
+        )
+    window = ordered[-model.LOOKBACK_SAMPLES:]
+    end_minute = window[-1]["recorded_at"].astimezone(timezone.utc).replace(second=0, microsecond=0)
+    start_minute = end_minute - timedelta(minutes=model.LOOKBACK_SAMPLES - 1)
+    stitched = []
+    for index, row in enumerate(window):
+        copy = dict(row)
+        copy["device_id"] = device_id
+        copy["recorded_at"] = start_minute + timedelta(minutes=index)
+        stitched.append(copy)
+    return stitched
 
 
 def validate_prediction(values, model=predictor):
@@ -211,7 +247,26 @@ def fetch_history(conn, device_id, model=predictor):
             ") AS recent_history ORDER BY recorded_at ASC, id ASC",
             (device_id, model.LOOKBACK_SAMPLES),
         )
-        return list(cursor.fetchall())
+        rows = list(cursor.fetchall())
+        if 0 < len(rows) < model.LOOKBACK_SAMPLES and not _is_simulated_device(device_id):
+            earliest_minute = rows[0]["recorded_at"].astimezone(timezone.utc).replace(second=0, microsecond=0)
+            not_null_sql = " AND ".join(f"{column} IS NOT NULL" for column in model.FEATURE_COLUMNS)
+            cursor.execute(
+                f"SELECT id, recorded_at, COALESCE(NULLIF(btrim(device_id), ''), 'henvironment-sensor') AS device_id, {columns} FROM ("
+                f"SELECT DISTINCT ON (date_trunc('minute', recorded_at AT TIME ZONE 'UTC')) "
+                f"id, recorded_at, device_id, {columns} FROM public.air_quality_logs "
+                "WHERE date_trunc('minute', recorded_at AT TIME ZONE 'UTC') < %s "
+                "AND (device_id IS NULL OR (btrim(device_id) NOT LIKE 'sim-farm-%%' AND btrim(device_id) <> 'python-simulator')) "
+                f"AND {not_null_sql} "
+                "ORDER BY date_trunc('minute', recorded_at AT TIME ZONE 'UTC') DESC, "
+                "recorded_at DESC, id DESC LIMIT %s"
+                ") AS prior_history ORDER BY recorded_at ASC, id ASC",
+                (earliest_minute, model.LOOKBACK_SAMPLES - len(rows)),
+            )
+            prior_rows = list(cursor.fetchall())
+            if prior_rows:
+                rows = prior_rows + rows
+        return rows
 
 
 def fetch_current_forecast(conn, device_id):
@@ -505,13 +560,29 @@ def process_device(conn, device_id, model=predictor, now=None, policy_result=Non
     fixed_now = now
     rows = fetch_history(conn, device_id, model)
     now = now or utc_now()
-    validate_source_history(rows, model, now)
-    prepared_rows, filled_minutes = predictor.prepare_history(
-        rows, lookback_samples=model.LOOKBACK_SAMPLES, feature_columns=model.FEATURE_COLUMNS,
+    simulated_device = _is_simulated_device(device_id)
+    validate_source_history(
+        rows, model, now,
+        expected_device_id=device_id,
+        allow_mixed_devices=not simulated_device,
     )
+    try:
+        prepared_rows, filled_minutes = predictor.prepare_history(
+            rows, lookback_samples=model.LOOKBACK_SAMPLES, feature_columns=model.FEATURE_COLUMNS,
+        )
+        stitched_rows = 0
+    except predictor.ModelUnavailable:
+        if simulated_device:
+            raise
+        prepared_rows = stitch_history_rows(rows, device_id, model)
+        filled_minutes = 0
+        stitched_rows = len(prepared_rows)
     validate_history(prepared_rows, model, prepared_rows[-1]["recorded_at"])
     if filled_minutes:
         print(json.dumps({"device_id": device_id, "history_filled_minutes": filled_minutes}),
+              file=sys.stderr, flush=True)
+    elif stitched_rows:
+        print(json.dumps({"device_id": device_id, "history_stitched_rows": stitched_rows}),
               file=sys.stderr, flush=True)
     source_hash = history_hash(rows, model)
     current = fetch_current_forecast(conn, device_id)
