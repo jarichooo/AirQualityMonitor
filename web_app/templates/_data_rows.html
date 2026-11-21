@@ -1,12 +1,21 @@
-{% for row in readings %}
+{% for row in reading_rows|default([]) %}
 <tr>
-    <td>{{ row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else '—' }}</td>
-    {% for value in row[1:] %}<td class="numeric">{{ value if value is not none else '—' }}</td>{% endfor %}
+    <td class="timestamp-cell" title="UTC: {{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '' }}">{{ row.formatted_time if row.formatted_time else (row.timestamp|pht_time if row.timestamp else '—') }}</td>
+    {% if row.cells %}
+        {% for cell in row.cells %}
+        <td class="numeric cell-{{ cell.severity }} is-{{ cell.severity }}">{{ cell.value if cell.value is not none else '—' }}</td>
+        {% endfor %}
+    {% else %}
+        {% for value in row.sensor_values|default([]) %}
+        <td class="numeric">{{ value if value is not none else '—' }}</td>
+        {% endfor %}
+    {% endif %}
+    <td class="status-cell"><span class="severity-pill is-{{ row.severity }}">{{ row.badge }}</span></td>
 </tr>
 {% else %}
-<tr><td class="empty-state" colspan="9">
+<tr><td class="empty-state" colspan="{{ csv_headers|length + 1 }}">
     <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
-    {% if filters.date_range != 'all' or filters.q %}
+    {% if filters.date_range != 'all' or filters.q or filters.filter != 'all' %}
     <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>
     {% else %}
     <strong>No readings yet</strong><span>Sensor measurements will appear here after collection begins.</span>

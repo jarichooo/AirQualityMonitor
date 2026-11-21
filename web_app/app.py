@@ -1289,12 +1289,7 @@ def predictions_api():
     return response
 
 
-@app.route("/data")
-@login_required
-def data_page():
-    if session.get("role") == "admin":
-        session.setdefault("delete_readings_token", secrets.token_hex(32))
-    filters = parse_filters(request.args)
+def build_data_context(filters):
     readings = []
     total = 0
     filter_error = None
@@ -1307,11 +1302,6 @@ def data_page():
         database_error = True
 
     total_pages = max(1, math.ceil(total / filters["per_page"]))
-    if filters["page"] > total_pages and not database_error and not filter_error:
-        query_args = request.args.to_dict()
-        query_args["page"] = total_pages
-        return redirect(url_for("data_page", **query_args))
-
     query_args = {
         "date_range": filters["date_range"],
         "start_date": filters["start_date"],
@@ -1354,27 +1344,66 @@ def data_page():
         for row in readings
     ]
 
-    return render_template(
-        "data.html",
-        **shell_context("Data"),
-        readings=readings,
-        reading_rows=reading_rows,
-        csv_headers=CSV_HEADERS,
-        table_headers=TABLE_HEADERS,
-        filters=filters,
-        filter_options=READING_FILTERS,
-        active_filter_label=READING_FILTER_MAP.get(filters["filter"], "All readings"),
-        total=total,
-        total_pages=total_pages,
-        previous_url=previous_url,
-        next_url=next_url,
-        pagination_items=pagination_items,
-        first_record=first_record,
-        last_record=last_record,
-        export_url=url_for("export_data", **export_args),
-        filter_error=filter_error,
-        database_error=database_error,
-    )
+    return {
+        "readings": readings,
+        "reading_rows": reading_rows,
+        "csv_headers": CSV_HEADERS,
+        "table_headers": TABLE_HEADERS,
+        "filters": filters,
+        "filter_options": READING_FILTERS,
+        "active_filter_label": READING_FILTER_MAP.get(filters["filter"], "All readings"),
+        "total": total,
+        "total_pages": total_pages,
+        "previous_url": previous_url,
+        "next_url": next_url,
+        "pagination_items": pagination_items,
+        "first_record": first_record,
+        "last_record": last_record,
+        "export_url": url_for("export_data", **export_args),
+        "filter_error": filter_error,
+        "database_error": database_error,
+    }
+
+
+@app.route("/data")
+@login_required
+def data_page():
+    if session.get("role") == "admin":
+        session.setdefault("delete_readings_token", secrets.token_hex(32))
+    filters = parse_filters(request.args)
+    context = build_data_context(filters)
+    if filters["page"] > context["total_pages"] and not context["database_error"] and not context["filter_error"]:
+        query_args = request.args.to_dict()
+        query_args["page"] = context["total_pages"]
+        return redirect(url_for("data_page", **query_args))
+
+    return render_template("data.html", **shell_context("Data"), **context)
+
+
+@app.route("/api/data")
+@login_required
+def live_data():
+    filters = parse_filters({**request.args.to_dict(), "page": 1})
+    context = build_data_context(filters)
+    if context["filter_error"]:
+        response = jsonify(error=context["filter_error"])
+        response.status_code = 400
+    elif context["database_error"]:
+        response = jsonify(error="Unable to load sensor data.")
+        response.status_code = 503
+    else:
+        readings = context["readings"]
+        total = context["total"]
+        latest_recorded_at = readings[0][0].isoformat() if readings and readings[0][0] else None
+        response = jsonify(
+            rows_html=render_template("_data_rows.html", **context),
+            pagination_html=render_template("_data_pagination.html", **context),
+            record_count=f"{total} matching record{'s' if total != 1 else ''}",
+            total=total,
+            latest_recorded_at=latest_recorded_at,
+        )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/data/delete", methods=["POST"])

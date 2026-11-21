@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<form class="data-page-form" id="data-filters" method="get">
+<form class="data-page-form" id="data-filters" method="get" data-live-url="{{ url_for('live_data') }}">
     <div class="data-topbar">
         <h1 class="page-brand-title">Henvironment</h1>
     </div>
@@ -12,7 +12,7 @@
         <div class="data-panel-heading">
             <div class="panel-heading-summary">
                 <div class="panel-heading-copy">
-                    <div class="panel-heading-title"><h2 id="sensor-readings-title" class="sr-only">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span></div>
+                    <div class="panel-heading-title"><h2 id="sensor-readings-title" class="sr-only">Sensor Readings</h2><span class="record-count">{{ total }} matching record{% if total != 1 %}s{% endif %}</span><span class="data-live-status" id="data-live-status" role="status" aria-live="polite">Live · Auto-refresh</span></div>
                 </div>
             </div>
             <div class="panel-heading-tools">
@@ -87,47 +87,13 @@
                         <th>Status</th>
                     </tr></thead>
                     <tbody>
-                        {% for row in reading_rows|default([]) %}
-                        <tr>
-                            <td class="timestamp-cell" title="UTC: {{ row.timestamp.strftime('%Y-%m-%d %H:%M:%S') if row.timestamp else '' }}">{{ row.formatted_time if row.formatted_time else (row.timestamp|pht_time if row.timestamp else '—') }}</td>
-                            {% if row.cells %}
-                                {% for cell in row.cells %}
-                                <td class="numeric cell-{{ cell.severity }} is-{{ cell.severity }}">{{ cell.value if cell.value is not none else '—' }}</td>
-                                {% endfor %}
-                            {% else %}
-                                {% for value in row.sensor_values|default([]) %}
-                                <td class="numeric">{{ value if value is not none else '—' }}</td>
-                                {% endfor %}
-                            {% endif %}
-                            <td class="status-cell"><span class="severity-pill is-{{ row.severity }}">{{ row.badge }}</span></td>
-                        </tr>
-                        {% else %}
-                        <tr><td class="empty-state" colspan="{{ csv_headers|length + 1 }}">
-                            <span class="feedback-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h8M8 13h5"/></svg></span>
-                            {% if filters.date_range != 'all' or filters.q or filters.filter != 'all' %}
-                            <strong>No matching readings</strong><span>Try adjusting the active filters.</span><a class="button button-secondary" href="{{ url_for('data_page') }}">Reset filters</a>
-                            {% else %}
-                            <strong>No readings yet</strong><span>Sensor measurements will appear here after collection begins.</span>
-                            {% endif %}
-                        </td></tr>
-                        {% endfor %}
+                        {% include "_data_rows.html" %}
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <nav class="pagination" aria-label="Data pagination">
-            <p>Showing <strong>{{ first_record }}–{{ last_record }}</strong> of <strong>{{ total }}</strong></p>
-            <div class="pagination-actions">
-                {% if previous_url %}<a class="pagination-control pagination-link pagination-word" href="{{ previous_url }}">Previous</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Previous</span>{% endif %}
-                {% for item in pagination_items %}
-                    {% if item.page is none %}<span class="pagination-ellipsis" aria-hidden="true">…</span>
-                    {% elif item.current %}<span class="pagination-control is-current" aria-current="page">{{ item.page }}</span>
-                    {% else %}<a class="pagination-control pagination-link" href="{{ item.url }}" aria-label="Page {{ item.page }}">{{ item.page }}</a>{% endif %}
-                {% endfor %}
-                {% if next_url %}<a class="pagination-control pagination-link pagination-word" href="{{ next_url }}">Next</a>{% else %}<span class="pagination-control pagination-word is-disabled" aria-disabled="true">Next</span>{% endif %}
-            </div>
-        </nav>
+        {% include "_data_pagination.html" %}
         {% endif %}
     </section>
 </form>

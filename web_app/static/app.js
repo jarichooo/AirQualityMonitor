@@ -136,6 +136,11 @@
             currentBody.scrollTop = 0;
             if (pushHistory) window.history.pushState({}, "", url);
             bindPaginationLinks();
+            if (isFirstPage()) {
+                setLiveStatus("Live · Auto-refresh");
+            } else {
+                setLiveStatus(`Live refresh paused on page ${currentPageNumber()}`);
+            }
 
             const currentPage = document.querySelector('.pagination [aria-current="page"]');
             if (currentPage) {
@@ -168,15 +173,38 @@
     }
 
     const liveInterval = 10000;
+    const liveStatus = document.querySelector("#data-live-status");
     let lastLiveRefresh = Date.now();
+    let liveUpdateFlashTimer = null;
+    const currentPageNumber = () => new URLSearchParams(window.location.search).get("page") || "1";
     const isFirstPage = () => [null, "", "1"].includes(new URLSearchParams(window.location.search).get("page"));
+    const formatCheckTime = () => {
+        try {
+            return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        } catch (_) {
+            return "";
+        }
+    };
+    const setLiveStatus = (text, updated = false) => {
+        if (!liveStatus) return;
+        liveStatus.textContent = text;
+        window.clearTimeout(liveUpdateFlashTimer);
+        liveStatus.classList.toggle("is-updated", updated);
+        if (updated) {
+            liveUpdateFlashTimer = window.setTimeout(() => liveStatus.classList.remove("is-updated"), 3200);
+        }
+    };
     const refreshLiveData = async () => {
-        if (!filterForm || !tableBodyScroll || document.hidden || !isFirstPage() || paginationInFlight || liveController) return;
+        const livePath = filterForm?.dataset?.liveUrl;
+        if (!filterForm || !livePath || !tableBodyScroll || document.hidden || paginationInFlight || liveController) return;
+        if (!isFirstPage()) {
+            setLiveStatus(`Live refresh paused on page ${currentPageNumber()}`);
+            return;
+        }
 
         const params = new URLSearchParams(window.location.search);
         params.delete("page");
-        params.delete("per_page");
-        const url = new URL(filterForm.dataset.liveUrl, window.location.origin);
+        const url = new URL(livePath, window.location.origin);
         url.search = params.toString();
         liveController = new AbortController();
 
@@ -184,6 +212,7 @@
             const response = await fetch(url, {
                 credentials: "same-origin",
                 headers: { "Accept": "application/json" },
+                cache: "no-store",
                 signal: liveController.signal,
             });
             if (response.redirected && new URL(response.url).pathname === "/login") {
@@ -202,8 +231,17 @@
 
             const scrollTop = tableBodyScroll.scrollTop;
             const scrollLeft = tableBodyScroll.scrollLeft;
+            const prevTopRowText = tbody.querySelector("tr")?.textContent?.trim() || "";
             const rowsHtml = data.rows_html.trim();
-            if (tbody.innerHTML.trim() !== rowsHtml) tbody.innerHTML = rowsHtml;
+            const rowsChanged = tbody.innerHTML.trim() !== rowsHtml;
+            if (rowsChanged) {
+                tbody.innerHTML = rowsHtml;
+                const nextTopRow = tbody.querySelector("tr");
+                const nextTopRowText = nextTopRow?.textContent?.trim() || "";
+                if (nextTopRow && nextTopRowText && nextTopRowText !== prevTopRowText) {
+                    nextTopRow.classList.add("is-fresh-row");
+                }
+            }
 
             const wrapper = document.createElement("div");
             wrapper.innerHTML = data.pagination_html.trim();
@@ -215,6 +253,13 @@
             recordCount.textContent = data.record_count;
             tableBodyScroll.scrollTop = scrollTop;
             tableBodyScroll.scrollLeft = scrollLeft;
+
+            const stamp = formatCheckTime();
+            if (rowsChanged) {
+                setLiveStatus(stamp ? `New reading · Updated ${stamp}` : "New reading loaded", true);
+            } else {
+                setLiveStatus(stamp ? `Live · Checked ${stamp}` : "Live · Up to date", false);
+            }
         } catch (error) {
             if (error.name !== "AbortError") {
                 console.debug("Live data refresh skipped", error);
@@ -225,7 +270,8 @@
             lastLiveRefresh = Date.now();
         }
     };
-    if (filterForm && tableBodyScroll) {
+    if (filterForm && filterForm.dataset.liveUrl && tableBodyScroll) {
+        if (!isFirstPage()) setLiveStatus(`Live refresh paused on page ${currentPageNumber()}`);
         window.setInterval(refreshLiveData, liveInterval);
         document.addEventListener("server:reconnected", () => refreshLiveData());
         document.addEventListener("visibilitychange", () => {

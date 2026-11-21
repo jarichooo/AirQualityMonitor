@@ -767,8 +767,8 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-41", page.data)
-        self.assertIn(b"app.js?v=server-notice-3", page.data)
+        self.assertIn(b"dark-mode-42", page.data)
+        self.assertIn(b"app.js?v=data-live-1", page.data)
         self.assertIn(b"device.js?v=live-panel-11", page.data)
         self.assertIn(b">IoT offline</button>", page.data)
         self.assertIn(b"charts.js?v=8", page.data)
@@ -833,7 +833,25 @@ class AppTestCase(unittest.TestCase):
         self.assertEqual(data_page.status_code, 200)
         self.assertIn(b'id="server-connection-notice"', data_page.data)
         self.assertIn(b'id="server-connection-kicker-text"', data_page.data)
-        self.assertIn(b"app.js?v=server-notice-3", data_page.data)
+        self.assertIn(b"app.js?v=data-live-1", data_page.data)
+        self.assertIn(b'data-live-url="/api/data"', data_page.data)
+        self.assertIn(b'id="data-live-status"', data_page.data)
+
+    def test_data_live_api_returns_formatted_rows_and_no_store(self):
+        self.assertEqual(self.client.get("/api/data").status_code, 302)
+        self.login()
+        row = (datetime(2026, 11, 21, 2, 50, 0, tzinfo=timezone.utc), 29.1, 68.0, 1140, 5, 16, 20, 0.9, 3.2)
+        with patch.object(application, "fetch_readings", return_value=([row], 1, None)):
+            resp = self.client.get("/api/data")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
+        payload = resp.get_json()
+        self.assertEqual(payload["record_count"], "1 matching record")
+        self.assertEqual(payload["total"], 1)
+        self.assertEqual(payload["latest_recorded_at"], "2026-11-21T02:50:00+00:00")
+        self.assertIn("Nov 21, 2026, 10:50:00 AM", payload["rows_html"])
+        self.assertIn("severity-pill is-normal", payload["rows_html"])
+        self.assertIn("Showing <strong>1–1</strong> of <strong>1</strong>", payload["pagination_html"])
 
 
 if __name__ == "__main__":

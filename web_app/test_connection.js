@@ -272,6 +272,7 @@ async function run() {
     assert.equal(dispatched.filter((e) => e.type === "server:reconnected").length, 3);
 
     testDeviceFallbackAndPauseState();
+    await testDataPageLiveRefresh();
 
     console.log("test_connection.js passed");
 }
@@ -390,6 +391,103 @@ function testDeviceFallbackAndPauseState() {
     assert.equal(pauseButton.disabled, false);
     assert.equal(pauseButton.textContent, "Pause IoT");
     assert.equal(pauseButton.attributes["aria-pressed"], "false");
+}
+
+async function testDataPageLiveRefresh() {
+    const filterForm = new Element("data-filters", { liveUrl: "/api/data" });
+    const tableBodyScroll = new Element("table-body-scroll");
+    tableBodyScroll.scrollTop = 0;
+    tableBodyScroll.scrollLeft = 0;
+    const prevRow = new Element("row-prev");
+    prevRow.textContent = "Nov 21, 2026, 10:49:00 AM";
+    const nextRow = new Element("row-next");
+    nextRow.textContent = "Nov 21, 2026, 10:50:00 AM";
+    let currentRow = prevRow;
+    const tbody = {
+        _html: "<tr><td>Nov 21, 2026, 10:49:00 AM</td></tr>",
+        get innerHTML() { return this._html; },
+        set innerHTML(val) {
+            this._html = val;
+            currentRow = nextRow;
+        },
+        querySelector: () => currentRow,
+    };
+    tableBodyScroll.querySelector = (sel) => (sel === "tbody" ? tbody : null);
+
+    const recordCount = new Element("record-count");
+    recordCount.textContent = "1 matching record";
+    const liveStatus = new Element("data-live-status");
+    liveStatus.textContent = "Live · Auto-refresh";
+    const pagination = new Element("pagination");
+    pagination.outerHTML = "<nav>1</nav>";
+    pagination.replaceWith = () => {};
+
+    const intervals = [];
+    const fetchCalls = [];
+    const responses = [
+        {
+            ok: true,
+            status: 200,
+            redirected: false,
+            json: async () => ({
+                rows_html: "<tr><td>Nov 21, 2026, 10:50:00 AM</td></tr>",
+                pagination_html: "<nav>1</nav>",
+                record_count: "2 matching records",
+            }),
+        },
+    ];
+
+    const dataContext = {
+        window: {
+            location: { href: "http://localhost/data?filter=all", origin: "http://localhost", search: "?filter=all" },
+            setInterval: (fn, delay) => { intervals.push({ fn, delay }); return intervals.length; },
+            setTimeout: () => 1,
+            clearTimeout: () => {},
+            addEventListener: () => {},
+        },
+        document: {
+            hidden: false,
+            body: new Element("body"),
+            createElement: () => ({
+                _html: "",
+                set innerHTML(v) { this._html = v; },
+                get firstElementChild() { return { outerHTML: this._html }; },
+            }),
+            querySelector: (selector) => ({
+                "#data-filters": filterForm,
+                "#table-body-scroll": tableBodyScroll,
+                "#data-live-status": liveStatus,
+                ".pagination": pagination,
+                ".record-count": recordCount,
+            }[selector] || null),
+            querySelectorAll: () => [],
+            addEventListener: () => {},
+            dispatchEvent: () => true,
+        },
+        navigator: { onLine: true },
+        URL,
+        URLSearchParams,
+        AbortController: class { constructor() { this.signal = {}; } abort() {} },
+        CustomEvent: class { constructor(type, init = {}) { this.type = type; this.detail = init.detail; } },
+        fetch: async (url) => {
+            fetchCalls.push(String(url));
+            return responses.shift();
+        },
+    };
+
+    vm.runInNewContext(appSource, dataContext);
+
+    assert.equal(intervals.length, 1);
+    assert.equal(intervals[0].delay, 10000);
+
+    await intervals[0].fn();
+    await settle();
+
+    assert.equal(fetchCalls[0], "http://localhost/api/data?filter=all");
+    assert.equal(recordCount.textContent, "2 matching records");
+    assert.equal(tbody.innerHTML, "<tr><td>Nov 21, 2026, 10:50:00 AM</td></tr>");
+    assert.ok(nextRow.classList.contains("is-fresh-row"));
+    assert.ok(liveStatus.textContent.startsWith("New reading"));
 }
 
 run().catch((err) => {
