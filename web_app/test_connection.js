@@ -31,6 +31,8 @@ class Element {
     addEventListener(type, handler) {
         (this.listeners[type] ||= []).push(handler);
     }
+    querySelector() { return null; }
+    querySelectorAll() { return []; }
     removeAttribute() {}
     setAttribute() {}
 }
