@@ -420,7 +420,7 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b'data-delete-mode="from_timestamp"', page.data)
             self.assertIn(b"Start date &amp; time (PHT, UTC+8)", page.data)
             self.assertNotIn(b"Inclusive start time (UTC)", page.data)
-            self.assertIn(b"delete-readings.js?v=5", page.data)
+            self.assertIn(b"delete-readings.js?v=6", page.data)
             self.assertIn(b'name="delete_mode"', page.data)
             self.assertIn(b'name="delete_from"', page.data)
             self.assertIn(b'name="delete_scope"', page.data)
