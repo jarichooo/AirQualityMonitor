@@ -133,10 +133,10 @@
                     </button>
                     <button class="delete-mode-card" type="button" data-delete-mode="incomplete" aria-pressed="false">
                         <span class="delete-mode-card-top">
-                            <strong>Incomplete runs</strong>
+                            <strong>Incomplete records</strong>
                             <span class="delete-mode-dot" aria-hidden="true"></span>
                         </span>
-                        <small>Clear devices with fewer than 120 minute readings.</small>
+                        <small>Delete every record that has one or more missing sensor readings.</small>
                     </button>
                     <button class="delete-mode-card delete-mode-card-danger" type="button" data-delete-mode="all" aria-pressed="false">
                         <span class="delete-mode-card-top">
@@ -149,7 +149,7 @@
                 <select class="sr-only" id="delete-mode" name="delete_mode" tabindex="-1" aria-label="Cleanup mode">
                     <option value="from_timestamp" selected>From PHT time onward</option>
                     <option value="all_simulated">Simulation data only</option>
-                    <option value="incomplete">Incomplete runs (&lt; 120 rows)</option>
+                    <option value="incomplete">Incomplete records (missing readings)</option>
                     <option value="all">Reset all records (all devices)</option>
                 </select>
             </div>
@@ -197,4 +197,4 @@
 </dialog>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='6') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='7') }}" defer></script>{% endblock %}

@@ -157,6 +157,18 @@ assert.equal(simCardHarness.modeCards[1].getAttribute("aria-pressed"), "true");
 assert.equal(simCardHarness.modeCards[0].getAttribute("aria-pressed"), "false");
 assert.equal(simCardHarness.submitButton.textContent, "Delete simulation readings");
 
+const incompleteCardHarness = harness(true);
+incompleteCardHarness.modeCards[2].dispatch("click"); // incomplete
+assert.equal(incompleteCardHarness.mode.value, "incomplete");
+assert.equal(incompleteCardHarness.cutoffPanel.hidden, true);
+assert.equal(incompleteCardHarness.scope.disabled, true);
+assert.equal(incompleteCardHarness.submitButton.textContent, "Delete incomplete records");
+assert.match(incompleteCardHarness.scopeSummary.textContent, /at least one missing sensor reading/);
+incompleteCardHarness.form.listeners.submit(event());
+assert.equal(incompleteCardHarness.form.elements.confirmation.value, "delete_incomplete");
+assert.equal(incompleteCardHarness.form.submitCalls, 1);
+assert.match(incompleteCardHarness.state.lastPrompt, /one or more missing sensor readings/);
+
 const all = harness(true);
 all.mode.value = "all";
 all.mode.dispatch("change");

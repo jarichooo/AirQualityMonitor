@@ -1461,12 +1461,7 @@ def delete_readings():
                                 where_sql = "device_id = ANY(%s)"
                                 params = (list(SIMULATED_DEVICE_IDS),)
                             elif delete_mode == "incomplete":
-                                where_sql = (
-                                    "COALESCE(NULLIF(BTRIM(device_id), ''), 'henvironment-sensor') IN ("
-                                    "SELECT COALESCE(NULLIF(BTRIM(device_id), ''), 'henvironment-sensor') "
-                                    "FROM air_quality_logs GROUP BY 1 "
-                                    "HAVING COUNT(DISTINCT date_trunc('minute', recorded_at AT TIME ZONE 'UTC')) < 120)"
-                                )
+                                where_sql = " OR ".join(f"{col} IS NULL" for col in READING_COLUMNS[1:])
                                 params = ()
                             else:
                                 where_sql = f"recorded_at >= %s{scope_sql}"
@@ -1481,7 +1476,7 @@ def delete_readings():
                             )
                             deleted_count, affected_devices = cursor.fetchone()
                             if deleted_count:
-                                if delete_mode in {"all_simulated", "incomplete"}:
+                                if delete_mode == "all_simulated":
                                     cursor.execute(
                                         "DO $$ BEGIN "
                                         "IF to_regclass('public.air_quality_prediction_requests') IS NOT NULL THEN "
@@ -1525,7 +1520,7 @@ def delete_readings():
             )
         elif delete_mode == "incomplete" and deleted_count:
             flash(
-                f"Deleted {deleted_count} incomplete readings. "
+                f"Deleted {deleted_count} record{'s' if deleted_count != 1 else ''} with missing readings. "
                 f"Existing IDs were kept; the next reading ID is {next_id}.",
                 "success",
             )

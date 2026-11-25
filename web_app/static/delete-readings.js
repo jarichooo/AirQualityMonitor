@@ -28,7 +28,7 @@
     const submitLabels = {
         from_timestamp: "Delete matching readings",
         all_simulated: "Delete simulation readings",
-        incomplete: "Delete incomplete runs",
+        incomplete: "Delete incomplete records",
         all: "Delete all readings",
     };
 
@@ -78,7 +78,7 @@
                 ? `From ${parsedCutoff.display} (UTC+8) onward`
                 : "From the selected PHT (UTC+8) time onward";
         const sourceText = mode.value === "incomplete"
-            ? "only devices with fewer than 120 minute readings will be deleted."
+            ? "every record with at least one missing sensor reading will be deleted."
             : scope.value === "simulated"
                 ? "only rows from the known simulation devices will be deleted."
                 : "rows from every device, including the imported dataset, will be deleted.";
@@ -179,8 +179,11 @@
         const sequenceNote = mode.value === "all"
             ? "All saved forecasts will also be cleared, and the next reading ID will reset to 1."
             : "Retained row IDs will not change, and the next reading will follow the highest retained ID.";
+        const confirmHeadline = mode.value === "incomplete"
+            ? "Delete every record that has one or more missing sensor readings across ALL timestamps?"
+            : `Delete readings from ${sourceText} for ${timeText}?`;
         const confirmed = window.confirm(
-            `Delete readings from ${sourceText} for ${timeText}?\n\n` +
+            `${confirmHeadline}\n\n` +
             `This ignores the current table filters and cannot be undone. ${sequenceNote}\n\n` +
             "Make sure active simulations and predictions are stopped before continuing."
         );
