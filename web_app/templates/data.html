@@ -101,54 +101,100 @@
 <dialog class="delete-readings-dialog" id="delete-readings-dialog" aria-labelledby="delete-readings-title" aria-describedby="delete-readings-intro">
     <form id="delete-readings-form" method="post" action="{{ url_for('delete_readings') }}">
         <div class="delete-readings-heading">
-            <div>
-                <h2 id="delete-readings-title">Delete sensor readings</h2>
-                <p id="delete-readings-intro">Choose the time range and devices to clear.</p>
+            <div class="delete-readings-heading-copy">
+                <div class="delete-readings-title-row">
+                    <h2 id="delete-readings-title">Delete sensor readings</h2>
+                    <span class="delete-tz-badge">PHT · UTC+8</span>
+                </div>
+                <p id="delete-readings-intro">Choose a cleanup mode. Cutoff times use Philippine Standard Time to match the table.</p>
             </div>
+            <button class="icon-button delete-dialog-close" id="close-delete-readings" type="button" aria-label="Close delete dialog">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
         </div>
 
         <div class="delete-readings-fields">
-            <label class="field" for="delete-mode">
-                <span>Time range</span>
-                <select id="delete-mode" name="delete_mode">
-                    <option value="from_timestamp" selected>From a timestamp onward</option>
-                    <option value="all_simulated">Delete all simulation readings</option>
-                    <option value="incomplete">Delete incomplete readings (&lt; 120 rows)</option>
-                    <option value="all">Delete every reading (all devices)</option>
+            <div class="delete-mode-section">
+                <span class="delete-section-label" id="delete-mode-label">Cleanup mode</span>
+                <div class="delete-mode-grid" role="group" aria-labelledby="delete-mode-label">
+                    <button class="delete-mode-card is-selected" type="button" data-delete-mode="from_timestamp" aria-pressed="true">
+                        <span class="delete-mode-card-top">
+                            <strong>From PHT time onward</strong>
+                            <span class="delete-mode-dot" aria-hidden="true"></span>
+                        </span>
+                        <small>Remove rows at or after a specific PHT date &amp; time.</small>
+                    </button>
+                    <button class="delete-mode-card" type="button" data-delete-mode="all_simulated" aria-pressed="false">
+                        <span class="delete-mode-card-top">
+                            <strong>Simulation data only</strong>
+                            <span class="delete-mode-dot" aria-hidden="true"></span>
+                        </span>
+                        <small>Clear all Good, Warning, Critical, and demo simulator runs.</small>
+                    </button>
+                    <button class="delete-mode-card" type="button" data-delete-mode="incomplete" aria-pressed="false">
+                        <span class="delete-mode-card-top">
+                            <strong>Incomplete runs</strong>
+                            <span class="delete-mode-dot" aria-hidden="true"></span>
+                        </span>
+                        <small>Clear devices with fewer than 120 minute readings.</small>
+                    </button>
+                    <button class="delete-mode-card delete-mode-card-danger" type="button" data-delete-mode="all" aria-pressed="false">
+                        <span class="delete-mode-card-top">
+                            <strong>Reset all records</strong>
+                            <span class="delete-mode-dot" aria-hidden="true"></span>
+                        </span>
+                        <small>Wipe every reading and saved forecast across all devices.</small>
+                    </button>
+                </div>
+                <select class="sr-only" id="delete-mode" name="delete_mode" tabindex="-1" aria-label="Cleanup mode">
+                    <option value="from_timestamp" selected>From PHT time onward</option>
+                    <option value="all_simulated">Simulation data only</option>
+                    <option value="incomplete">Incomplete runs (&lt; 120 rows)</option>
+                    <option value="all">Reset all records (all devices)</option>
                 </select>
-            </label>
+            </div>
 
-            <label class="field" id="delete-from-field" for="delete-from">
-                <span>Inclusive start time (UTC)</span>
-                <input id="delete-from" name="delete_from" type="datetime-local" step="1" required>
-                <small>The simulator seeds the previous 119 minutes. Select its earliest seed time to remove the full run.</small>
-            </label>
+            <div class="delete-cutoff-panel" id="delete-cutoff-panel">
+                <div class="delete-cutoff-grid">
+                    <label class="field" id="delete-from-field" for="delete-from">
+                        <span>Start date &amp; time (PHT, UTC+8)</span>
+                        <input id="delete-from" name="delete_from" type="datetime-local" step="1" required>
+                        <small>Inclusive start time matching the Timestamp (PHT) column. Simulator runs seed the prior 119 minutes.</small>
+                    </label>
 
-            <label class="field" for="delete-scope">
-                <span>Reading source</span>
-                <select id="delete-scope" name="delete_scope">
-                    <option value="simulated" selected>Simulation readings only</option>
-                    <option value="all">Every device and imported dataset</option>
-                </select>
-                <small>Includes readings from the Good, Warning, and Critical simulations and older demos.</small>
-            </label>
+                    <label class="field" id="delete-scope-field" for="delete-scope">
+                        <span>Target source</span>
+                        <select id="delete-scope" name="delete_scope">
+                            <option value="simulated" selected>Simulation readings only</option>
+                            <option value="all">Every device &amp; imported dataset</option>
+                        </select>
+                        <small id="delete-scope-hint">Targets known simulation devices only; keeps real sensor and imported rows.</small>
+                    </label>
+                </div>
+            </div>
         </div>
 
-        <p class="delete-scope-summary" id="delete-scope-summary" aria-live="polite"></p>
+        <div class="delete-summary-card" id="delete-summary-card">
+            <span class="delete-summary-kicker">Action summary</span>
+            <p class="delete-scope-summary" id="delete-scope-summary" aria-live="polite"></p>
+        </div>
+
         <div class="delete-readings-warning">
             <strong>Before deleting</strong>
-            <p>Pause data collection, stop simulations, and wait for predictions to finish before cleanup. This operation ignores the filters on the table behind this dialog.</p>
-            <p>Retained row IDs stay unchanged. The next reading continues after the highest retained ID.</p>
+            <ul class="delete-readings-checklist">
+                <li>Stop active simulations and wait for running predictions to finish first.</li>
+                <li>Ignores current table filters. <span id="delete-id-behavior">Retained row IDs stay unchanged; the next reading continues after the highest retained ID.</span></li>
+            </ul>
         </div>
 
         <input type="hidden" name="csrf_token" value="{{ session['delete_readings_token'] }}">
         <input type="hidden" name="confirmation" value="">
         <div class="delete-readings-actions">
             <button class="button button-secondary" id="cancel-delete-readings" type="button">Cancel</button>
-            <button class="button button-danger" id="confirm-delete-readings" type="submit" disabled>Delete selected readings</button>
+            <button class="button button-danger" id="confirm-delete-readings" type="submit" disabled>Delete matching readings</button>
         </div>
     </form>
 </dialog>
 {% endif %}
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='4') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='delete-readings.js', v='5') }}" defer></script>{% endblock %}

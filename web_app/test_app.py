@@ -184,6 +184,10 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b"saved forecasts were deleted", page)
 
     def test_delete_from_timestamp_preserves_ids_and_restarts_after_retained_max(self):
+        self.assertEqual(
+            application.parse_delete_cutoff("2026-10-31T02:15"),
+            datetime(2026, 10, 30, 18, 15, tzinfo=timezone.utc),
+        )
         self.login()
         with self.client.session_transaction() as session:
             session["delete_readings_token"] = "test-token"
@@ -191,7 +195,7 @@ class AppTestCase(unittest.TestCase):
             "csrf_token": "test-token",
             "delete_mode": "from_timestamp",
             "delete_scope": "simulated",
-            "delete_from": "2026-10-30T12:34:56",
+            "delete_from": "2026-10-30T20:34:56",
             "confirmation": "delete_from_timestamp",
         }
         with patch.object(application, "get_db_connection") as connect:
@@ -222,7 +226,8 @@ class AppTestCase(unittest.TestCase):
             self.assertFalse(any("UPDATE air_quality_logs" in str(call.args[0]) for call in calls))
         with patch.object(application, "fetch_readings", return_value=([], 0, None)):
             page = self.client.get("/data").data
-            self.assertIn(b"Deleted 2 matching readings", page)
+            self.assertIn(b"Deleted 2 matching readings from Oct 30, 2026, 08:34:56 PM PHT.", page)
+            self.assertNotIn(b"12:34:56 UTC", page)
             self.assertIn(b"Existing IDs were kept", page)
             self.assertIn(b"next reading ID is 32322", page)
 
@@ -234,7 +239,7 @@ class AppTestCase(unittest.TestCase):
             "csrf_token": "test-token",
             "delete_mode": "from_timestamp",
             "delete_scope": "all",
-            "delete_from": "2026-10-30T12:34",
+            "delete_from": "2026-10-30T20:34",
             "confirmation": "delete_from_timestamp",
         }
         with patch.object(application, "get_db_connection") as connect:
@@ -411,6 +416,11 @@ class AppTestCase(unittest.TestCase):
             self.assertIn(b'id="delete-all-readings"', page.data)
             self.assertIn(b'id="delete-readings-dialog"', page.data)
             self.assertIn(b'id="delete-readings-form"', page.data)
+            self.assertIn(b'id="delete-cutoff-panel"', page.data)
+            self.assertIn(b'data-delete-mode="from_timestamp"', page.data)
+            self.assertIn(b"Start date &amp; time (PHT, UTC+8)", page.data)
+            self.assertNotIn(b"Inclusive start time (UTC)", page.data)
+            self.assertIn(b"delete-readings.js?v=5", page.data)
             self.assertIn(b'name="delete_mode"', page.data)
             self.assertIn(b'name="delete_from"', page.data)
             self.assertIn(b'name="delete_scope"', page.data)
@@ -767,7 +777,7 @@ class AppTestCase(unittest.TestCase):
         self.assertIn(b'class="chart-hover-data"', page.data)
         self.assertIn(b'class="chart-hover-tooltip"', page.data)
         self.assertIn(b'"hover_points"', page.data)
-        self.assertIn(b"dark-mode-42", page.data)
+        self.assertIn(b"dark-mode-43", page.data)
         self.assertIn(b"app.js?v=data-live-1", page.data)
         self.assertIn(b"device.js?v=live-panel-11", page.data)
         self.assertIn(b">IoT offline</button>", page.data)

@@ -103,13 +103,14 @@ LIVE_SENSORS = (
 # Match the forecast worker so cleanup cannot race with simulation or inference.
 DELETE_WORKER_LOCK_ID = 739_783_247_071_623_201
 SIMULATED_DEVICE_IDS = ("sim-farm-series", "sim-farm-good", "sim-farm-mid", "sim-farm-bad", "sim-farm-random", "python-simulator")
+PHT = timezone(timedelta(hours=8))
 
 
 def parse_delete_cutoff(value):
     if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(?::[0-9]{2})?", value or ""):
-        raise ValueError("invalid UTC timestamp")
+        raise ValueError("invalid PHT timestamp")
     timestamp_format = "%Y-%m-%dT%H:%M:%S" if len(value) == 19 else "%Y-%m-%dT%H:%M"
-    return datetime.strptime(value, timestamp_format).replace(tzinfo=timezone.utc)
+    return datetime.strptime(value, timestamp_format).replace(tzinfo=PHT).astimezone(timezone.utc)
 
 
 SEVERITY_RANK = {"unavailable": 0, "normal": 1, "warning": 2, "critical": 3}
@@ -119,7 +120,6 @@ SEVERITY_BADGE = {
     "critical": "CRITICAL",
     "unavailable": "NO DATA",
 }
-PHT = timezone(timedelta(hours=8))
 
 
 def to_pht(dt):
@@ -1531,7 +1531,7 @@ def delete_readings():
             )
         elif deleted_count:
             flash(
-                f"Deleted {deleted_count} matching readings from {cutoff.strftime('%Y-%m-%d %H:%M:%S')} UTC. "
+                f"Deleted {deleted_count} matching readings from {format_pht_timestamp(cutoff)} PHT. "
                 f"Existing IDs were kept; the next reading ID is {next_id}.",
                 "success",
             )
